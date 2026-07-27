@@ -1,0 +1,3 @@
+allowBuilds:
+  # Mastra's bundler needs esbuild's postinstall to fetch its native binary.
+  esbuild: true

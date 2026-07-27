@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Secrets
+.env
+.env.local
+
+# IDE local-history extensions snapshot .env verbatim — never commit these
+.history/
+
+# Build output
+dist/
+.mastra/
+
+# Local databases (data + traces). Migrations in drizzle/ ARE committed.
+.data/
+
+# Editor / OS
+.DS_Store
+*.log

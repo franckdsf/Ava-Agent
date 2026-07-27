@@ -1,0 +1,12 @@
+node_modules
+.git
+.env
+.env.local
+.history
+.data
+.mastra
+dist
+*.log
+README.md
+.agents
+.claude

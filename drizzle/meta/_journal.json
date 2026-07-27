@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1785164336611,
+      "tag": "0000_slim_moondragon",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785171957500,
+      "tag": "0001_abnormal_blizzard",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785173424394,
+      "tag": "0002_flat_azazel",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785183840123,
+      "tag": "0003_cute_mesmero",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+services:
+  ava:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      AVA_DATA_DB_URL: file:/data/ava.db
+      AVA_TRACES_DB_URL: file:/data/traces.db
+    volumes:
+      - ava-data:/data
+    ports:
+      # Bound to loopback: the agent reaches Telegram and the model gateway
+      # outbound only, so nothing needs to reach it from the network. This is
+      # here for the local API, not for inbound traffic.
+      - '127.0.0.1:4111:4111'
+
+volumes:
+  ava-data:

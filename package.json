@@ -1,0 +1,37 @@
+{
+  "name": "ava-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal Telegram AI orchestrator that curates RSS news via category-expert sub-agents",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "mastra dev",
+    "build": "mastra build",
+    "start": "node .mastra/output/index.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
+    "feeds:check": "tsx scripts/check-feeds.ts",
+    "telegram:check": "tsx --env-file=.env scripts/check-telegram.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "drizzle-kit": "^0.31.10",
+    "mastra": "^1.20.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@chat-adapter/telegram": "^4.35.0",
+    "@libsql/client": "^0.17.4",
+    "@mastra/core": "^1.52.1",
+    "@mastra/libsql": "^1.17.0",
+    "@mastra/memory": "^1.23.1",
+    "drizzle-orm": "^0.45.2",
+    "rss-parser": "^3.13.0",
+    "zod": "^4.4.3"
+  }
+}
