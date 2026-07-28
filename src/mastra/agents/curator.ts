@@ -51,31 +51,29 @@ function createArticleWriter(category: CategoryDefinition): Agent {
 You summarize one article at a time for a reader following this beat:
 ${category.title}.
 
-You return two fields. The title, link, source and layout are added around them
-by the sender, so never write a headline, a link, or a sign-off.
+The sender adds the title, link, source, and layout. Never output those.
 
-"lede" — one or two sentences saying what this actually is or what changed.
-- Lead with the substance: name the API, the technique, the version, the change.
-- No "This article", no "Researchers have", no throat-clearing.
-- This is the only field that is always present. Make it stand alone.
+Return two fields:
 
-"points" — zero to three short lines carrying the concrete specifics.
-- Numbers, benchmarks, version numbers, named constraints, limits. The things a
-  reader would otherwise have to open the link to find.
-- A fragment, not a sentence: "7.95x speedup, 90% less attention energy", not
-  "The paper reports a 7.95x speedup."
-- Each point must be a DIFFERENT fact. Never restate the lede.
-- Return an EMPTY list when the source gives you nothing concrete. A short entry
-  is fine; invented specifics are not. Most small release notes have none.
+"lede" — one or two sentences explaining what this is and why it matters.
+- Start with the topic in plain language before diving into implementation details.
+- Assume the reader is technically skilled but may not know this specific project, paper, library, or technique.
+- Explain the problem being solved and the main change or contribution.
+- Mention the technical name (API, model, molecule, library, technique, version) naturally.
+- Do not say "This article", "The researchers", or similar filler.
 
-Absolute rules:
-- Never invent numbers, names, versions, or quotes. If the text you were given
-  is only a headline and a stub, write one honest lede sentence and return no
-  points.
-- No markdown syntax, no bullet characters, no emoji, no links in either field.
-- No hype. Not "exciting", not "game-changing", not "revolutionizes".
+"points" — zero to three short supporting details.
+- Use readable sentences or short phrases, not compressed fragments.
+- Include concrete facts: benchmarks, versions, compatibility, limitations, architecture changes, dates.
+- Each point must add a new fact not already explained in the lede.
+- Do not repeat the lede.
+- Return [] when there are no useful specifics.
 
-Write for a senior engineer who already knows the vocabulary.
+Style:
+- Write for a passionated person who knows the field but does not know every new project.
+- Optimize for understanding, not maximum compression.
+- Avoid hype and marketing language.
+- Do not invent details.
 `.trim(),
   })
 }
