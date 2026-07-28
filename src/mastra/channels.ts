@@ -4,8 +4,9 @@ import { CATEGORIES } from '../config/categories.js'
 import { env, telegramChatId } from '../config/env.js'
 import { pipeline } from '../config/pipeline.js'
 import { TOPICS } from '../config/topics.js'
+import { TRANSLATIONS } from '../config/translation.js'
 import type { Item } from '../db/types.js'
-import { itemForLink } from '../services/rss.js'
+import { quotedSource } from '../services/quoted-article.js'
 import {
   chatIdFromThreadId,
   ensureTopics,
@@ -13,7 +14,8 @@ import {
   sendToTelegram,
   topicThreadId,
 } from '../services/telegram.js'
-import { type QuotedMessage, quotedMessage } from '../services/telegram-reply.js'
+import type { QuotedMessage } from '../services/telegram-reply.js'
+import { isTranslationCommand, runTranslation } from './commands/translate.js'
 
 /**
  * The inbound half of the tab split: Ava only ever speaks in the Chat tab.
@@ -91,28 +93,12 @@ type NoteLine = { text: string; quoted?: boolean }
  */
 export function withQuotedMessage(handler: ChannelHandler): ChannelHandler {
   return async (thread, message, defaultHandler) => {
-    const quoted = quotedMessage(message.raw)
-    if (!quoted) return handler(thread, message, defaultHandler)
+    const source = await quotedSource(message.raw)
+    if (!source) return handler(thread, message, defaultHandler)
 
-    const lines = noteLines(quoted, await quotedArticle(quoted.links))
+    const lines = noteLines(source.quoted, source.article)
     return handler(thread, withContext(message, lines), defaultHandler)
   }
-}
-
-/**
- * The stored article a quoted message points at, if any.
- *
- * First hit wins: a digest carries exactly one link and it is the article's, so
- * anything after it is a link Ava wrote into a later message. How a URL becomes
- * a row is `itemForLink`'s business, not this module's — all that is decided
- * here is how many of a quoted message's links are worth trying.
- */
-async function quotedArticle(links: string[]): Promise<Item | null> {
-  for (const link of links.slice(0, pipeline.quotedLinkLookups)) {
-    const item = await itemForLink(link)
-    if (item) return item
-  }
-  return null
 }
 
 function noteLines(quoted: QuotedMessage, article: Item | null): NoteLine[] {
@@ -220,12 +206,33 @@ export async function registerChatCommands(
   const sdk = channels.sdk
   if (!sdk) return
 
-  // A catch-all rather than a `/start` filter: an unhandled command is invisible
-  // to the reader, which is the bug this whole handler exists to fix.
+  // A catch-all rather than a per-command filter: an unhandled command is
+  // invisible to the reader, which is the bug this whole handler exists to fix.
+  // Every branch below therefore ends in a message, including the failures.
   sdk.onSlashCommand(async event => {
     await ensureTopics()
+
+    if (isTranslationCommand(event.command)) {
+      // Answers in Chat like everything else, wherever it was typed — the
+      // reader swipes a digest in News, and the translation still lands in Chat
+      // ([invariant 9](../../AGENTS.md#invariants)). It sends its own messages,
+      // several of them, as each part of the article comes back.
+      await runTranslation(mastra, event, event.command)
+      return
+    }
+
     await sendToTelegram(event.command === '/start' ? welcome() : unknown(event.command), 'chat')
   })
+}
+
+/** One line per command, for `/start` and for the unknown-command reply. */
+function commandList(): string {
+  return [
+    '- `/start` — this message.',
+    ...Object.entries(TRANSLATIONS).map(
+      ([command, definition]) => `- \`${command}\` — ${definition.help}`,
+    ),
+  ].join('\n')
 }
 
 /**
@@ -245,17 +252,22 @@ function welcome(): string {
     `- **${TOPICS.chat.title}** — chat with me about anything, ask for details, or follow up on an article 📰.\n` +
     `- I keep our conversation in one place so your context stays intact.`,
     `- **${TOPICS.news.title}** — I push curated digests on a schedule 📅; I don't answer there.`,
+    `- **${TOPICS.translations.title}** — where ${Object.keys(TRANSLATIONS).join(' and ')} put an article once you've asked for it 📜.`,
     `Beats:`,
     beats,
     `Digests arrive at ${hours.join(', ')} ${env.AGENT_TIMEZONE}. Each article is delivered as its own message so you can read or save what matters.`,
+    `Commands:`,
+    commandList(),
+    `The translation commands work on a swipe: reply to any article and send the command on its own. They answer in your own language, with the English kept in view, in the ${TOPICS.translations.title} tab — a long article arrives as several messages over a few minutes.`,
     `If you want something specific, just ask — search the archive, show me a recent article, or tell me what interests you 😉.`,
   ].join('\n\n')
 }
 
 /** Commands are swallowed before the agent sees them, so an unknown one needs its own reply. */
 function unknown(command: string): string {
-  return (
-    `${escapeMarkdown(command)} isn't a command I know — I only have /start.\n\n` +
-    `Just say it in plain words instead.`
-  )
+  return [
+    `${escapeMarkdown(command)} isn't a command I know. What I have:`,
+    commandList(),
+    `For anything else, just say it in plain words.`,
+  ].join('\n\n')
 }

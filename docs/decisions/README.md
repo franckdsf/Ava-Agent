@@ -34,6 +34,7 @@ something looks the way it does.
 | [0014](0014-two-tier-memory-for-ava.md) | Two-tier memory, dated and never rewritten | Accepted |
 | [0015](0015-weekly-memory-review.md) | A weekly model-judged review promotes memories, then expires them | Accepted |
 | [0016](0016-reader-notes-in-the-ranker.md) | The ranker reads Ava's notes about the reader | Accepted |
+| [0017](0017-translation-commands.md) | Translation as slash commands, glossed inline, in their own tab | Accepted |
 
 ## Template
 

@@ -1,4 +1,5 @@
 import { pipeline } from '../config/pipeline.js'
+import type { Item } from '../db/types.js'
 
 /**
  * Article body extraction, kept dependency-free on purpose.
@@ -40,14 +41,27 @@ function decodeEntities(text: string): string {
  * HTML to plain text. Block boundaries become newlines before tags are stripped,
  * so paragraph structure survives into the summarizer's prompt instead of
  * collapsing into one run-on line.
+ *
+ * **Inline tags are removed, not spaced.** They used to become a space like every
+ * other tag, which quietly destroyed every code sample on the way in:
+ * `<code>WebAssembly</code>.<code>compileStreaming</code>()` came out as
+ * `WebAssembly . compileStreaming ()`, which is no longer valid JavaScript. A
+ * summary never quoted it so nothing noticed, and then the translation commands
+ * started putting these in fenced blocks where broken syntax is obvious
+ * ([ADR-0017](../../docs/decisions/0017-translation-commands.md)).
+ *
+ * Removing them is also simply more faithful: HTML that means a space contains a
+ * space, and `<b>un</b>likely` is one word. That is why `td` and `th` had to join
+ * the block list below — they are the one case where adjacent elements really are
+ * separate values, and without them a table row collapses into `abc`.
  */
 export function htmlToText(html: string): string {
   return decodeEntities(
     html
       .replace(NON_PROSE, ' ')
       .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/(p|div|section|article|li|h[1-6]|blockquote|tr)>/gi, '\n\n')
-      .replace(/<[^>]*>/g, ' '),
+      .replace(/<\/(p|div|section|article|li|h[1-6]|blockquote|tr|td|th)>/gi, '\n\n')
+      .replace(/<[^>]*>/g, ''),
   )
     .replace(/[ \t ]+/g, ' ')
     .replace(/ ?\n ?/g, '\n')
@@ -61,6 +75,84 @@ export function capText(text: string, max: number): string {
   const cut = text.slice(0, max)
   const lastBreak = cut.lastIndexOf(' ')
   return `${lastBreak > max * 0.8 ? cut.slice(0, lastBreak) : cut}…`
+}
+
+/**
+ * Splits text into pieces of at most `max` characters, on the widest boundary
+ * that fits: paragraphs first, then lines, then a hard slice.
+ *
+ * Two callers with the same requirement and different reasons. Telegram
+ * *truncates* a message over its cap rather than splitting it, so a long digest
+ * loses its tail silently; and the translator is handed one chunk per call, so
+ * a chunk that ends mid-sentence is a translation that starts mid-sentence.
+ * Both want the same thing — a break the prose already had.
+ *
+ * A hard slice is the last resort and only reachable on text with no newline in
+ * `max` characters, which real prose does not produce.
+ */
+export function chunkText(text: string, max: number): string[] {
+  const chunks: string[] = []
+  let current = ''
+
+  const flush = () => {
+    if (current) chunks.push(current)
+    current = ''
+  }
+
+  const append = (piece: string, separator: string) => {
+    const candidate = current ? `${current}${separator}${piece}` : piece
+    if (candidate.length <= max) {
+      current = candidate
+      return
+    }
+    flush()
+    current = piece
+  }
+
+  for (const paragraph of text.split('\n\n')) {
+    if (paragraph.length <= max) {
+      append(paragraph, '\n\n')
+      continue
+    }
+    for (const line of paragraph.split('\n')) {
+      if (line.length <= max) {
+        append(line, '\n')
+        continue
+      }
+      flush()
+      for (let index = 0; index < line.length; index += max) {
+        chunks.push(line.slice(index, index + max))
+      }
+    }
+  }
+
+  flush()
+  return chunks
+}
+
+/**
+ * The readable text of a stored article, and where it came from.
+ *
+ * The feed body is preferred and almost always present — 273 of 288 items
+ * carried one on 2026-07-28. The fetch is for the rest: Telegram-style feeds
+ * that ship only a headline, where the excerpt is boilerplate ("Article URL: …
+ * Points: 180") and reading from it is reading from nothing.
+ *
+ * **Deliberately never written back to `items`.** It would be free self-healing,
+ * and it would also make the conversational surface a writer to the pipeline's
+ * tables — see [invariant 8](../../AGENTS.md#invariants). The fetch is cheap
+ * enough to repeat; the invariant is not worth spending.
+ *
+ * One function rather than one per caller, because `read-article` and the
+ * translation commands must agree on what "the article" is: a reader who asks
+ * Ava about a piece and then translates it should not get two different bodies.
+ */
+export async function articleBody(
+  item: Pick<Item, 'content' | 'link'>,
+): Promise<{ text: string | null; from: 'feed' | 'fetched' | null }> {
+  if (item.content) return { text: item.content, from: 'feed' }
+  const fetched = await fetchArticleText(item.link)
+  return { text: fetched, from: fetched ? 'fetched' : null }
 }
 
 /** Feed body to stored article text. Null when the feed carried nothing usable. */

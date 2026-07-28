@@ -1,6 +1,7 @@
 import { createTelegramAdapter } from '@chat-adapter/telegram'
 import { allowedTelegramUserIds, telegramEnv } from '../config/env.js'
 import { pipeline } from '../config/pipeline.js'
+import { chunkText } from './article.js'
 import type { TopicSlug } from '../config/topics.js'
 import { invalidateTopic, resolveTopics } from './telegram-topics.js'
 
@@ -49,49 +50,17 @@ export function escapeMarkdown(text: string): string {
 /**
  * Splits on the widest boundary that fits, because the adapter *truncates* at
  * Telegram's 4096-character cap rather than splitting — a long digest would
- * lose its tail silently. Paragraphs first, then lines, then a hard slice.
+ * lose its tail silently.
+ *
+ * The splitting itself is `chunkText`, shared with the translator, which needs
+ * the identical property at a different ceiling. This wrapper is what names
+ * Telegram's cap, so no caller has to know it.
  */
 export function splitForTelegram(
   text: string,
   max: number = pipeline.telegramMaxMessageChars,
 ): string[] {
-  const chunks: string[] = []
-  let current = ''
-
-  const flush = () => {
-    if (current) chunks.push(current)
-    current = ''
-  }
-
-  const append = (piece: string, separator: string) => {
-    const candidate = current ? `${current}${separator}${piece}` : piece
-    if (candidate.length <= max) {
-      current = candidate
-      return
-    }
-    flush()
-    current = piece
-  }
-
-  for (const paragraph of text.split('\n\n')) {
-    if (paragraph.length <= max) {
-      append(paragraph, '\n\n')
-      continue
-    }
-    for (const line of paragraph.split('\n')) {
-      if (line.length <= max) {
-        append(line, '\n')
-        continue
-      }
-      flush()
-      for (let index = 0; index < line.length; index += max) {
-        chunks.push(line.slice(index, index + max))
-      }
-    }
-  }
-
-  flush()
-  return chunks
+  return chunkText(text, max)
 }
 
 /**

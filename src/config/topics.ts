@@ -56,6 +56,27 @@ export const TOPICS = {
     title: 'News',
     iconCustomEmojiId: null,
   },
+  /**
+   * Push-only, like News. `/translearn` and `/translate` answer here.
+   *
+   * Third in this list, which decides creation order and nothing else — see the
+   * note at the top of this file. Telegram sorts tabs by most recent message, so
+   * this one floats to the top the moment a translation lands in it and sinks
+   * again as digests arrive. There is no API for pinning it third.
+   *
+   * Its own tab rather than Chat because a translated article is several
+   * thousand characters over several messages, and dropping that into the middle
+   * of a conversation buries whatever was being discussed. Same reasoning that
+   * put digests in News: one tab, one kind of traffic
+   * ([invariant 9](../../AGENTS.md#invariants)). Ava still never answers here —
+   * a message typed in this tab is moved to Chat like one typed in News.
+   */
+  translations: {
+    slug: 'translations',
+    emoji: '📜',
+    title: 'Translations',
+    iconCustomEmojiId: null,
+  },
 } as const satisfies Record<string, TopicDefinition>
 
 export type TopicSlug = keyof typeof TOPICS

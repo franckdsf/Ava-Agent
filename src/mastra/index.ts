@@ -2,6 +2,7 @@ import { Mastra } from '@mastra/core'
 import { ava, avaId } from './agents/ava.js'
 import { curatorAgents } from './agents/curator.js'
 import { memoryReviewer, memoryReviewerId } from './agents/memory.js'
+import { translator, translatorId } from './agents/translator.js'
 import { registerChatCommands } from './channels.js'
 import { storage } from './storage.js'
 import { curateCategory } from './workflows/curate-category.js'
@@ -12,11 +13,17 @@ export const mastra = new Mastra({
   // Ava is registered alongside the curators, not instead of them: the curators
   // are internal pipeline steps with no channel, Ava is the only one with an
   // inbound surface. The memory reviewer is a third kind again: no channel and
-  // no place in the news pipeline, woken once a week by its own workflow. It is
-  // registered here rather than constructed inside that workflow so it resolves
-  // through `mastra.getAgent` like every other model call, and so its runs show
-  // up in Studio.
-  agents: { ...curatorAgents, [avaId]: ava, [memoryReviewerId]: memoryReviewer },
+  // no place in the news pipeline, woken once a week by its own workflow. The
+  // translator is a fourth: no channel either, woken by a slash command the
+  // adapter routes around Ava entirely. Both are registered here rather than
+  // constructed at their call site so they resolve through `mastra.getAgent`
+  // like every other model call, and so their runs show up in Studio.
+  agents: {
+    ...curatorAgents,
+    [avaId]: ava,
+    [memoryReviewerId]: memoryReviewer,
+    [translatorId]: translator,
+  },
   workflows: { curateCategory, pruneItems, reviewMemories: reviewMemoriesWorkflow },
   storage,
 })

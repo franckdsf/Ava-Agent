@@ -52,13 +52,17 @@ changing any of them.
 1. **No inbound ports.** Telegram is long-polled; models are called outbound.
    Nothing may require a public URL, tunnel, or webhook.
    ([0001](docs/decisions/0001-mastra-in-a-container-with-no-inbound-ports.md), [0002](docs/decisions/0002-telegram-via-chat-sdk-adapter-in-polling-mode.md))
-2. **Only ranking, composing and the weekly memory review call a model.** Ingest,
-   dedupe, cluster and delivery are deterministic. The rule is not "no models on
-   a schedule" — it is that a scheduled model call must be a *classifier over a
-   fixed row set*: fixed control flow, a set handed to it, and the answer
-   validated against that set on the way back. A scheduled job that lets an LLM
-   choose its own control flow produces surprise bills and duplicate messages.
-   ([0015](docs/decisions/0015-weekly-memory-review.md))
+2. **On a schedule, only ranking, composing and the weekly memory review call a
+   model.** Ingest, dedupe, cluster and delivery are deterministic. The rule is
+   not "no models on a schedule" — it is that a scheduled model call must be a
+   *classifier over a fixed row set*: fixed control flow, a set handed to it, and
+   the answer validated against that set on the way back. A scheduled job that
+   lets an LLM choose its own control flow produces surprise bills and duplicate
+   messages. Inbound, human-triggered calls are a separate category and are
+   governed by invariant 8 instead — Ava, and the translator behind
+   `/translearn` / `/translate`. The distinction is who decides to spend: a cron
+   fire nobody watches, or a person typing.
+   ([0015](docs/decisions/0015-weekly-memory-review.md), [0017](docs/decisions/0017-translation-commands.md))
 3. **Categories are config, not code.** Adding a beat means adding an entry to
    `CATEGORIES`. Needing to touch agent or workflow code means the abstraction is
    wrong. ([0008](docs/decisions/0008-categories-as-configuration.md))
@@ -92,9 +96,10 @@ changing any of them.
    a run in progress, mark anything delivered, or write a score.
    ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0014](docs/decisions/0014-two-tier-memory-for-ava.md), [0016](docs/decisions/0016-reader-notes-in-the-ranker.md))
 9. **One tab, one kind of traffic.** Ava answers in Chat and nowhere else —
-   messages typed in News are *moved* there, not answered in place. Digests go
-   to News. Breaking this means the tabs stop meaning anything.
-   ([0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md))
+   messages typed in any other tab are *moved* there, not answered in place.
+   Digests go to News. Translations go to Translations. Breaking this means the
+   tabs stop meaning anything.
+   ([0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md), [0017](docs/decisions/0017-translation-commands.md))
 
 ## Writing Mastra code
 
@@ -327,6 +332,57 @@ doesn't wrap without adding a second Telegram library.
   prompt every turn and lose the cacheable prefix. The block also carries today's
   date — without it every date in the notes is an opaque string and the
   supersession reading doesn't happen at all.
+- **A slash command still carries the swipe.** `handleSlashCommandUpdate` passes
+  the untouched Telegram payload through as `event.raw` (verified in
+  `@chat-adapter/telegram` 4.35), so a reply the reader typed `/translate` into
+  reaches the handler with `reply_to_message` intact. That is the whole reason
+  the translation commands work on a swipe without a second inbound path —
+  `quotedSource()` is the same parser and the same link-to-item lookup the
+  message path uses. Don't add a message-path special case for a command.
+- **A prompt rule obeyed 99% of the time is a bug at this volume.** Densely
+  glossing an article asks the model for hundreds of small judgements in one
+  response, so "never gloss a proper noun" still shipped
+  `OlmoEarth (OlmoEarth)`, and "never gloss a grammatical word" still shipped
+  `sont (are)` and `dans (in)`. Strengthening the prompt moved density from 47
+  glosses per 100 words to 29 and eliminated neither. `pruneGlosses` in
+  `translator.ts` strips exactly the two cases that need no judgement — an echo
+  of the word in front of it, and a bare English function word. Anything needing
+  taste stays in the prompt and stays imperfect. Note the elision split in there:
+  without it `L'API (API)` is not an echo, and in French the article fuses to the
+  noun constantly.
+- **`htmlToText` used to space out every tag, which destroyed code.**
+  `<code>WebAssembly</code>.<code>compileStreaming</code>()` was stored as
+  `WebAssembly . compileStreaming ()` — invalid, and invisible for the life of
+  the project because a summary never quoted code. The translation commands put
+  code in fenced blocks, where it is unmissable. Inline tags are now stripped
+  rather than replaced with a space, and `td`/`th` had to join the block-closer
+  list so table cells still separate. **Only new items benefit** — a conditional
+  GET means an existing row keeps its mangled body forever, which is why the
+  translator's prompt *also* repairs code spacing. Don't remove one fix on
+  finding the other.
+- **`translation.readerLevel` is the lever, not the gloss wording.** Both
+  commands filter by CEFR level before anything else. Set to B2 the model glosses
+  `raffinement` and `s'emboîtent`; with no level at all it glossed
+  `vous n'avez (don't have)` and `petit (small)`, which is the feature failing
+  while appearing to work. The two commands separate on the *same* axis —
+  `/translearn` at the level and above, `/translate` only above it — and when
+  that distinction was left to words like "dense" and "sparse" they converged to
+  within two glosses of each other. Re-measure `minGlossesPer100Words` after
+  changing the level; it went from ~27 per 100 words unlevelled to ~7.4 at B2,
+  and a floor left at the old value retries every good run.
+- **Telling a model to drop boilerplate makes it announce that it did.** The
+  fetch fallback in `read-article` carries nav chrome, which a summary tolerates
+  and a *translation* renders verbatim — a real run opened with
+  `Retour aux Articles (Back to Articles)` and the CSS fragment `a]:hidden`.
+  Adding a "drop page furniture" rule fixed that and produced a run whose first
+  paragraph was a bulleted note listing what it had removed. Both rules are
+  needed: drop it, **and** never describe the drop.
+- **`deepseek-v4-flash` has a latency range, not a latency.** Ten runs on one
+  1556-character chunk: 9s, 11.6s, 21.1s, 25.7s, 52.8s, 68s, 107s, 160.8s,
+  207.7s, 282.8s — a factor of thirty, uncorrelated with output length. Two runs
+  will tell you whatever you want to hear, in either direction; the first pair
+  measured here said 68s/107s and nearly justified switching models on it. Don't
+  quote a number for this model, and don't tune a timeout against one.
 - **`.history/` must stay gitignored.** An IDE extension snapshots `.env`
   verbatim into it.
 
@@ -359,11 +415,11 @@ inspects structure offline, but only a real send shows what *Telegram's* parser
 does — the local converter is not authoritative.
 
 **Tabs and the conversational surface — built, not yet verified end to end.**
-Two Telegram topics (`src/config/topics.ts`): **Chat** and **News**. Digests
-target News; `Ava` (`src/mastra/agents/ava.ts`) answers in Chat and owns the only
-inbound path — a polling adapter on `channels.adapters`. She has four read-only
-tools over the news tables. See
-[ADR-0009](docs/decisions/0009-telegram-topics-as-tabs.md).
+Three Telegram topics (`src/config/topics.ts`): **Chat**, **News** and
+**Translations**. Digests target News, translations target Translations; `Ava`
+(`src/mastra/agents/ava.ts`) answers in Chat and owns the only inbound path — a
+polling adapter on `channels.adapters`. She has five read-only tools over the
+news tables. See [ADR-0009](docs/decisions/0009-telegram-topics-as-tabs.md).
 
 **Provisioning verified 2026-07-28.** Threaded Mode is on for `@ava_404_bot`, and
 `resolveTopics()` created both tabs against the live chat — Chat `#103658`, News
@@ -639,6 +695,37 @@ payload above was hand-built. Whether Telegram populates `reply_to_message` at
 all for a reply inside a *private-chat* topic is exactly what has never been
 observed here — the Bot API documents it, the adapter passes it through, and
 neither of those is a run. One swipe on a real digest settles it.
+
+**`/translearn` and `/translate` — verified offline, 2026-07-28.** Swipe an
+article, send the command, and it comes back in the reader's own language with
+the English original in parentheses: densely for `/translearn` (a study aid),
+only on terms worth watching for `/translate`
+([ADR-0017](docs/decisions/0017-translation-commands.md)). The two differ *only*
+by the `gloss` string in `src/config/translation.ts`; a third density is an
+entry there, not a handler.
+
+A **third tab**, `📜 Translations`, is where the output lands — a translated
+article is several messages and would bury the conversation in Chat. It is third
+in `TOPICS`, which decides creation order and nothing else (see the tab-order
+gotcha). **This tab has never been created against the live chat**: nothing here
+has run with a token present, so `resolveTopics()` has not yet had a chance to
+make it. The first `/start`, digest or command after deploy does that.
+
+Verified against the live database and the live model: a synthetic slash-command
+payload carrying a reply to a real digest resolved to the right stored row; the
+body came back at 7995 chars via the fetch fallback; `items` was 293 before and
+293 after, which is the check that nothing was written; the rendered message
+parsed to `heading, paragraph, paragraph, paragraph` through the real
+`formatConverter` with the heading only on part 1, the source footer only on the
+last, and the `n/N` marker absent when there is one part. Against the live model,
+both commands resolved **French** from Ava's own notes with no language
+configured anywhere, and separated cleanly on density — **26.1 vs 2.0 glosses
+per 100 words** on the same chunk.
+
+**Not yet seen against the real bot, and that is the part that matters.** Every
+payload was hand-built. What has never been observed is a real swipe on a real
+digest followed by a real command, the tab being created, or what several
+minutes of waiting actually feels like on a phone.
 
 **Resolved — the ADR-0002 open question.** `postMessage` does *not* require an
 initialized `ChatInstance`. Only the inbound paths (`handleWebhook`,

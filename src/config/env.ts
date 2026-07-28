@@ -44,6 +44,17 @@ const coreSchema = z.object({
    * few dozen one-line rows, and its output is a list of ids, not prose.
    */
   AVA_MODEL_MEMORY_REVIEWER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
+  /**
+   * `/translearn` and `/translate`: translates an article into the reader's own
+   * language, glossed with the English original.
+   *
+   * Schema-constrained like the ranker, but the resemblance stops there — this
+   * one writes long-form prose a human reads, several thousand characters per
+   * command, so it is closer to the summarizer in what it needs to be good at.
+   * It is also the only model call a reader waits on synchronously, which makes
+   * a slow model expensive in a way the ranker's slowness never is.
+   */
+  AVA_MODEL_TRANSLATOR: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
 
   /**
    * Durable state: Mastra memory/workflows/scores plus the app's own tables.

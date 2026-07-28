@@ -127,9 +127,10 @@ marked delivered as they land, so a failure partway through a batch doesn't
 re-send what already arrived.
 
 Ava, the conversational half, answers in the **Chat** tab and only there; a
-message typed in News is answered in Chat instead. Her tools are read-only over
-the news tables. See [ADR-0009](docs/decisions/0009-telegram-topics-as-tabs.md)
-and [ADR-0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md).
+message typed in another tab is answered in Chat instead. Her tools are read-only
+over the news tables. See
+[ADR-0009](docs/decisions/0009-telegram-topics-as-tabs.md) and
+[ADR-0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md).
 
 She also remembers you. Facts you mention are written to a `memories` table as
 she goes — split into lasting ones (your name, where you live) and recent ones
@@ -141,6 +142,26 @@ history rather than a correction: *blond since January, dark before that*. See
 Once a week a review agent reads the notes, promotes the ones that turned out to
 be lasting — a new job, a person's name — and deletes the ordinary days
 ([ADR-0015](docs/decisions/0015-weekly-memory-review.md)).
+
+Two slash commands turn an article into reading practice. Swipe to reply on any
+delivered article and send `/translearn` for it back in your own language with
+the English original behind almost every word, or `/translate` for the same thing
+glossed only on the terms worth watching:
+
+> Les modèles OlmoEarth sont notre famille de modèles de fondation
+> (foundation models) d'observation de la Terre, pré-entraînés (pretrained) sur
+> environ 10 téraoctets de données satellitaires multimodales.
+
+Your language is not configured anywhere — it is read from what Ava has noted
+about you. What *is* configured is how good your English already is:
+`translation.readerLevel` in [`src/config/translation.ts`](src/config/translation.ts)
+is a CEFR level, and it is what stops the glosses landing on words you have known
+for years. Headings, lists and code blocks are preserved, and code is repaired
+and fenced rather than flattened into prose.
+
+Output lands in a third tab, **Translations**, because a full article arrives as
+several messages over a few minutes
+([ADR-0017](docs/decisions/0017-translation-commands.md)).
 
 Not yet wired: the 👍/👎 feedback loop. The inbound path exists now, but nothing
 handles a reaction yet.

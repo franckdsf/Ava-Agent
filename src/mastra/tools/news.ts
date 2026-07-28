@@ -5,7 +5,7 @@ import { CATEGORIES } from '../../config/categories.js'
 import { pipeline } from '../../config/pipeline.js'
 import { db, migrate } from '../../db/client.js'
 import { feedback, items } from '../../db/schema.js'
-import { fetchArticleText } from '../../services/article.js'
+import { articleBody } from '../../services/article.js'
 
 /**
  * Read-only windows onto the news tables, for the conversational agent.
@@ -207,25 +207,14 @@ export const readArticle = createTool({
     const row = rows[0]
     if (!row) return { article: null }
 
-    // The feed body is preferred and almost always present — 273 of 288 items
-    // carried one on 2026-07-28. The fetch is for the rest: Telegram-style feeds
-    // that ship only a headline, where the excerpt is boilerplate
-    // ("Article URL: … Points: 180") and answering from it is answering from
-    // nothing.
-    //
-    // Deliberately not written back to `items`. It would be free self-healing,
-    // and it would also make this the one tool on the conversational surface
-    // that writes to the pipeline's tables — see
-    // [invariant 8](../../../AGENTS.md#invariants). The fetch is cheap enough to
-    // repeat; the invariant is not worth spending.
-    const fetched = row.content ? null : await fetchArticleText(row.link)
+    // Feed body when there is one, a live fetch when there isn't, and never
+    // written back — the reasoning lives with `articleBody`, which the
+    // translation commands share so the two surfaces cannot disagree about what
+    // an article says.
+    const body = await articleBody(row)
 
     return {
-      article: {
-        ...toArticle(row),
-        content: row.content ?? fetched,
-        contentFrom: row.content ? ('feed' as const) : fetched ? ('fetched' as const) : null,
-      },
+      article: { ...toArticle(row), content: body.text, contentFrom: body.from },
     }
   },
 })
