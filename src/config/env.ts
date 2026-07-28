@@ -27,6 +27,7 @@ const gatewayModelId = z
 const coreSchema = z.object({
   /** Single key for every model below — chat routes through the OpenRouter gateway. */
   OPENROUTER_API_KEY: z.string().min(1),
+  REPLICATE_API_KEY: z.string().min(1),
 
   /**
    * Cheap and high-volume: scores + labels every incoming headline. Text only,
@@ -129,7 +130,7 @@ export function telegramChannelEnv(): { botToken: string; allowedUserIds: string
   if (allowedUserIds.length === 0) {
     throw new Error(
       'TELEGRAM_BOT_TOKEN is set but TELEGRAM_ALLOWED_USER_IDS is empty — the adapter would ' +
-        'accept messages from anyone who finds the bot. See .env.example.',
+      'accept messages from anyone who finds the bot. See .env.example.',
     )
   }
   return { botToken, allowedUserIds }

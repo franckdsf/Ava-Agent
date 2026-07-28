@@ -31,6 +31,7 @@
     "@mastra/libsql": "^1.17.0",
     "@mastra/memory": "^1.23.1",
     "drizzle-orm": "^0.45.2",
+    "replicate": "^1.4.0",
     "rss-parser": "^3.13.0",
     "zod": "^4.4.3"
   }
