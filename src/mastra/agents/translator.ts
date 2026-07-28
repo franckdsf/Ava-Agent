@@ -28,6 +28,42 @@ export const translator = new Agent({
   id: translatorId,
   name: 'Translator',
   model: env.AVA_MODEL_TRANSLATOR,
+  /**
+   * On the agent, not on `instructions` — see the note on the memory reviewer.
+   * A block written there is dropped before the request is built.
+   *
+   * This is the only model call a reader waits on, and OpenRouter's default
+   * routing makes that wait a lottery. The same prompt, pinned to one provider
+   * at a time (2026-07-29, deepseek-v4-flash, two runs each): SiliconFlow spent
+   * 3126 reasoning tokens on a 130-token translation and took 36–46s,
+   * StreamLake spiked to 21.5s, and DigitalOcean sat at 8–10s while doing no
+   * reasoning at all. Cloudflare and Morph answered in 0.8–1.0s. Unpinned, six
+   * consecutive calls landed on five different providers — so an article that
+   * translates in seconds one evening stalls for minutes the next.
+   *
+   * `order` is the preference; `sort` orders the pool behind it, which is what
+   * makes `allow_fallbacks` safe to leave on — a busy Cloudflare falls through
+   * to the next-fastest endpoint instead of failing the command. `deepseek`
+   * itself is not one of them: it serves the model on OpenRouter's listing but
+   * has no endpoint, and pinning to it returns 404.
+   *
+   * Effort is low rather than off, because glossing is a judgement about the
+   * reader's level and the failure this file already retries against — echoing
+   * the source instead of translating it — is not one to make likelier for a
+   * second.
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        reasoning: { effort: 'low' },
+        provider: {
+          order: ['cloudflare', 'morph'],
+          sort: 'latency',
+          allow_fallbacks: true,
+        },
+      },
+    },
+  },
   instructions: {
     role: 'system',
     content: `

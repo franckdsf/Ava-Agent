@@ -140,6 +140,32 @@ export const ava = new Agent({
     { role: 'system' as const, content: baseInstructions },
     { role: 'system' as const, content: await memoryInstructions() },
   ],
+  /**
+   * On the agent, not on `instructions` — a `providerOptions` block written
+   * there is dropped before the request is built, so it reaches nothing. That is
+   * also why the two system messages above survived: they only had to become one
+   * concatenated string to carry a block that was never going to be read.
+   *
+   * `only` fences the model to endpoints that have behaved; `order` is the
+   * preference within that fence, and `allow_fallbacks` can only fall through to
+   * the rest of `only`. Reasoning is high because this is the surface a person
+   * is talking to and a wrong answer costs more than a slow one — measured at
+   * 41 reasoning tokens against 32 with the field absent, so on m3 it is close
+   * to free. It does not fix the truncated-reply gotcha below; nothing in this
+   * block does.
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        reasoning: { effort: 'high' },
+        provider: {
+          only: ['novita/fp8', 'minimax/fp8', 'together', 'parasail/fp8'],
+          order: ['novita/fp8', 'minimax/fp8', 'together', 'parasail/fp8'],
+          allow_fallbacks: true,
+        },
+      },
+    },
+  },
 })
 
 /**

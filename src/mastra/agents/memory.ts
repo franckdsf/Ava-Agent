@@ -115,12 +115,27 @@ export const memoryReviewer = new Agent({
   id: memoryReviewerId,
   name: 'Memory Reviewer',
   model: env.AVA_MODEL_MEMORY_REVIEWER,
-  instructions: {
+  /**
+   * `providerOptions` belongs here and nowhere else. Put it on `instructions`
+   * instead and it is silently dropped — Mastra reads only `cacheControl` and
+   * `reasoning_details` off a *message*, so the request goes out carrying
+   * nothing but `model` and `messages`. Verified by capturing the outbound body.
+   *
+   * Effort is high because this is the one call in the system where thinking is
+   * the product: it runs once a week, over a few dozen rows, and decides which
+   * facts about the reader survive. Latency is free here in a way it is nowhere
+   * else, and a wrong tier decision is only recoverable while the row still
+   * exists. No provider pin for the same reason — a slow endpoint costs nothing
+   * on a weekly batch.
+   */
+  defaultOptions: {
     providerOptions: {
       openrouter: {
-        reasoningEffort: 'max',
-      }
+        reasoning: { effort: 'high' },
+      },
     },
+  },
+  instructions: {
     role: 'system',
     content: `You maintain the long-term memory of an assistant that has one user.
 
