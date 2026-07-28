@@ -6,7 +6,7 @@ import { CATEGORIES } from '../../config/categories.js'
 import { env, telegramChannelEnv } from '../../config/env.js'
 import { pipeline } from '../../config/pipeline.js'
 import { TOPICS } from '../../config/topics.js'
-import { routeToChatTab } from '../channels.js'
+import { routeToChatTab, withQuotedMessage } from '../channels.js'
 import { newsTools } from '../tools/news.js'
 import { imageTools } from '../tools/image.js'
 
@@ -52,7 +52,13 @@ const channel = telegramChannelEnv()
  */
 let avaChannels: AgentChannels | null = null
 
-const toChatTab = routeToChatTab(() => avaChannels)
+/**
+ * Quote first, then route. The two are independent — one edits the message, the
+ * other swaps the thread — but this order means a reply typed in the News tab
+ * still arrives carrying what it replied to, which is the common case: the
+ * digest is in News and that is where the reader is when they swipe.
+ */
+const toChatTab = withQuotedMessage(routeToChatTab(() => avaChannels))
 
 export const ava = new Agent({
   id: avaId,

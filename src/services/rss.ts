@@ -3,7 +3,8 @@ import Parser from 'rss-parser'
 import type { CategoryDefinition, FeedDefinition } from '../config/categories.js'
 import { pipeline } from '../config/pipeline.js'
 import { getFeedState, saveFeedState } from '../db/feeds.js'
-import type { DiscoveredItem } from '../db/types.js'
+import { getItem } from '../db/items.js'
+import type { DiscoveredItem, Item } from '../db/types.js'
 import { capText, htmlToText, toArticleText } from './article.js'
 
 /**
@@ -90,6 +91,20 @@ export function canonicalizeLink(link: string): string {
 
 export function itemId(link: string): string {
   return createHash('sha256').update(canonicalizeLink(link)).digest('hex').slice(0, 32)
+}
+
+/**
+ * The stored item a URL points at — null if it was never ingested, or has since
+ * been pruned.
+ *
+ * The inverse of `itemId`, and only possible because of it: the id *is* the hash
+ * of the canonical link, so any URL for an article is already its primary key.
+ * That is what lets a reader point at a delivered digest without anything having
+ * recorded which message carried which article
+ * ([ADR-0013](../../docs/decisions/0013-swipe-to-reply-as-article-context.md)).
+ */
+export function itemForLink(link: string): Promise<Item | null> {
+  return getItem(itemId(link))
 }
 
 function toExcerpt(raw: string | undefined): string | null {

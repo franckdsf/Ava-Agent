@@ -60,6 +60,22 @@ export const pipeline = {
   telegramMaxMessageChars: 3900,
 
   /**
+   * How much of a replied-to message is quoted back to Ava as context. A digest
+   * runs to about a thousand characters, so this fits one whole — but a reply to
+   * a long message shouldn't push the reader's actual question out of the model's
+   * attention, which is what quoting all 4096 would do.
+   */
+  quotedMessageMaxChars: 1_200,
+
+  /**
+   * Links from a quoted message looked up against `items`, in the order they
+   * appear. A digest carries exactly one — the article's — and Ava's own replies
+   * carry a handful; this only bounds the pathological case, since each lookup
+   * is a primary-key read.
+   */
+  quotedLinkLookups: 5,
+
+  /**
    * How long a stored item survives before the prune job deletes it, measured
    * from `discoveredAt`.
    *

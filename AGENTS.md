@@ -159,6 +159,14 @@ doesn't wrap without adding a second Telegram library.
   message path entirely — and with no handler registered, the Chat SDK drops it
   without a trace. `/start` did nothing for a while. `src/mastra/channels.ts`
   registers a *catch-all* so no command can be swallowed again.
+- **On an inbound message, `formatted` beats `text`.** Mastra builds the model's
+  input as `stringifyMarkdown(message.formatted) || message.text`, and the
+  adapter always sets `formatted` — so anything injected into `text` alone is
+  silently dropped. That is the whole trick to `withQuotedMessage`
+  ([0013](docs/decisions/0013-swipe-to-reply-as-article-context.md)): the note
+  goes into the AST, and `text` is kept in step only so the two don't disagree.
+  Copy the message rather than editing it — `handleIncomingMessageUpdate` calls
+  `cacheMessage` on the object *before* handing it to the handler.
 - **Escape only what opens inline markup.** MarkdownV2's escape set is wider
   than what Telegram's rich markdown needs. Escaping `.` and `-` inline shipped
   `kotlinx\.atomicfu`, `50\.7` and `platform\-ui` into real messages. Those
@@ -461,6 +469,30 @@ before assuming the prune job is broken. Mastra ships its own retention
 configuration (`reference-storage-retention` in the embedded docs); that is the
 lever, not a `delete from mastra_*`. Traces are the exception and already handled
 by construction — they live in `traces.db`, which is disposable as a whole file.
+
+**A swiped reply now carries the article — offline only, 2026-07-28.** Replying
+to a digest and asking "what is this about?" used to arrive as those five words
+and nothing else. `withQuotedMessage` (`src/mastra/channels.ts`) prepends what
+the reader pointed at, and when the quoted message carries a link to a stored
+item, the note names that item's id so Ava calls `read-article` rather than
+searching. **No table was needed and none was added** — the item id is a hash of
+the canonical link and the digest carries that link in its heading, so the URL in
+the quoted message *is* the primary key
+([0013](docs/decisions/0013-swipe-to-reply-as-article-context.md)).
+
+Verified offline against the live database and the real `stringifyMarkdown`: a
+synthetic rich-message digest flattened to heading, lede, both points and footer
+with the photo block's `file_id` left out, its link hashed to the id of the row
+it came from, the note rendered as a blockquote followed by the `read-article`
+line, the original message object came out unmutated, and a message that is not
+a reply was passed through by identity. The topic-root and `forum_topic_created`
+cases both returned undefined.
+
+**Not yet seen against the real bot, and this is the part that matters.** Every
+payload above was hand-built. Whether Telegram populates `reply_to_message` at
+all for a reply inside a *private-chat* topic is exactly what has never been
+observed here — the Bot API documents it, the adapter passes it through, and
+neither of those is a run. One swipe on a real digest settles it.
 
 **Resolved — the ADR-0002 open question.** `postMessage` does *not* require an
 initialized `ChatInstance`. Only the inbound paths (`handleWebhook`,

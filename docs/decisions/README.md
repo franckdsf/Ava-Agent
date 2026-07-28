@@ -30,6 +30,7 @@ something looks the way it does.
 | [0010](0010-ava-answers-only-in-the-chat-tab.md) | Ava answers only in the Chat tab | Accepted |
 | [0011](0011-fts5-for-article-search.md) | FTS5 for article search, not embeddings | Accepted |
 | [0012](0012-thirty-day-retention-on-items.md) | Thirty-day retention on items, enforced by a scheduled prune | Accepted |
+| [0013](0013-swipe-to-reply-as-article-context.md) | Swipe-to-reply resolves the article, with no table | Accepted |
 
 ## Template
 
