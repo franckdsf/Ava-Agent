@@ -50,6 +50,13 @@
       "when": 1785240663213,
       "tag": "0006_thick_cargill",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785256123262,
+      "tag": "0007_slim_rattler",
+      "breakpoints": true
     }
   ]
 }

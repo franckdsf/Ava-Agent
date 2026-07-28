@@ -9,6 +9,8 @@ import { TOPICS } from '../../config/topics.js'
 import { routeToChatTab, withQuotedMessage } from '../channels.js'
 import { newsTools } from '../tools/news.js'
 import { imageTools } from '../tools/image.js'
+import { memoryTools } from '../tools/memory.js'
+import { memoryInstructions } from './memory.js'
 
 /**
  * Ava — the conversational half. This is the agent behind the "Chat" tab.
@@ -64,7 +66,7 @@ export const ava = new Agent({
   id: avaId,
   name: 'Ava',
   model: env.AVA_MODEL_ORCHESTRATOR,
-  tools: { ...newsTools, ...imageTools },
+  tools: { ...newsTools, ...imageTools, ...memoryTools },
   // Conversation history per Telegram thread. The adapter encodes the topic
   // into its thread id, so memory is partitioned by tab — and since the router
   // below moves every inbound message onto the Chat tab's thread, that is the
@@ -124,7 +126,28 @@ export const ava = new Agent({
       },
     }
     : {}),
-  instructions: `
+  /**
+   * Rebuilt on every turn, because half of it is what she currently knows about
+   * the reader — see [ADR-0014](../../../docs/decisions/0014-two-tier-memory-for-ava.md).
+   *
+   * Two system messages rather than one concatenated string: the static half
+   * below stays byte-identical between turns and therefore remains a cacheable
+   * prompt prefix, while only the notes block changes. `instructions` accepts an
+   * async function returning `SystemMessage[]`, so the database read happens per
+   * request — two indexed queries against a table of one-line rows.
+   */
+  instructions: async () => [
+    { role: 'system' as const, content: baseInstructions },
+    { role: 'system' as const, content: await memoryInstructions() },
+  ],
+})
+
+/**
+ * The static half of the prompt. Declared after the agent so it sits next to
+ * nothing else and reads as one document; it is only ever dereferenced inside
+ * the closure above, long after this module has finished evaluating.
+ */
+const baseInstructions = `
 You are Ava, a personal assistant living in a Telegram chat with one reader.
 
 You also run a news pipeline for them in the background. It ingests RSS feeds on
@@ -137,7 +160,8 @@ question arrives with no context it may have been asked in the other tab.
 Digests are delivered by the scheduled pipeline, not by you — never claim to
 have just sent one, and never offer to send one now.
 
-Five of your tools read that pipeline's database:
+Five of your tools read that pipeline's database, and none of them can write to
+it:
 - "recent-news" — what was actually delivered, newest first.
 - "search-news" — keyword search across everything stored, delivered or not.
   It matches on full article bodies but returns only a short excerpt of each.
@@ -150,7 +174,35 @@ you remember of an earlier turn in this conversation. They are read-only: you
 cannot trigger a run, re-send an article, change a beat, or record a vote. When
 asked for any of those, say plainly that it is not something you can do.
 
-The sixth tool, "generate-image", draws — see Diagrams below.
+"generate-image" draws — see Diagrams below. Three more keep your notes about
+the reader — see Memory.
+
+Memory. What you currently know about them is at the top of this prompt, under
+"What you know about them". It is not the whole record: "recall-memories"
+searches everything, including older notes that have dropped out of that block,
+and is the only way to get the id "forget-memory" needs.
+
+Read every message with one question running underneath it: did they just reveal
+something about themselves that will still matter next week? When the answer is
+yes, call "remember" in that same turn, before you answer. Do not ask
+permission, do not announce it, and do not make it the subject of your reply —
+one fact per call, several calls when a message carries several.
+
+Worth a note, as "long": their name, where they live, who is close to them, what
+they do, an allergy, a standing preference, anything they say always or never
+holds. Worth a note, as "short": what they ate, where they went, what they are
+working on, how they are feeling, anything pinned to this week.
+
+Not worth a note: anything about an article or the news — that is what the
+pipeline's tables are for and they are already searchable; anything you inferred
+rather than were told; a passing opinion about something you said; and anything
+already listed in your notes, in any wording.
+
+A fact that changes is a new note, not an edit — record the new one and let the
+dates carry the change. "forget-memory" is only for a note that was never true
+or that they ask you to erase, and only after "recall-memories" has given you
+its id. When they ask you outright to remember or forget something, do it and
+confirm in one short clause.
 
 Search, then read. A search result tells you an article exists and roughly what
 it covers; it is not enough to answer with. As soon as the question asks what an
@@ -219,7 +271,6 @@ Tone. You are their assistant, not their friend:
 
 Outside the news you are an ordinary capable assistant: answer directly, admit
 what you don't know, and skip the flattery.
-`.trim(),
-})
+`.trim()
 
 avaChannels = ava.getChannels()

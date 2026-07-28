@@ -107,6 +107,65 @@ export const feedback = sqliteTable(
 )
 
 /**
+ * What Ava knows about the reader. One row per fact, in her own words.
+ *
+ * Split into two tiers by how long the fact stays true, not by how it was
+ * learned. `long` is biography — a name, where they live, what they do, a
+ * standing preference. `short` is episodic — what they ate, what they were
+ * working on this week — and is only shown for `memoryConfig.shortTermDays`.
+ *
+ * **Nothing here is ever rewritten to stay current, and that is the design.** A
+ * fact that stops being true is not corrected; the new fact is recorded with its
+ * own date and both are rendered oldest-first, so "dark hair (2025-01)" followed
+ * by "blond hair (2026-01)" reads as a change rather than a contradiction. An
+ * update-in-place would keep the current value and lose that it ever changed,
+ * which is the more interesting half. Deletion exists only for a fact that was
+ * never true ([ADR-0014](../../docs/decisions/0014-two-tier-memory-for-ava.md)).
+ *
+ * No reader column. The bot has one reader by construction — an allowlist of
+ * user ids, one chat id, a single replica — so a `resource` here would be a
+ * constant in every row. Adding one is the migration to run on the day a second
+ * reader exists, not before.
+ */
+export const memories = sqliteTable(
+  'memories',
+  {
+    /**
+     * Hash of the normalized fact, so re-stating something already known
+     * collides rather than accumulating a near-duplicate line in the prompt.
+     * Same device as `items.id`: derive the key from the content that must be
+     * unique, and the dedupe needs no bookkeeping.
+     *
+     * It only catches *verbatim* repeats — "Their name is Franck" and "The
+     * reader is called Franck" are two rows. The prompt is the real guard there,
+     * since Ava is shown everything she already knows before she decides to
+     * write anything.
+     */
+    id: text('id').primaryKey(),
+    tier: text('tier', { enum: ['short', 'long'] }).notNull(),
+    /** One self-contained fact, third person. Capped at `memoryConfig.factMaxChars`. */
+    fact: text('fact').notNull(),
+    /**
+     * When the fact was true, which is not always when it was recorded — "I ate
+     * at Kodawari on Saturday" said on Monday is Saturday's memory. Supplied by
+     * Ava when the reader dates it, otherwise the moment it was written.
+     *
+     * This is what orders the rendered block, so it is the column that carries
+     * the whole supersedes-by-recency reading.
+     */
+    happenedAt: integer('happened_at').notNull(),
+    /**
+     * When the row was written. Bookkeeping, and deliberately the column the
+     * short-term window measures against: a fact learned today about something
+     * six months ago should survive its first month in the notes rather than
+     * being invisible the moment it lands.
+     */
+    createdAt: integer('created_at').notNull(),
+  },
+  table => [index('idx_memories_tier').on(table.tier, table.happenedAt)],
+)
+
+/**
  * Telegram forum topics provisioned in the private chat — the "tabs".
  *
  * Keyed by `(chatId, slug)` rather than slug alone because a topic id is only
@@ -144,6 +203,8 @@ export type Item = typeof items.$inferSelect
 export type NewItem = typeof items.$inferInsert
 export type FeedStateRow = typeof feedState.$inferSelect
 export type FeedbackRow = typeof feedback.$inferSelect
+export type MemoryRow = typeof memories.$inferSelect
 
 export type DeliveryKind = NonNullable<Item['deliveryKind']>
 export type Vote = FeedbackRow['vote']
+export type MemoryTier = MemoryRow['tier']

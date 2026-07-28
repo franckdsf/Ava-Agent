@@ -52,9 +52,13 @@ changing any of them.
 1. **No inbound ports.** Telegram is long-polled; models are called outbound.
    Nothing may require a public URL, tunnel, or webhook.
    ([0001](docs/decisions/0001-mastra-in-a-container-with-no-inbound-ports.md), [0002](docs/decisions/0002-telegram-via-chat-sdk-adapter-in-polling-mode.md))
-2. **Only ranking and composing call a model.** Ingest, dedupe, cluster and
-   delivery are deterministic. A scheduled job that lets an LLM choose its own
-   control flow produces surprise bills and duplicate messages.
+2. **Only ranking, composing and the weekly memory review call a model.** Ingest,
+   dedupe, cluster and delivery are deterministic. The rule is not "no models on
+   a schedule" — it is that a scheduled model call must be a *classifier over a
+   fixed row set*: fixed control flow, a set handed to it, and the answer
+   validated against that set on the way back. A scheduled job that lets an LLM
+   choose its own control flow produces surprise bills and duplicate messages.
+   ([0015](docs/decisions/0015-weekly-memory-review.md))
 3. **Categories are config, not code.** Adding a beat means adding an entry to
    `CATEGORIES`. Needing to touch agent or workflow code means the abstraction is
    wrong. ([0008](docs/decisions/0008-categories-as-configuration.md))
@@ -72,12 +76,16 @@ changing any of them.
    Never use `mode: 'auto'` — it falls back to *webhook* when it can't verify
    `getWebhookInfo`, which silently breaks invariant 1.
    ([0009](docs/decisions/0009-telegram-topics-as-tabs.md))
-8. **The conversational surface is read-only over the pipeline.** Ava's tools
-   query the news tables; none of them write, trigger a run, or mark anything
-   delivered. This is what keeps invariant 2 true now that an LLM sits on an
-   inbound path. `read-article` may fetch a page the feed shipped no body for —
-   an outbound GET is not a write — but it must not store what it gets back.
-   ([0009](docs/decisions/0009-telegram-topics-as-tabs.md))
+8. **The conversational surface is read-only over the pipeline.** Ava's news
+   tools query the news tables; none of them write, trigger a run, or mark
+   anything delivered. This is what keeps invariant 2 true now that an LLM sits
+   on an inbound path. `read-article` may fetch a page the feed shipped no body
+   for — an outbound GET is not a write — but it must not store what it gets
+   back. **One exception, and only one:** `remember` and `forget-memory` write to
+   `memories`, which no pipeline stage reads. The boundary is the table, not the
+   direction — a conversational tool that wrote to `items` or `feedback` would
+   break this.
+   ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0014](docs/decisions/0014-two-tier-memory-for-ava.md))
 9. **One tab, one kind of traffic.** Ava answers in Chat and nowhere else —
    messages typed in News are *moved* there, not answered in place. Digests go
    to News. Breaking this means the tabs stop meaning anything.
@@ -264,6 +272,35 @@ doesn't wrap without adding a second Telegram library.
   and `minimax` as *direct* providers too, so a bare `deepseek/deepseek-v4-flash`
   is valid — it just bills DeepSeek and demands a `DEEPSEEK_API_KEY`. `env.ts`
   rejects unprefixed IDs at startup; don't weaken that guard to "make it work".
+- **A memory is never rewritten, and that is not an oversight.** The obvious
+  change to `memories` is to update a fact in place when it stops being true.
+  Doing it deletes the only thing that makes the table more than a key-value
+  store: "dark hair (2025-01)" followed by "blond hair (2026-01)" is what lets
+  Ava answer *"blond, since January — dark before that"*. Verified against the
+  live model, which said exactly that. `forget-memory` is for a fact that was
+  never true, not for one that changed.
+  ([0014](docs/decisions/0014-two-tier-memory-for-ava.md))
+- **The memory reviewer's prompt was calibrated backwards on the first try, and
+  a plausible prompt is not evidence.** Told to drop borderline notes, it
+  returned an *empty list* on three runs out of three — which would have deleted
+  a new job and a named sister. The asymmetry runs the other way: a wrongly kept
+  note costs one line, a wrongly deleted one is gone silently. Then, told to drop
+  duplicates, it returned the duplicate *with a reason saying it should be
+  dropped* — the reason field is a scratchpad unless the prompt says everything
+  returned is kept regardless of what its reason says. Re-run the fixture set
+  three times after touching that prompt or changing `AVA_MODEL_MEMORY_REVIEWER`;
+  one green run proves nothing.
+- **`decide` and `apply` are separate steps so a bad model response can't
+  delete.** `reviewMemories` throws when the response has no parsed object rather
+  than returning `[]`, because the caller deletes everything not promoted —
+  "the model returned junk" and "nothing was worth keeping" must never be the
+  same value. Promotion also runs *before* the sweep, and the sweep matches
+  `tier = 'short'` only, so a note rescued this run cannot be deleted by it.
+- **Ava's instructions are a function now, and the notes go in a second system
+  message.** Concatenating them into the one string would change the whole
+  prompt every turn and lose the cacheable prefix. The block also carries today's
+  date — without it every date in the notes is an opaque string and the
+  supersession reading doesn't happen at all.
 - **`.history/` must stay gitignored.** An IDE extension snapshots `.env`
   verbatim into it.
 
@@ -335,6 +372,67 @@ scheduled fire, which has not happened since the tabs were provisioned.
 it still always returns empty. `recordVote(item, vote)` takes the whole item now,
 not an id — the caller has it in hand, since a reaction arrives on a message
 built from it.
+
+**Ava has memory — verified end to end against the live model, 2026-07-28.** A
+`memories` table (Drizzle, `0007`), two tiers, one row per fact, and the whole
+thing injected into her instructions every turn
+([ADR-0014](docs/decisions/0014-two-tier-memory-for-ava.md)). This is the "real
+feedback system" the 👍/👎 loop was never going to be: 👍/👎 trains the *ranker's*
+taste, this is what Ava knows about the *person*.
+
+Three new tools, and they are the only ones on the conversational surface that
+write — see the amended invariant 8. `remember` (one fact, tier chosen at write
+time), `recall-memories` (reaches past the prompt caps and hands back the ids the
+injected block deliberately omits), `forget-memory`.
+
+`instructions` is now an async function returning two system messages: the static
+prompt, then today's date and the notes. `src/mastra/agents/memory.ts` renders
+the block; `src/config/memory.ts` holds the window and the caps.
+
+Verified two ways. Against a **copy** of the live database (288 items, untouched
+at 288 afterwards): a re-stated fact deduped through normalization rather than
+adding a row, a 45-day-old short-term note dropped out of the block while
+`recall-memories` still found it, `2025-01-15` and `2026-01-20` survived the
+round trip with no day drift, oldest-first ordering held, and `forget-memory`
+returned what it deleted. Then against the **live model**, one real turn:
+*"Je m'appelle Franck, je vis à Nantes et je suis allergique aux arachides. Ce
+midi j'ai mangé un curry"* produced four `remember` calls in that one turn,
+tiered correctly (name/city/allergy `long`, curry `short` with today's date),
+none of them announced in the reply — and she used the allergy immediately,
+unprompted. Asked *"de quelle couleur sont mes cheveux ?"* against two dated,
+contradicting notes she answered *"Blonds, depuis janvier 2026. Auparavant, vous
+les aviez foncés."*
+
+**Not yet seen against the real bot.** Every turn above went through
+`agent.generate()` from a script with `TELEGRAM_BOT_TOKEN` deleted from the
+environment first — that is deliberate and worth copying, since importing the
+agent with a token present constructs a *second* polling adapter and it would
+eat the live bot's updates (invariant 7). What a `remember` card looks like in
+Telegram with `toolDisplay: 'cards'` has therefore never been observed, and four
+memory cards on a first message may well be too much chatter.
+
+**The weekly review closes that loop — verified 2026-07-28.** `review-memories`
+(`src/mastra/workflows/review-memories.ts`) is the eighth schedule: Monday 05:00,
+between the 04:00 prune and the 08:00 digest. It hands every note to a
+`memory-reviewer` agent, promotes what has turned out to be biography, and
+deletes the expired rest ([ADR-0015](docs/decisions/0015-weekly-memory-review.md)).
+That is the third model call on a schedule and the reason invariant 2 is now
+worded around *classifier over a fixed row set* rather than a list of two steps.
+
+Verified against a copy of the live database with a seeded fixture set: the new
+job and the named sister were promoted, the meals, the film and the flaky test
+were deleted, a duplicate of an existing lasting note was dropped, the
+still-fresh short note was untouched, promotion kept the original `happenedOn`,
+and every promoted note survived the sweep that ran immediately after it.
+`listWorkflows()` returns `['curateCategory', 'pruneItems', 'reviewMemories']`
+and its schedule reads `{ cron: '0 5 * * 1', timezone: 'Europe/Paris' }`.
+
+**Not yet seen on a real fire.** Nothing in the live database is old enough to
+expire — the oldest note dates from today — so the first real run has nothing to
+do until late August. Studio (**Workflows → reviewMemories**, input `{}`) is the
+way to watch one; it cannot be driven from a script, see the evented-engine
+gotcha. What has never been observed is a run over notes Ava wrote *herself*
+rather than fixtures written to test her.
 
 **Search rebuilt on FTS5, and the reply streams — 2026-07-28.** Both came out of
 one real conversation that went wrong: the reader asked about *"the 500$ rl fine

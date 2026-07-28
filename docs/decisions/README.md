@@ -31,6 +31,8 @@ something looks the way it does.
 | [0011](0011-fts5-for-article-search.md) | FTS5 for article search, not embeddings | Accepted |
 | [0012](0012-thirty-day-retention-on-items.md) | Thirty-day retention on items, enforced by a scheduled prune | Accepted |
 | [0013](0013-swipe-to-reply-as-article-context.md) | Swipe-to-reply resolves the article, with no table | Accepted |
+| [0014](0014-two-tier-memory-for-ava.md) | Two-tier memory, dated and never rewritten | Accepted |
+| [0015](0015-weekly-memory-review.md) | A weekly model-judged review promotes memories, then expires them | Accepted |
 
 ## Template
 

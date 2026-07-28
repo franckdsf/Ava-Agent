@@ -38,6 +38,12 @@ const coreSchema = z.object({
   AVA_MODEL_RSS_SUMMARIZER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
   /** Conversational surface in Telegram. Vision-capable: images arrive inline. */
   AVA_MODEL_ORCHESTRATOR: gatewayModelId.default('openrouter/minimax/minimax-m3'),
+  /**
+   * Weekly memory review: decides which short-term notes become biography.
+   * Cheap and schema-constrained like the ranker — it runs once a week over a
+   * few dozen one-line rows, and its output is a list of ids, not prose.
+   */
+  AVA_MODEL_MEMORY_REVIEWER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
 
   /**
    * Durable state: Mastra memory/workflows/scores plus the app's own tables.

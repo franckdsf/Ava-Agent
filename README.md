@@ -131,5 +131,16 @@ message typed in News is answered in Chat instead. Her tools are read-only over
 the news tables. See [ADR-0009](docs/decisions/0009-telegram-topics-as-tabs.md)
 and [ADR-0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md).
 
+She also remembers you. Facts you mention are written to a `memories` table as
+she goes — split into lasting ones (your name, where you live) and recent ones
+(what you ate, what you're working on), each dated, and injected into her prompt
+every turn. Nothing is ever overwritten, so a fact that changes reads as a
+history rather than a correction: *blond since January, dark before that*. See
+[ADR-0014](docs/decisions/0014-two-tier-memory-for-ava.md).
+
+Once a week a review agent reads the notes, promotes the ones that turned out to
+be lasting — a new job, a person's name — and deletes the ordinary days
+([ADR-0015](docs/decisions/0015-weekly-memory-review.md)).
+
 Not yet wired: the 👍/👎 feedback loop. The inbound path exists now, but nothing
 handles a reaction yet.
