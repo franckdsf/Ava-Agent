@@ -28,7 +28,7 @@ can be delivered again. Retention that is unaware of ingest re-sends old news.
 
 ## Decision
 
-A seventh schedule, `prune-items`, fires daily at 04:00 in `AVA_TIMEZONE` and
+A seventh schedule, `prune-items`, fires daily at 04:00 in `AGENT_TIMEZONE` and
 deletes every item whose `discoveredAt` is older than `pipeline.retentionDays`
 (30). No model is involved, in keeping with
 [invariant 2](../../AGENTS.md#invariants).

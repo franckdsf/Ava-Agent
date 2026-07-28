@@ -247,7 +247,7 @@ function welcome(): string {
     `- **${TOPICS.news.title}** — I push curated digests on a schedule 📅; I don't answer there.`,
     `Beats:`,
     beats,
-    `Digests arrive at ${hours.join(', ')} ${env.AVA_TIMEZONE}. Each article is delivered as its own message so you can read or save what matters.`,
+    `Digests arrive at ${hours.join(', ')} ${env.AGENT_TIMEZONE}. Each article is delivered as its own message so you can read or save what matters.`,
     `If you want something specific, just ask — search the archive, show me a recent article, or tell me what interests you 😉.`,
   ].join('\n\n')
 }

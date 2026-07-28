@@ -96,7 +96,7 @@ export const pipeline = {
    */
   pruneBatchSize: 500,
 
-  /** Local-time hours (AVA_TIMEZONE) at which each category's digest fires. */
+  /** Local-time hours (AGENT_TIMEZONE) at which each category's digest fires. */
   digestHours: [8, 13, 19],
 
   /**

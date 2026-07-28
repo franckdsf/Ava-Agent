@@ -346,7 +346,7 @@ export const curateCategory = createWorkflow({
     pipeline.digestHours.map(hour => ({
       id: `${category.slug}-${String(hour).padStart(2, '0')}00`,
       cron: `0 ${hour} * * *`,
-      timezone: env.AVA_TIMEZONE,
+      timezone: env.AGENT_TIMEZONE,
       inputData: { categorySlug: category.slug },
     })),
   ),

@@ -54,7 +54,7 @@ export const pruneItems = createWorkflow({
   // running it once per beat would just make the second run find nothing.
   schedule: {
     cron: `0 ${pipeline.pruneHour} * * *`,
-    timezone: env.AVA_TIMEZONE,
+    timezone: env.AGENT_TIMEZONE,
     inputData: {},
   },
 })

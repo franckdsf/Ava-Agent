@@ -55,7 +55,7 @@ const coreSchema = z.object({
   AVA_MIGRATIONS_DIR: z.string().min(1).default('drizzle'),
 
   /** IANA zone for digest schedules. Set explicitly so fire times don't follow server locale. */
-  AVA_TIMEZONE: z.string().min(1).default('Europe/Paris'),
+  AGENT_TIMEZONE: z.string().min(1).default('Europe/Paris'),
 })
 
 const telegramSchema = z.object({
