@@ -4,13 +4,14 @@ import { curatorAgents } from './agents/curator.js'
 import { registerChatCommands } from './channels.js'
 import { storage } from './storage.js'
 import { curateCategory } from './workflows/curate-category.js'
+import { pruneItems } from './workflows/prune-items.js'
 
 export const mastra = new Mastra({
   // Ava is registered alongside the curators, not instead of them: the curators
   // are internal pipeline steps with no channel, Ava is the only one with an
   // inbound surface.
   agents: { ...curatorAgents, [avaId]: ava },
-  workflows: { curateCategory },
+  workflows: { curateCategory, pruneItems },
   storage,
 })
 

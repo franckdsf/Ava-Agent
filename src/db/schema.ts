@@ -73,12 +73,33 @@ export const items = sqliteTable(
   ],
 )
 
-/** 👍/👎 from Telegram. Feeds the per-category interest profile. */
+/**
+ * 👍/👎 from Telegram. Feeds the per-category interest profile.
+ *
+ * `title` and `source` are copied from the item at vote time rather than joined
+ * back to it, and that denormalization is load-bearing: items are pruned at
+ * `retentionDays` but votes are kept forever, so a row that joined to `items`
+ * for its title would go silently unreadable the moment its article aged out —
+ * taking the reader's taste with it. These two columns are the entire signal the
+ * ranker consumes (`renderInterestProfile` emits `- title (source)`), so storing
+ * them makes a vote self-contained and permanent.
+ *
+ * Unbounded growth is fine here in a way it is not for `items`: this table grows
+ * only when a human presses a button, at ~100 bytes a press, while items arrive
+ * automatically by the hundred every day.
+ */
 export const feedback = sqliteTable(
   'feedback',
   {
+    /**
+     * Still the item's id, so re-voting overwrites — and it stays meaningful
+     * after the item is gone, since nothing joins on it any more.
+     */
     itemId: text('item_id').primaryKey(),
     categorySlug: text('category_slug').notNull(),
+    /** Snapshot of the article, so the vote outlives it. */
+    title: text('title').notNull(),
+    source: text('source').notNull(),
     vote: text('vote', { enum: ['up', 'down'] }).notNull(),
     createdAt: integer('created_at').notNull(),
   },
@@ -102,6 +123,16 @@ export const telegramTopics = sqliteTable(
     chatId: text('chat_id').notNull(),
     slug: text('slug').notNull(),
     messageThreadId: integer('message_thread_id').notNull(),
+    /**
+     * The tab name Telegram was last told, so a renamed `TOPICS` entry can be
+     * pushed with `editForumTopic` rather than silently applying only to tabs
+     * created afterwards. There is no `getForumTopic` to read it back with, so
+     * remembering what we sent is the only way to know whether it has drifted.
+     *
+     * Nullable for rows written before names were tracked. Null reads as
+     * "unknown", which costs exactly one rename on the next resolve.
+     */
+    name: text('name'),
     createdAt: integer('created_at').notNull(),
   },
   table => [primaryKey({ columns: [table.chatId, table.slug] })],

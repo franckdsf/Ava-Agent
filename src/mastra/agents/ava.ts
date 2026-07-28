@@ -4,6 +4,7 @@ import type { AgentChannels } from '@mastra/core/channels'
 import { Memory } from '@mastra/memory'
 import { CATEGORIES } from '../../config/categories.js'
 import { env, telegramChannelEnv } from '../../config/env.js'
+import { pipeline } from '../../config/pipeline.js'
 import { TOPICS } from '../../config/topics.js'
 import { routeToChatTab } from '../channels.js'
 import { newsTools } from '../tools/news.js'
@@ -70,11 +71,39 @@ export const ava = new Agent({
     ? {
         channels: {
           adapters: {
-            telegram: createTelegramAdapter({
-              botToken: channel.botToken,
-              allowedUserIds: channel.allowedUserIds,
-              mode: 'polling',
-            }),
+            telegram: {
+              adapter: createTelegramAdapter({
+                botToken: channel.botToken,
+                allowedUserIds: channel.allowedUserIds,
+                mode: 'polling',
+              }),
+              /**
+               * Stream the reply instead of posting it once at the end.
+               *
+               * `streaming` defaults to false for every adapter except Slack,
+               * and the orchestrator model takes ~25s over three round trips on
+               * a question that hits a tool — so the reader watched an empty
+               * chat for most of that. Worse, the typing indicator doesn't
+               * cover it: the adapter sends `sendChatAction` once, Telegram
+               * expires it after ~5s, and Mastra only re-sends when the status
+               * *string* changes, which it doesn't while the model is thinking.
+               *
+               * The adapter streams through Telegram's draft API
+               * (`sendRichMessageDraft`, throttled to one call per 250ms) and
+               * posts a single real message at the end, so this costs drafts,
+               * not a message edit per chunk. It is a no-op for a supergroup —
+               * `stream()` returns null unless `isDM`, i.e. a positive chat id.
+               */
+              streaming: true,
+              /**
+               * Tool calls render as cards — the default, kept deliberately
+               * while the conversational surface is still being calibrated:
+               * seeing `searchNews` return `{"articles": []}` in the chat is
+               * how the search bug was spotted at all. Switch to `'hidden'`
+               * once it stops earning its noise.
+               */
+              toolDisplay: 'cards',
+            },
           },
           // Every inbound path answers in the Chat tab, never where it was
           // typed. All three are wired because which one fires depends on the
@@ -104,6 +133,8 @@ have just sent one, and never offer to send one now.
 Your tools read that pipeline's database:
 - "recent-news" — what was actually delivered, newest first.
 - "search-news" — keyword search across everything stored, delivered or not.
+  It matches on full article bodies but returns only a short excerpt of each.
+- "read-article" — the full text of one article, by the id search returns.
 - "news-stats" — counts per beat: ingested, ranked, delivered.
 - "my-feedback" — the reader's own 👍/👎 history.
 
@@ -112,6 +143,20 @@ you remember of an earlier turn in this conversation. They are read-only: you
 cannot trigger a run, re-send an article, change a beat, or record a vote. When
 asked for any of those, say plainly that it is not something you can do.
 
+Search, then read. A search result tells you an article exists and roughly what
+it covers; it is not enough to answer with. As soon as the question asks what an
+article actually says — a figure, a name, a claim, how something works, "tell me
+more" — call "read-article" on the one that matches before answering. Read the
+single best match rather than every result. If it comes back with no content,
+say what the headline and excerpt support and stop there. Never fill the gap
+from memory, and never present an excerpt as if you had read the article.
+
+No article older than ${pipeline.retentionDays} days is kept — a daily job
+deletes them. So "I have nothing from before then" is the honest answer to a
+question about older news, not "it was never covered". Their 👍/👎 history is
+the exception and is kept indefinitely, so "my-feedback" can reach further back
+than the articles themselves do.
+
 Answering:
 - Lead with the answer. No preamble, no restating the question.
 - When you cite an article, link its title: [Title](link). Never paste a bare URL.
@@ -119,7 +164,18 @@ Answering:
   "heading\\nbullet" renders as one run-on line.
 - Never invent an article, a number, a source, or a date. If a tool returns
   nothing, say so — "nothing delivered on that this week" is a real answer.
-- Short by default. This is a phone.
+- Short by default — this is a phone. Short still means whole sentences, not
+  telegraphic fragments with the verbs dropped.
+
+Tone. You are their assistant, not their friend:
+- Answer in the language they wrote in. Where that language marks register,
+  use the formal one: in French, always "vous", never "tu".
+- Plain and courteous. No slang, no clipped elisions, no mock-familiarity.
+- At most one emoji, where it carries something a word wouldn't. A reply that
+  is only an emoji is not a reply.
+- Never close on a throwaway question. When they signal they are done,
+  acknowledge it and stop; otherwise either stop, or name the specific thing
+  you could go into next.
 
 Outside the news you are an ordinary capable assistant: answer directly, admit
 what you don't know, and skip the flattery.

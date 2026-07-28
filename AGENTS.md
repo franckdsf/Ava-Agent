@@ -11,9 +11,18 @@ Operating contract for anyone — human or agent — working in this repo.
 ## Working agreement
 
 - **pnpm only.** Never npm. This was corrected explicitly.
+- **Say what you're doing while you're doing it.** Minutes of silent work is the
+  failure mode here — from the outside it is indistinguishable from being stuck.
+  Before a long stretch, say what you're about to do; as each step lands, say
+  what it showed. A short line per step beats a perfect summary at the end.
 - **Verify by running, not by asserting.** Both real bugs in this codebase were
   found by executing against live feeds, not by reading code. Before reporting
   something works: `pnpm typecheck`, and run the thing.
+- **Before testing against the live bot, report the change and the output you
+  expect** — the message shape, which tab it lands in, what a reply should say —
+  and wait for the go. This is not a permissions gate on `pnpm dev`; it puts the
+  same expectation on the table before the test runs, instead of whatever
+  arrived being judged acceptable after the fact.
 - **Don't add a dependency without checking what's installed.** `@mastra/libsql`
   already pulls `@libsql/client`; `mastra` already pulls `esbuild`. grammy was
   installed and removed once the Chat SDK adapter turned out to cover both
@@ -50,8 +59,11 @@ changing any of them.
    `CATEGORIES`. Needing to touch agent or workflow code means the abstraction is
    wrong. ([0008](docs/decisions/0008-categories-as-configuration.md))
 4. **Drizzle owns app tables; Mastra owns `mastra_*`.** One database, one shared
-   connection, neither aware of the other.
-   ([0005](docs/decisions/0005-two-libsql-databases-instead-of-convex.md), [0006](docs/decisions/0006-drizzle-orm-for-application-tables.md))
+   connection, neither aware of the other. **One exception, and only one:**
+   `items_fts` and its three triggers are hand-written in
+   `drizzle/0005_items_fts.sql` because drizzle-kit cannot express a virtual
+   table. Anything else belongs in `src/db/schema.ts`.
+   ([0005](docs/decisions/0005-two-libsql-databases-instead-of-convex.md), [0006](docs/decisions/0006-drizzle-orm-for-application-tables.md), [0011](docs/decisions/0011-fts5-for-article-search.md))
 5. **Dedupe is global, not per-category.** Keyed on a hash of the canonical link.
 6. **Single replica.** Two would double-send digests and double-poll Telegram.
 7. **Exactly one adapter polls.** Ava's adapter (`mode: 'polling'`) owns the only
@@ -63,7 +75,9 @@ changing any of them.
 8. **The conversational surface is read-only over the pipeline.** Ava's tools
    query the news tables; none of them write, trigger a run, or mark anything
    delivered. This is what keeps invariant 2 true now that an LLM sits on an
-   inbound path. ([0009](docs/decisions/0009-telegram-topics-as-tabs.md))
+   inbound path. `read-article` may fetch a page the feed shipped no body for —
+   an outbound GET is not a write — but it must not store what it gets back.
+   ([0009](docs/decisions/0009-telegram-topics-as-tabs.md))
 9. **One tab, one kind of traffic.** Ava answers in Chat and nowhere else —
    messages typed in News are *moved* there, not answered in place. Digests go
    to News. Breaking this means the tabs stop meaning anything.
@@ -107,6 +121,23 @@ doesn't wrap without adding a second Telegram library.
 - **Feeds serve their entire history.** Figma returns 437 entries, OpenAI 1051.
   `pipeline.maxItemAgeDays` exists for this reason; removing it means paying to
   rank years-old news.
+- **drizzle-kit generates a `NOT NULL` add that only works on an empty table.**
+  `ALTER TABLE … ADD COLUMN … NOT NULL` with no default is rejected by SQLite the
+  moment the table has one row — "Cannot add a NOT NULL column with default value
+  NULL". This is exactly what it emitted for `feedback.title`/`source`, and it
+  passed only because that table has never had a row. `0006` is hand-edited into
+  a table recreate for that reason (the end state matches drizzle's snapshot, so
+  `db:generate` stays quiet — check that after any hand-edit). Always apply a
+  generated migration to a *populated* copy before trusting it: every repository
+  function awaits `migrate()`, so a migration that throws takes down the whole
+  app, not just the table it touches.
+- **`retentionDays` and `maxItemAgeDays` may not be tuned independently.**
+  Deleting an item frees its id, and the id *is* the dedupe — so a pruned story
+  its feed still serves would be re-ingested with a null `deliveredAt` and
+  **re-sent**. The only thing preventing that is the ingest window rejecting it
+  on age first, which needs retention (30d) to stay well above the window (7d).
+  Moving either number toward the other re-sends old news.
+  ([0012](docs/decisions/0012-thirty-day-retention-on-items.md))
 - **A single newline is a soft wrap, not a line break.** Telegram messages are
   parsed as markdown, so `heading\nbullet` renders as one run-on line — this
   shipped once and looked like an adapter bug. Separate blocks with a blank
@@ -142,6 +173,82 @@ doesn't wrap without adding a second Telegram library.
   inline in about half of posts. arXiv, Hacker News, Willison, OpenAI, Figma,
   CSS-Tricks and NNG have none. An image is the exception — never lay out a
   message assuming one is there.
+- **Tab order is Telegram's, not ours.** The client sorts tabs by most recent
+  message, so the order of `TOPICS` only decides creation order and no Bot API
+  method reorders them. Chat was created first and still sat under News until a
+  reply landed in it (verified 2026-07-28). A request to "put that tab first" has
+  no code answer — the only thing that moves a tab up is traffic in it.
+- **A search index is not a `LIKE`.** `search-news` matched the reader's entire
+  phrase as one contiguous substring, so `fine tune` could not find `fine-tune`
+  and every multi-word question missed. It now goes through `items_fts`
+  ([0011](docs/decisions/0011-fts5-for-article-search.md)). Two things bite when
+  touching it: punctuation is FTS5 *match syntax*, so terms must be quoted or
+  `fine-tune` throws `no such column: tune`; and the `AFTER UPDATE` trigger is
+  scoped `OF title, excerpt, content` because the pipeline writes `score` and
+  `deliveredAt` on every run and would otherwise reindex the table each time.
+  Verify the index against `items` with
+  `INSERT INTO items_fts(items_fts) VALUES('integrity-check')`.
+- **A tool that returns only headlines produces a model that hedges.** The
+  original `search-news` returned title/source/link/score and nothing else, so
+  even a *successful* search left Ava unable to say anything about an article —
+  she hedged, and it read as a search failure. It returns `excerpt` and `reason`
+  now, and `read-article` returns the body for one item at a time.
+- **Listing and reading are separate tools on purpose.** `search-news` matches
+  on the full body but returns excerpts; `read-article` returns one body in full.
+  Putting bodies in the search result is the obvious-looking change and is the
+  wrong one twice over: at the 8k cap fifteen results is ~30k tokens a search,
+  and it buries the article the reader asked about under fourteen others. Both
+  tools return `id` so the model can go from one to the other — if that field
+  is ever dropped from `articleShape`, reading breaks silently and Ava goes back
+  to answering from excerpts.
+- **Telegram feeds carry no body worth having, so `read-article` fetches.**
+  Hacker News items store the HN boilerplate as their excerpt — `Article URL: …
+  Points: 180 # Comments: 48` — and 15 of 288 items had no `content` at all.
+  `read-article` falls back to `fetchArticleText` for exactly those, and
+  deliberately does **not** write the result back: that would make it the one
+  tool on the conversational surface that writes to the pipeline's tables, and
+  invariant 8 is worth more than a free cache. Verified against Android
+  Developers, which ships no `content:encoded`: 7999 chars fetched live, 568 of
+  them nav chrome before the article starts.
+- **The reply is invisible until it's finished, unless streaming is on.**
+  `streaming` defaults to false for every adapter except Slack, and the
+  orchestrator takes ~25s over three round trips on a question that hits a tool.
+  The typing indicator does not cover the gap: the adapter sends
+  `sendChatAction` once, Telegram expires it after ~5s, and Mastra only re-sends
+  when the status *string* changes — which it doesn't while the model thinks.
+  `streaming: true` on the adapter entry streams through Telegram's draft API
+  and posts one real message at the end. It is a no-op in a supergroup:
+  `stream()` returns null unless `isDM`, i.e. a positive chat id.
+- **A reply that starts mid-word is the model, not the transport.** minimax-m3
+  intermittently closes its `</think>` tag *inside* the answer it has already
+  started writing, so OpenRouter routes the opening of the reply into the
+  reasoning channel and only the tail reaches Telegram. Seen twice in one real
+  session: the reader got `'as d'autres questions !` and a bare `✨`. It looks
+  exactly like broken streaming, and it isn't — check
+  `mastra_messages` before touching the adapter:
+
+  ```
+  reasoning: "…No tools needed.De rien 😄 N'hésite pas si t"
+  text:      "\n\n'as d'autres questions !"    ← all Telegram is given
+  ```
+
+  `reasoning: { enabled: false }` does not suppress it — verified against the
+  live API, m3 emits the think block regardless. The only real fix is a
+  different orchestrator model; measured alternatives, same conversation, three
+  runs each: `anthropic/claude-haiku-4.5` ($1/$5 per M) 1.0–1.8s and no think
+  block at all, `google/gemini-3.6-flash` ($1.50/$7.50) 1.3–1.6s cleanly split,
+  `deepseek/deepseek-v4-flash` ($0.14/$0.28) cleanly split but one run in three
+  took 12s. Staying on m3 ($0.30/$1.20) is a deliberate cost call — the
+  truncation is the price.
+- **A workflow can't be run from a plain script.** `createRun()` resolves fine
+  and `run.start()` then hangs forever with "unsettled top-level await" —
+  schedules are "only supported on the evented engine", and the evented engine
+  needs the pubsub loop the Mastra server owns. Nothing is wrong with the
+  workflow when this happens. Test a *step's* logic by calling the functions it
+  calls (that is how retention was verified, against a copy of the database), and
+  test the *workflow* from Studio. `mastra.listWorkflows()` and
+  `workflow.getScheduleConfigs()` do work in a script, which is enough to prove
+  registration and fire times.
 - **Clustering is empirically tuned.** Before changing
   `clusterSimilarityThreshold` or the token filter, re-run ingest and inspect the
   actual merges. ([0007](docs/decisions/0007-lexical-clustering-instead-of-embeddings.md))
@@ -157,10 +264,10 @@ doesn't wrap without adding a second Telegram library.
 *Last updated: 2026-07-28.*
 
 **Working and verified:** ingest with conditional GET, global dedupe, clustering,
-ranking, per-article summarization, six registered schedules (2 categories ×
-08:00 / 13:00 / 19:00 Europe/Paris), and Telegram delivery. Verified by a real
-scheduled fire on 2026-07-27: both 19:00 schedules fired, 272 items ingested,
-257 with article bodies, 8 articles delivered, no errors.
+ranking, per-article summarization, seven registered schedules (2 categories ×
+08:00 / 13:00 / 19:00 Europe/Paris, plus a 04:00 prune), and Telegram delivery.
+Verified by a real scheduled fire on 2026-07-27: both 19:00 schedules fired, 272
+items ingested, 257 with article bodies, 8 articles delivered, no errors.
 
 **Delivery is one message per article, not a grouped digest.** Telegram parses
 `rich_message.markdown` server-side into real blocks, so each message is a
@@ -200,14 +307,71 @@ in its own settings (`getChat.is_forum`). `topicRoute()` checks whichever applie
 disabled tabs in a group. `pnpm telegram:check` reports the route and the fix for
 whichever chat type it finds.
 
-**Still unverified:** that a digest actually lands in the News tab, and that Ava
-answers in Chat. Both need a real send, which has not been done. Typecheck
-passes, the instance boots with all five agents and Ava's four tools resolving,
-and provisioning ran for real; nothing beyond that was exercised.
+**Ava answers in Chat — verified end to end 2026-07-28.** Real inbound messages
+from the phone were answered in the Chat tab: four updates Telegram had queued
+drained on boot and got replies, then live messages after them. The polling
+adapter, the tab router and memory-on-one-thread all work against the real bot.
+
+The failure that prompted checking: **she is silent whenever the process isn't
+running**, and that looks exactly like a code regression. Telegram queues the
+updates (`getWebhookInfo.pending_update_count` counts them) and the adapter
+resets the webhook with `dropPendingUpdates: false`, so they are all answered
+once it comes back — there is no other symptom. Check that the process is up
+before reading any code.
+
+**Still unverified:** that a digest actually lands in the News tab. Needs a real
+scheduled fire, which has not happened since the tabs were provisioned.
 
 **Still not wired:** the 👍/👎 loop. The inbound path now exists, so
 `recentFeedback()` could finally be fed, but nothing handles a reaction yet and
-it still always returns empty.
+it still always returns empty. `recordVote(item, vote)` takes the whole item now,
+not an id — the caller has it in hand, since a reaction arrives on a message
+built from it.
+
+**Search rebuilt on FTS5, and the reply streams — 2026-07-28.** Both came out of
+one real conversation that went wrong: the reader asked about *"the 500$ rl fine
+tune"*, watched an empty chat for ~30 seconds, and got told Ava didn't know which
+model they meant — about an article she had delivered to them that morning.
+
+Two independent causes, both since fixed and verified:
+
+- **Search couldn't tokenize.** One `LIKE '%<whole phrase>%'`, so `fine tune`
+  missed `fine-tune`. Replaying the turn, all four of the model's searches
+  returned nothing. Now `items_fts` with porter stemming and bm25
+  ([0011](docs/decisions/0011-fts5-for-article-search.md)) — all four return the
+  right article ranked first, and the same question answers correctly in 8.4s.
+  288 existing rows were backfilled by the migration's `'rebuild'`; triggers
+  verified for insert, text update, non-text update and delete against a copy of
+  the live database before it was applied for real.
+- **Nothing streamed.** ~25s of silence with a typing indicator that expires
+  after 5. `streaming: true` on the adapter entry, plus `toolDisplay: 'cards'`
+  kept on deliberately — seeing `searchNews` return `{"articles": []}` in the
+  chat is how the search bug was noticed at all. Turn it to `'hidden'` when it
+  stops earning the noise.
+
+**Verified end to end for search, offline only for streaming.** The FTS5 work was
+checked against the live database and through a real agent turn. `streaming:
+true` typechecks and the draft path was read in the compiled adapter, but it has
+not yet been watched on a phone — that needs a real inbound message.
+
+**Ava is on vous, and the streaming report was a red herring — 2026-07-28.** A
+real session came back reading like a chat between mates: `T'as d'autres
+questions !`, a reply that was nothing but `✨`, and `Tu veux que je te dise quoi
+en plus ?`. The prompt's only tone rules were "skip the flattery" and "short by
+default", and short is what the model optimised.
+
+`instructions` now carries a **Tone** block: answer in the reader's language and
+use its formal register — `vous` in French, never `tu` — full sentences rather
+than telegraphic fragments, at most one emoji and never an emoji alone, and no
+throwaway closing question. Verified by replaying the three turns from that
+session against the live model: `Avec plaisir. Bon courage pour la suite.`,
+`Très bien, bonne soirée.`, and a full paragraph self-description on `vous`. The
+first draft of the block still answered `Non c'est bon` with `Pas de souci,
+autre chose ?`, which is why the closer rule names the done-signal explicitly.
+
+The truncated first message in the same session looked like the streaming work
+regressing. It wasn't — see the `</think>` gotcha above. Streaming itself is
+still only verified offline.
 
 **Ava is scoped to the Chat tab — 2026-07-28.** `src/mastra/channels.ts` swaps
 the inbound thread for the Chat tab's before the default handler runs, on all
@@ -224,8 +388,79 @@ Verified offline: the welcome renders as seven blocks through
 unconfigured (no adapter, no polling); and against the live chat the router's
 decision table is flat → moved, Chat → in place, News → moved, other chat →
 untouched, with the tabs resolving to two distinct `telegram:<chat>:<thread>` ids.
-**Not verified: an actual inbound message.** That needs the bot running and a
-phone.
+Since verified with real inbound messages too — see *Where work stopped*.
+
+**Tab names carry an emoji, and a rename reconciles — 2026-07-28.** `emoji` is a
+separate field from `title` in `src/config/topics.ts` because the two have
+different audiences: `topicTabName()` joins them for Telegram, while `title`
+alone is what Ava's instructions and the welcome interpolate (`the "💬 Chat" tab`
+reads badly in a prompt). `resolveTopics()` now pushes a changed name with
+`editForumTopic` and records what it sent in `telegram_topics.name` — there is no
+`getForumTopic` to read a name back with, so remembering it is the only way to
+know whether config has drifted from the live tab. Verified by renaming both live
+tabs in place: same ids, no duplicates, no lost messages.
+
+**Search can reach the article body, and the database now has a ceiling —
+2026-07-28.** Two changes, both verified by running.
+
+`read-article` is a fifth tool: full stored text for one item, keyed by the `id`
+every list tool now returns. `search-news` still returns excerpts and still
+matches on bodies — the split is the point, see the gotcha above. Verified
+against the live database: a stored body came back at 7998 chars against a
+396-char excerpt, an Android Developers item with no `content` fetched 7999 chars
+live, an unknown id returned null, and the `content is not null` count was
+unchanged at 273 afterwards, which is the check that nothing was written back.
+
+`prune-items` is a seventh schedule, daily at 04:00, deleting items older than
+`pipeline.retentionDays` (30) — and **only** items
+([0012](docs/decisions/0012-thirty-day-retention-on-items.md)). Verified against
+a *copy* of the live database with 60 rows aged past the cutoff and
+`pruneBatchSize` forced to 7 so the loop ran nine times: 288 → 228 items,
+`items_fts` 288 → 228 in step, `integrity-check` clean, zero index rows left
+pointing at nothing.
+
+**Votes are kept forever, and that is why `feedback` denormalizes.** The first
+version of retention swept votes whose article had been pruned, on the reasoning
+that they were unreadable anyway. True, and the wrong conclusion: they were
+unreadable because `recentFeedback` joined `items` for the title, so a 30-day
+retention silently gave the reader's taste a 30-day memory. `feedback` now stores
+`title` and `source` on the vote — the whole of what `renderInterestProfile`
+emits — nothing joins `items`, and no vote is ever deleted. Keeping the rows
+*without* denormalizing would have looked like a fix and changed nothing.
+
+The table can grow without bound and that is fine: it grows only when a human
+presses a button (~100 bytes), while items arrive by the hundred daily on their
+own. `feedbackWindow` (40) still caps what reaches the prompt.
+
+Verified end to end against a copy: a vote cast under the old schema was
+backfilled by the migration, a vote cast through `recordVote` on an article that
+was then pruned still appeared in the profile the ranker sees, and `getItem`
+returned null for that article at the same moment.
+
+Registration is verified through Mastra itself: `listWorkflows()` returns
+`['curateCategory', 'pruneItems']` and `pruneItems.getScheduleConfigs()` returns
+`[{ cron: '0 4 * * *', timezone: 'Europe/Paris', inputData: {} }]`.
+
+**Not yet seen in production:** no prune has fired on a real schedule. Nothing in
+the live database is old enough to delete yet — the oldest item is from
+2026-07-27, so the first real fire has nothing to do until late August. Studio
+(**Workflows → pruneItems**, input `{}`) is the way to watch one; it reports
+`{ cutoff, items, feedback }` and will legitimately report zeroes for a month. It
+cannot be driven from a script — see the evented-engine gotcha above.
+
+**`mastra_*` tables are not covered and must not be.** Mastra owns them
+(invariant 4), and they are not spare capacity — they are what Studio and the
+runtime read: `mastra_workflow_snapshot` is workflow run history *and* the state
+a suspended run resumes from, `mastra_threads` / `mastra_messages` are Ava's
+conversation memory. Deleting rows there is not a cleanup, it is deleting the
+chat history and breaking resumability. They are small today (22 snapshots, 30
+messages) but grow per run and per turn with nothing trimming them, so this will
+look tempting later. If storage ever looks wrong after retention ships, measure
+with `select name, sum(pgsize)/1024 kb from dbstat group by name order by kb desc`
+before assuming the prune job is broken. Mastra ships its own retention
+configuration (`reference-storage-retention` in the embedded docs); that is the
+lever, not a `delete from mastra_*`. Traces are the exception and already handled
+by construction — they live in `traces.db`, which is disposable as a whole file.
 
 **Resolved — the ADR-0002 open question.** `postMessage` does *not* require an
 initialized `ChatInstance`. Only the inbound paths (`handleWebhook`,

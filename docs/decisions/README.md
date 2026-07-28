@@ -28,6 +28,8 @@ something looks the way it does.
 | [0008](0008-categories-as-configuration.md) | Categories as configuration, one parameterized curator | Accepted |
 | [0009](0009-telegram-topics-as-tabs.md) | Telegram topics as tabs, splitting chat from news | Accepted |
 | [0010](0010-ava-answers-only-in-the-chat-tab.md) | Ava answers only in the Chat tab | Accepted |
+| [0011](0011-fts5-for-article-search.md) | FTS5 for article search, not embeddings | Accepted |
+| [0012](0012-thirty-day-retention-on-items.md) | Thirty-day retention on items, enforced by a scheduled prune | Accepted |
 
 ## Template
 

@@ -48,9 +48,44 @@ export const pipeline = {
   /** Recent 👍/👎 injected into the ranker to shape the interest profile. */
   feedbackWindow: 40,
 
+  /**
+   * bm25 column weights for article search, in the column order `items_fts`
+   * declares: title, excerpt, body. Unweighted, bm25 treats a term buried in an
+   * 8k-character body as worth the same as one in the headline, which sorts the
+   * obvious answer below three passing mentions.
+   */
+  searchColumnWeights: { title: 10, excerpt: 5, content: 1 },
+
   /** Telegram hard-caps messages at 4096 characters. */
   telegramMaxMessageChars: 3900,
 
+  /**
+   * How long a stored item survives before the prune job deletes it, measured
+   * from `discoveredAt`.
+   *
+   * **This must stay comfortably above `maxItemAgeDays`.** Deleting a row frees
+   * its id, and the id *is* the global dedupe ([invariant 5](../../AGENTS.md#invariants)) —
+   * so an item that is still being served by its feed would be re-ingested and
+   * re-delivered as if it were new. The ingest window is what prevents that: at
+   * 30 days against a 7-day window there is a 4× margin, and every one of the
+   * 288 items measured on 2026-07-28 carried a publication date, so every one of
+   * them is subject to that window.
+   */
+  retentionDays: 30,
+
+  /**
+   * Rows deleted per statement by the prune job. Each delete fires the
+   * `items_fts` delete trigger, so this bounds how long one write lock is held
+   * rather than how much work is done — the job loops until nothing is left.
+   */
+  pruneBatchSize: 500,
+
   /** Local-time hours (AVA_TIMEZONE) at which each category's digest fires. */
   digestHours: [8, 13, 19],
+
+  /**
+   * Local-time hour at which retention runs. Deliberately between the 19:00 and
+   * 08:00 digests: pruning holds a write lock the ingest step would contend for.
+   */
+  pruneHour: 4,
 } as const

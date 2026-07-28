@@ -1,0 +1,1 @@
+ALTER TABLE `telegram_topics` ADD `name` text;

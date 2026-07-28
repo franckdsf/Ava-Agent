@@ -43,6 +43,12 @@ Only steps 3 and 4 call a model. That's deliberate: a scheduled job that lets an
 LLM pick its own control flow is how you get surprise bills and duplicate
 messages.
 
+A seventh schedule, `prune-items`, runs at 04:00 and deletes items older than
+`retentionDays`, so the database stops growing without bound. It calls no model
+either. Retention must stay well above `maxItemAgeDays` — freeing an id frees it
+for re-ingest, and the ingest window is what stops a deleted story coming back
+([0012](docs/decisions/0012-thirty-day-retention-on-items.md)).
+
 ## Setup
 
 ```bash
@@ -56,7 +62,7 @@ validated lazily, so the news pipeline is fully usable before the bot exists.
 
 In Studio, open **Workflows → curateCategory**, run it with
 `{ "categorySlug": "design" }`, and watch each step. **Workflows → Schedules**
-lists the six declared fire times.
+lists the seven declared fire times — six digests and the nightly prune.
 
 ## Adding a category
 

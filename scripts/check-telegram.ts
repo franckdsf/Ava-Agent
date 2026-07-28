@@ -1,5 +1,5 @@
 import { telegramEnv } from '../src/config/env.js'
-import { TOPIC_LIST } from '../src/config/topics.js'
+import { TOPIC_LIST, topicTabName } from '../src/config/topics.js'
 import { topicIds } from '../src/db/topics.js'
 import { topicRoute } from '../src/services/telegram-topics.js'
 
@@ -61,6 +61,14 @@ if (route === 'unavailable') {
 const provisioned = await topicIds(TELEGRAM_CHAT_ID)
 console.log('\ntabs')
 for (const topic of TOPIC_LIST) {
-  const id = provisioned[topic.slug]
-  console.log(`  ${topic.title.padEnd(12)} ${id === undefined ? 'not created yet' : `#${id}`}`)
+  const row = provisioned[topic.slug]
+  const want = topicTabName(topic)
+  if (row === undefined) {
+    console.log(`  ${want.padEnd(14)} not created yet`)
+    continue
+  }
+  // A name that doesn't match config is a pending `editForumTopic`, not an
+  // error: the next resolve pushes it. Worth showing, since nothing else does.
+  const pending = row.name === want ? '' : `  (named ${row.name ?? 'unknown'}, rename pending)`
+  console.log(`  ${want.padEnd(14)} #${row.messageThreadId}${pending}`)
 }

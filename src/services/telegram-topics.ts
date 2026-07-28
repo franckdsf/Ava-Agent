@@ -1,6 +1,6 @@
-import { TOPIC_LIST, type TopicSlug } from '../config/topics.js'
+import { TOPIC_LIST, topicTabName, type TopicSlug } from '../config/topics.js'
 import { telegramEnv } from '../config/env.js'
-import { forgetTopic, rememberTopic, topicIds } from '../db/topics.js'
+import { forgetTopic, rememberTopic, renameTopic, topicIds } from '../db/topics.js'
 
 /**
  * Forum topics in the private chat — the tabs.
@@ -88,7 +88,8 @@ interface ForumTopic {
 }
 
 /**
- * Ensures every topic in `TOPICS` exists, and returns the thread ids by slug.
+ * Ensures every topic in `TOPICS` exists and is named what config says, and
+ * returns the thread ids by slug.
  *
  * Returns an empty map when topics are unavailable — Threaded Mode off, or an
  * older Bot API. Callers treat that as "send flat".
@@ -106,17 +107,26 @@ export async function resolveTopics(): Promise<Partial<Record<TopicSlug, number>
   const resolved: Record<string, number> = {}
 
   for (const topic of TOPIC_LIST) {
+    const name = topicTabName(topic)
     const existing = known[topic.slug]
     if (existing !== undefined) {
-      resolved[topic.slug] = existing
+      resolved[topic.slug] = existing.messageThreadId
+      if (existing.name !== name) {
+        await callBotApi('editForumTopic', {
+          chat_id: chatId,
+          message_thread_id: existing.messageThreadId,
+          name,
+        })
+        await renameTopic(chatId, topic.slug, name)
+      }
       continue
     }
     const created = await callBotApi<ForumTopic>('createForumTopic', {
       chat_id: chatId,
-      name: topic.title,
+      name,
       ...(topic.iconCustomEmojiId ? { icon_custom_emoji_id: topic.iconCustomEmojiId } : {}),
     })
-    await rememberTopic(chatId, topic.slug, created.message_thread_id)
+    await rememberTopic(chatId, topic.slug, created.message_thread_id, name)
     resolved[topic.slug] = created.message_thread_id
   }
 

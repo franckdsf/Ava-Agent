@@ -29,6 +29,27 @@
       "when": 1785183840123,
       "tag": "0003_cute_mesmero",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785232694314,
+      "tag": "0004_cheerful_firebrand",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785234857669,
+      "tag": "0005_items_fts",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785240663213,
+      "tag": "0006_thick_cargill",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
 import { batchAll, db, migrate } from './client.js'
 import { items } from './schema.js'
 import type { DeliveryKind, Item } from './schema.js'
@@ -137,4 +137,39 @@ export async function getItem(id: string): Promise<Item | null> {
   await migrate()
   const rows = await db().select().from(items).where(eq(items.id, id)).limit(1)
   return rows[0] ?? null
+}
+
+/**
+ * Deletes items discovered before `cutoff`, in batches, and reports how many
+ * went. This is the whole of retention — there is no soft delete and no
+ * tombstone.
+ *
+ * `discoveredAt` rather than `publishedAt` because it is the non-null column and
+ * it measures the thing being reclaimed: how long this row has occupied the
+ * database. It is also the safe one for dedupe. An item published *after* we
+ * discovered it does not exist, so `discoveredAt < cutoff` implies
+ * `publishedAt < cutoff`, and with `retentionDays` well above `maxItemAgeDays`
+ * that guarantees ingest would reject the same story on sight rather than
+ * treating a freed id as a new story. See `pipeline.retentionDays`.
+ *
+ * Batched because each row fires the `items_fts` delete trigger: one statement
+ * over thousands of rows is a long write lock, and the digest schedules share
+ * this connection.
+ */
+export async function deleteItemsOlderThan(cutoff: number, batchSize: number): Promise<number> {
+  await migrate()
+  let deleted = 0
+  for (;;) {
+    // Subquery rather than two round trips: the `limit` belongs to the select,
+    // and SQLite does not accept `limit` on `delete` unless it was compiled
+    // with SQLITE_ENABLE_UPDATE_DELETE_LIMIT, which libsql is not.
+    const batch = db()
+      .select({ id: items.id })
+      .from(items)
+      .where(lt(items.discoveredAt, cutoff))
+      .limit(batchSize)
+    const gone = await db().delete(items).where(inArray(items.id, batch)).returning({ id: items.id })
+    deleted += gone.length
+    if (gone.length < batchSize) return deleted
+  }
 }
