@@ -33,6 +33,20 @@ export const memoryConfig = {
   promptShortTermLimit: 40,
 
   /**
+   * Lines of each tier handed to the ranker on a curation run
+   * ([ADR-0016](../../docs/decisions/0016-reader-notes-in-the-ranker.md)).
+   *
+   * Lower than the prompt caps above, and not for cost — this block is sent once
+   * per run (six runs a day) against a batch of a hundred items, so it is noise
+   * next to the items themselves. It is lower because of *signal*: the ranker is
+   * scoring against a rubric, and every extra irrelevant fact is one more thing
+   * competing with it. Ava needs the whole person; the ranker needs the shape of
+   * their interests.
+   */
+  curationLongTermLimit: 40,
+  curationShortTermLimit: 20,
+
+  /**
    * Ceiling on one fact. A note is a sentence — anything longer is a summary of
    * a conversation, which is what the thread history is for.
    */

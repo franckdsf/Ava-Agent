@@ -82,10 +82,15 @@ changing any of them.
    on an inbound path. `read-article` may fetch a page the feed shipped no body
    for — an outbound GET is not a write — but it must not store what it gets
    back. **One exception, and only one:** `remember` and `forget-memory` write to
-   `memories`, which no pipeline stage reads. The boundary is the table, not the
-   direction — a conversational tool that wrote to `items` or `feedback` would
-   break this.
-   ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0014](docs/decisions/0014-two-tier-memory-for-ava.md))
+   `memories`. The boundary is the table, not the direction — a conversational
+   tool that wrote to `items` or `feedback` would break this.
+   **`memories` is no longer a dead end**, and that is deliberate: the ranker
+   reads it ([0016](docs/decisions/0016-reader-notes-in-the-ranker.md)), so a
+   note Ava writes mid-conversation changes what the *next* run scores. That is
+   the only path from a conversation into the pipeline, it is one-way and
+   asynchronous, and it must stay the only one — nothing conversational may reach
+   a run in progress, mark anything delivered, or write a score.
+   ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0014](docs/decisions/0014-two-tier-memory-for-ava.md), [0016](docs/decisions/0016-reader-notes-in-the-ranker.md))
 9. **One tab, one kind of traffic.** Ava answers in Chat and nowhere else —
    messages typed in News are *moved* there, not answered in place. Digests go
    to News. Breaking this means the tabs stop meaning anything.
@@ -290,6 +295,27 @@ doesn't wrap without adding a second Telegram library.
   returned is kept regardless of what its reason says. Re-run the fixture set
   three times after touching that prompt or changing `AVA_MODEL_MEMORY_REVIEWER`;
   one green run proves nothing.
+- **The ranker moves ±10 points on identical input, so a prompt A/B without a
+  control is worthless.** Adding the reader-notes block
+  ([0016](docs/decisions/0016-reader-notes-in-the-ranker.md)) moved 11 of 14
+  scores on the first measurement, which looks like a working feature and was
+  nearly reported as one. Running the *same* prompt three times showed a mean
+  max-min spread of **10.0 points per item** — almost every delta was inside it,
+  and the two that weren't pointed the wrong way. Any claim about a ranking
+  prompt needs both conditions run at least three times and the within-condition
+  spread reported next to the between-condition delta. To measure whether the
+  model acts on something at all, don't A/B *presence* — flip the input's
+  *direction* and watch the items it names: `+80.0` on those against `+5.3` on
+  the rest is a mechanism, `+15` on everything is weather.
+- **French is a facade on Ava's replies, and nowhere else.** A memory may record
+  that the reader writes in French and expects `vous`. That note is now in the
+  *ranker's* prompt too, where obeying it would produce French `reason` strings
+  in `items` — read later by `search-news`, by the article writer, and by
+  whoever opens the database. Every stored string, every prompt, every note is
+  English; only the text Telegram shows a human follows the reader's language.
+  Both prompts say so explicitly (`curator.ts` for reasons, `ava.ts` for notes)
+  because neither model infers it — verified across six ranking runs carrying a
+  lasting "writes in French" note, all reasons English.
 - **`decide` and `apply` are separate steps so a bad model response can't
   delete.** `reviewMemories` throws when the response has no parsed object rather
   than returning `[]`, because the caller deletes everything not promoted —
@@ -372,6 +398,28 @@ scheduled fire, which has not happened since the tabs were provisioned.
 it still always returns empty. `recordVote(item, vote)` takes the whole item now,
 not an id — the caller has it in hand, since a reaction arrives on a message
 built from it.
+
+**The ranker reads Ava's notes about the reader — verified offline, 2026-07-28.**
+`rank` now renders `memoriesForCuration()` beside the (still empty) vote profile,
+so the reader steers their digest by telling Ava what they want
+([ADR-0016](docs/decisions/0016-reader-notes-in-the-ranker.md)). This is what the
+👍/👎 loop was going to be and isn't yet: a thumb can only teach the ranker about
+a pattern it has already sent, a sentence can name a subject it never has.
+
+The ranker's prompt splits the notes in two, and the split is measured rather
+than assumed: a note stating what the reader wants is an instruction, applied
+hard and only to what it names (**+80.0** on those items, `+5.3` on the rest,
+against a 10-point noise floor); passive biography only breaks ties and mostly
+moves nothing, which is intended. See the ±10 gotcha above before touching that
+prompt — the first measurement of this change was a false positive.
+
+**Not yet seen on a real fire.** Every run above was `agent.generate()` from a
+script against a *copy* of the database with seeded notes (live `memories` was 2
+rows before and after). What has never been observed is a scheduled run ranking
+against notes Ava wrote herself, and the live table has nothing in it yet that
+expresses a preference — "Franck has brown eyes" is exactly the background the
+ranker is told to ignore. Telling Ava one thing you want more of, in the Chat
+tab, is what makes the next 08:00 run the first real test.
 
 **Ava has memory — verified end to end against the live model, 2026-07-28.** A
 `memories` table (Drizzle, `0007`), two tiers, one row per fact, and the whole

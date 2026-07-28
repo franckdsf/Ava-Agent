@@ -33,6 +33,7 @@ something looks the way it does.
 | [0013](0013-swipe-to-reply-as-article-context.md) | Swipe-to-reply resolves the article, with no table | Accepted |
 | [0014](0014-two-tier-memory-for-ava.md) | Two-tier memory, dated and never rewritten | Accepted |
 | [0015](0015-weekly-memory-review.md) | A weekly model-judged review promotes memories, then expires them | Accepted |
+| [0016](0016-reader-notes-in-the-ranker.md) | The ranker reads Ava's notes about the reader | Accepted |
 
 ## Template
 

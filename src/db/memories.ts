@@ -122,12 +122,36 @@ export async function getMemory(id: string): Promise<MemoryRow | undefined> {
 export async function memoriesForPrompt(
   now = Date.now(),
 ): Promise<{ long: Memory[]; short: Memory[] }> {
+  return liveNotes(now, memoryConfig.promptLongTermLimit, memoryConfig.promptShortTermLimit)
+}
+
+/**
+ * The same window, at the ranker's caps — what a curation run is shown about the
+ * reader ([ADR-0016](../../docs/decisions/0016-reader-notes-in-the-ranker.md)).
+ *
+ * A separate entry point rather than a `limits` argument on the one above,
+ * because the two callers are answering different questions with the same rows:
+ * Ava needs everything she knows about the person, the ranker needs enough to
+ * recognise which stories land near their life. Naming both makes the caps
+ * tunable against each other in `memoryConfig` instead of at a call site.
+ */
+export async function memoriesForCuration(
+  now = Date.now(),
+): Promise<{ long: Memory[]; short: Memory[] }> {
+  return liveNotes(now, memoryConfig.curationLongTermLimit, memoryConfig.curationShortTermLimit)
+}
+
+async function liveNotes(
+  now: number,
+  longLimit: number,
+  shortLimit: number,
+): Promise<{ long: Memory[]; short: Memory[] }> {
   await migrate()
   const [long, short] = await Promise.all([
-    newestFirst(eq(memories.tier, 'long'), memoryConfig.promptLongTermLimit),
+    newestFirst(eq(memories.tier, 'long'), longLimit),
     newestFirst(
       and(eq(memories.tier, 'short'), gte(memories.createdAt, shortTermCutoff(now))),
-      memoryConfig.promptShortTermLimit,
+      shortLimit,
     ),
   ])
   return { long: oldestFirst(long), short: oldestFirst(short) }

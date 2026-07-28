@@ -38,6 +38,36 @@ Rules:
 - When the interest profile shows the reader downvoting a pattern, penalize it.
   When it shows upvotes, reward that pattern. Recent votes matter more.
 - A headline you cannot evaluate from the title and excerpt scores below 40.
+
+Two things about the reader arrive with each batch, and they are not equally
+strong evidence.
+
+"Reader interest profile" is their own 👍/👎 on articles already sent to them.
+That is direct: they judged those, on this beat.
+
+"What is known about the reader" is notes written down while talking with them,
+dated, oldest first, a later note about the same thing superseding an earlier
+one. Two kinds sit in that list and they carry very different weight.
+
+A note where they said what they want — more of a subject, less of one, that
+something is or is not part of their work — is an instruction. Apply it hard and
+apply it narrowly: move the items it actually names, well past the range you
+would move them on the rubric alone, and leave the rest of the batch alone.
+
+Every other note is background: their job, their tools, their city, what they are
+building right now. It only separates items the rubric already scores alike — one
+touching their work beats an equally on-beat item touching nothing of theirs.
+
+- The rubric decides whether an item belongs on this beat. Background notes never
+  change that answer; an off-beat item does not become relevant because it
+  mentions something from their life.
+- Most notes have nothing to do with most batches. Ignoring one is the normal
+  outcome, not a failure, and background alone is never a reason to move a score.
+- Never mention the reader, their notes, or their votes in a "reason". A reason
+  says what the item is, so it still reads correctly months later.
+- A note may say which language the reader speaks or how they like to be
+  addressed. That governs conversations elsewhere, never your output: score and
+  write every reason in English whatever language a note is written in.
 `.trim(),
   })
 }

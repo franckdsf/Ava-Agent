@@ -2,8 +2,10 @@ import { createStep, createWorkflow } from '@mastra/core/workflows'
 import { z } from 'zod'
 import { CATEGORIES, getCategory } from '../../config/categories.js'
 import { env } from '../../config/env.js'
+import { memoryConfig } from '../../config/memory.js'
 import { pipeline } from '../../config/pipeline.js'
 import { recentFeedback, type FeedbackSignal } from '../../db/feedback.js'
+import { memoriesForCuration, type Memory } from '../../db/memories.js'
 import {
   insertDiscovered,
   isSharedFeedImage,
@@ -109,6 +111,49 @@ function renderInterestProfile(signals: FeedbackSignal[]): string {
     .join('\n\n')
 }
 
+/**
+ * What Ava has written down about the reader, rendered for the ranker.
+ *
+ * The 👍/👎 profile above says what they thought of articles; this says who they
+ * are — and the two answer different halves of "would they want this?". A vote
+ * can only teach the ranker about a pattern it has already sent, so a beat with
+ * no votes yet (all of them, today) has nothing but the rubric. The notes are the
+ * signal that exists from the first run
+ * ([ADR-0016](../../../docs/decisions/0016-reader-notes-in-the-ranker.md)).
+ *
+ * **Never throws.** A failed read here would take down a whole curation run over
+ * the part of it that is an enhancement; ranking without the notes is exactly how
+ * the pipeline behaved before they existed. Same reasoning as
+ * `memoryInstructions`, which swallows the same error for the same reason.
+ *
+ * Dates and oldest-first ordering are carried through rather than stripped: "left
+ * Acme (2025-11)" then "joined Globex (2026-03)" only reads as a job change in
+ * that order, and a ranker that reads it as two current employers weights the
+ * wrong company.
+ */
+async function renderReaderProfile(): Promise<string> {
+  let notes: { long: Memory[]; short: Memory[] }
+  try {
+    notes = await memoriesForCuration()
+  } catch {
+    return 'Unavailable this run. Judge on the rubric and the votes alone.'
+  }
+
+  const line = (note: Memory) => `- ${note.happenedOn} — ${note.fact}`
+  if (notes.long.length === 0 && notes.short.length === 0) {
+    return 'Nothing recorded yet. Judge on the rubric and the votes alone.'
+  }
+
+  return [
+    notes.long.length ? `Lasting:\n${notes.long.map(line).join('\n')}` : '',
+    notes.short.length
+      ? `Recent (last ${memoryConfig.shortTermDays} days):\n${notes.short.map(line).join('\n')}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 function renderItemsForRanking(items: Item[]): string {
   return items
     .map(item =>
@@ -154,14 +199,20 @@ const rank = createStep({
     const representativeIds = new Set(representatives.map(item => item.id))
 
     const agent = mastra.getAgent(rankerId(category.slug))
-    const profile = renderInterestProfile(
-      await recentFeedback(category.slug, pipeline.feedbackWindow),
-    )
+    // Both reads are independent of each other and of the batch; one round trip
+    // rather than two before a call that is already the slow part of the run.
+    const [profile, reader] = await Promise.all([
+      recentFeedback(category.slug, pipeline.feedbackWindow).then(renderInterestProfile),
+      renderReaderProfile(),
+    ])
 
     const response = await agent.generate(
       [
         '## Reader interest profile',
         profile,
+        '',
+        '## What is known about the reader',
+        reader,
         '',
         `## Items to score (${representatives.length})`,
         renderItemsForRanking(representatives),
