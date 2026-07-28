@@ -57,7 +57,6 @@ export const translator = new Agent({
       openrouter: {
         reasoning: { effort: 'low' },
         provider: {
-          order: ['cloudflare', 'morph'],
           sort: 'latency',
           allow_fallbacks: true,
         },

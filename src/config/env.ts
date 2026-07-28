@@ -54,7 +54,7 @@ const coreSchema = z.object({
    * It is also the only model call a reader waits on synchronously, which makes
    * a slow model expensive in a way the ranker's slowness never is.
    */
-  AVA_MODEL_TRANSLATOR: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
+  AVA_MODEL_TRANSLATOR: gatewayModelId.default('openrouter/google/gemini-3.1-flash-lite'),
 
   /**
    * Durable state: Mastra memory/workflows/scores plus the app's own tables.
