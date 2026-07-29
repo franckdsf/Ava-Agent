@@ -41,7 +41,9 @@ The full list is in the [README](README.md#commands). These three carry obligati
 | --- | --- |
 | `pnpm typecheck` | Run before claiming any change works. |
 | `pnpm db:generate` | **Required** after editing `src/db/schema.ts`, or the migration silently lags the code. |
-| `pnpm feeds:check` | Run after touching feeds in `src/config/categories.ts`. |
+| `pnpm feeds:check` | Run after adding or changing a feed. It reads `beat_feeds`, so it needs `.env` now — it used to need nothing. |
+| `pnpm discovery:check "<subject>"` | Dry-runs `/follow` end to end — names the beat, searches, verifies every feed, renders the report — writing and sending nothing. Run before believing any change to the namer, the scout, or feed resolution. |
+| `pnpm review:check` | **Required** after touching `verdictForBeat` or `src/config/feed-review.ts`. It is the only exercise the weekly feed review gets: a guard with no case here is a guard that silently stops applying, and the failure is a beat quietly losing good sources. Also prints what a run *today* would do to the live beats. |
 | `pnpm telegram:check` | Run before debugging a missing tab. Reports whether BotFather's Threaded Mode is on — the one prerequisite no code can set. |
 
 ## Invariants
@@ -63,16 +65,27 @@ changing any of them.
    `/translate`, and the summarizer behind `/summarize`. The distinction is who
    decides to spend: a cron fire nobody watches, or a person typing.
    ([0015](docs/decisions/0015-weekly-memory-review.md), [0017](docs/decisions/0017-translation-commands.md), [0018](docs/decisions/0018-summarize-command.md))
-3. **Categories are config, not code.** Adding a beat means adding an entry to
-   `CATEGORIES`. Needing to touch agent or workflow code means the abstraction is
-   wrong. ([0008](docs/decisions/0008-categories-as-configuration.md))
+3. **A beat is a row, not code.** Adding a beat means inserting into `beats` and
+   `beat_feeds`. Needing to touch agent or workflow code means the abstraction is
+   wrong — and needing to *restart* means something is still being derived at
+   module load, which is the bug this replaced. There is one ranker and one
+   article writer for every beat, and the rubric arrives in the prompt.
+   `src/config/seed-beats.ts` is a seed applied once to an empty table, not
+   configuration: editing it does not reach a beat that already exists.
+   ([0008](docs/decisions/0008-categories-as-configuration.md), [0019](docs/decisions/0019-beats-as-reader-owned-data.md))
 4. **Drizzle owns app tables; Mastra owns `mastra_*`.** One database, one shared
    connection, neither aware of the other. **One exception, and only one:**
-   `items_fts` and its three triggers are hand-written in
-   `drizzle/0005_items_fts.sql` because drizzle-kit cannot express a virtual
+   `articles_fts` and its three triggers are hand-written in
+   `drizzle/0010_articles_fts.sql` because drizzle-kit cannot express a virtual
    table. Anything else belongs in `src/db/schema.ts`.
    ([0005](docs/decisions/0005-two-libsql-databases-instead-of-convex.md), [0006](docs/decisions/0006-drizzle-orm-for-application-tables.md), [0011](docs/decisions/0011-fts5-for-article-search.md))
-5. **Dedupe is global, not per-category.** Keyed on a hash of the canonical link.
+5. **Dedupe is global, not per-beat.** Keyed on a hash of the canonical link. A
+   story matching several beats is stored **once** in `articles` and linked to
+   each of them in `article_beats`, where it is scored separately — and it is
+   **delivered once**, by whichever beat scored it highest among those clearing
+   their own threshold (`articles.deliveredBeat`). The losing beats keep their
+   score and their reason, which is what makes "why didn't you send me that?"
+   answerable. ([0019](docs/decisions/0019-beats-as-reader-owned-data.md))
 6. **Single replica.** Two would double-send digests and double-poll Telegram.
 7. **Exactly one adapter polls.** Ava's adapter (`mode: 'polling'`) owns the only
    inbound path; `src/services/telegram.ts` is outbound-only and never
@@ -80,21 +93,32 @@ changing any of them.
    Never use `mode: 'auto'` — it falls back to *webhook* when it can't verify
    `getWebhookInfo`, which silently breaks invariant 1.
    ([0009](docs/decisions/0009-telegram-topics-as-tabs.md))
-8. **The conversational surface is read-only over the pipeline.** Ava's news
-   tools query the news tables; none of them write, trigger a run, or mark
-   anything delivered. This is what keeps invariant 2 true now that an LLM sits
-   on an inbound path. `read-article` may fetch a page the feed shipped no body
-   for — an outbound GET is not a write — but it must not store what it gets
-   back. **One exception, and only one:** `remember` and `forget-memory` write to
-   `memories`. The boundary is the table, not the direction — a conversational
-   tool that wrote to `items` or `feedback` would break this.
-   **`memories` is no longer a dead end**, and that is deliberate: the ranker
-   reads it ([0016](docs/decisions/0016-reader-notes-in-the-ranker.md)), so a
-   note Ava writes mid-conversation changes what the *next* run scores. That is
-   the only path from a conversation into the pipeline, it is one-way and
-   asynchronous, and it must stay the only one — nothing conversational may reach
-   a run in progress, mark anything delivered, or write a score.
-   ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0014](docs/decisions/0014-two-tier-memory-for-ava.md), [0016](docs/decisions/0016-reader-notes-in-the-ranker.md))
+8. **The conversational surface may write what the next run reads, and never
+   what a run produced.** This used to read "read-only over the pipeline" with
+   `memories` as its one exception; that wording could not survive the reader
+   creating beats by talking to Ava, and a principle is better than a growing
+   list. The line now falls between *configuration* and *run output*:
+
+   - **May be written from a conversation:** `memories`, `beats`, `beat_feeds`.
+     All of it is input to some *future* run. It is one-way and asynchronous —
+     a note or a new beat changes what the next scheduled run does, never this
+     one.
+   - **Never:** `articles`, `article_beats`, `feedback`, any score, any
+     `deliveredAt`. Nothing conversational may reach a run in progress, mark
+     anything delivered, or write a verdict. An agent that could re-send a digest
+     would eventually re-send a digest.
+
+   This is what keeps invariant 2 true now that an LLM sits on an inbound path.
+   `read-article` may fetch a page the feed shipped no body for — an outbound GET
+   is not a write — but it must not store what it gets back.
+
+   **Starting a workflow is allowed, and only for the config side.** Finding
+   feeds for a new beat takes minutes, so it belongs in a background run rather
+   than a turn. That run may write `beats` and `beat_feeds` and report to Chat;
+   it may not touch the news tables, and nothing conversational may start
+   `curateAll`. A reader-triggered run is governed by invariant 2's own
+   distinction — a person typing, not a cron fire nobody watches.
+   ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0014](docs/decisions/0014-two-tier-memory-for-ava.md), [0016](docs/decisions/0016-reader-notes-in-the-ranker.md), [0019](docs/decisions/0019-beats-as-reader-owned-data.md))
 9. **One tab, one kind of traffic.** Ava answers in Chat and nowhere else —
    messages typed in any other tab are *moved* there, not answered in place.
    Digests go to News. Translations go to Translations. Breaking this means the
@@ -153,6 +177,69 @@ doesn't wrap without adding a second Telegram library.
   generated migration to a *populated* copy before trusting it: every repository
   function awaits `migrate()`, so a migration that throws takes down the whole
   app, not just the table it touches.
+- **A migration whose `when` is older than the newest *applied* one is silently
+  skipped, and this repo is currently primed to do it.** Drizzle applies only
+  migrations whose `_journal.json` `when` exceeds the latest `created_at` in
+  `__drizzle_migrations`. The hand-written `0010_articles_fts` and
+  `0011_reset_feed_state` were given timestamps of **2026-07-30T08:26:40**, which
+  was ~18 hours in the *future*, so `0012` generated on 2026-07-29 landed below
+  them and was treated as already applied. There is no error and no warning:
+  `db:generate` writes the file, `migrate()` reports nothing to do, and the app
+  dies later on `no such column`. Until wall-clock passes that timestamp, **check
+  the new entry's `when` against every other entry after every `db:generate`**
+  and bump it above the maximum if it is lower. `0012` was fixed this way — it is
+  the one legitimate reason to hand-edit `_journal.json`.
+- **Copying a live libsql database means copying `-wal` and `-shm` too.** The
+  main `.db` file only holds what has been checkpointed: on 2026-07-29 `ava.db`
+  was 4.3 MB from 14:17 while `ava.db-wal` held 5 MB of writes from 15:32, so a
+  `cp .data/ava.db` copy was missing an entire beat and five feeds — and looked
+  perfectly valid. Every "verified against a copy of the live database" claim in
+  this file was made that way; none of them was wrong in the end, but the next
+  one could be. Copy all three files, then check a row count you know.
+- **`--> statement-breakpoint` is split on as a plain string, comments and all.**
+  The migrator does `raw.split('--> statement-breakpoint')` with no idea what a
+  SQL comment is, so writing the marker *inside* a comment cuts the file there
+  and executes the fragment. A file must also end on a real statement — a
+  trailing marker leaves an empty string to run. Both fail identically and
+  uselessly: `SQLITE_UNKNOWN_0: not an error`, `extendedCode: SQLITE_OK`, and a
+  `statementIndex` counted across *every pending migration at once* with no file
+  name. Both were hit writing `0010`. To find it, re-split the pending files and
+  print each fragment's length with comments stripped; the empty one is the
+  culprit and the index will not match your count of statements.
+- **drizzle-kit needs a TTY when a table is dropped and another created in the
+  same diff.** It asks "renamed or new?" through `promptNamedWithSchemasConflict`
+  and dies with "Interactive prompts require a TTY terminal" under any piped or
+  non-interactive shell — there is no flag for it in 0.31. The way through is to
+  make the diff unambiguous: generate the *drops* first, from a schema with the
+  old tables removed, then restore the full schema and generate the *creates*.
+  Two clean migrations, correct snapshots, no hand-edited `_journal.json`. This
+  is how `0008` and `0009` were produced.
+- **Renaming a table strands its FTS index, and drizzle cannot see it.**
+  `items_fts` is a virtual table with no snapshot entry, so a generated
+  `DROP TABLE items` leaves it orphaned — queryable, permanently stale, invisible
+  to every later migration. Drop the triggers and the virtual table by hand
+  *first*, in the same migration. Statements drizzle doesn't track are safe to add
+  there for the same reason `0005` was safe; check `db:generate` still says
+  "nothing to migrate" afterwards. The FTS5 shadow tables (`_data`, `_idx`,
+  `_docsize`, `_config`) go with the virtual table on their own.
+- **Dropping the article table without clearing `feed_state` makes the next run
+  ingest nothing.** The etags survive — that table is keyed by URL and its shape
+  didn't change — so every feed answers 304 and the run reports zero errors and
+  zero articles. This is the conditional-GET gotcha below, self-inflicted.
+  `0011_reset_feed_state.sql` exists for exactly this and is a no-op on a fresh
+  database.
+- **A beat that starts following an already-polled feed must be backfilled from
+  the database, not by re-fetching.** Same 304, different symptom: ingest fetches
+  the URL, gets nothing back, and the new subscription is linked to nothing until
+  that feed's content actually changes — minutes on Hacker News, days on WebKit,
+  and the beat looks broken the whole time. Clearing `feed_state` to force a 200
+  is the obvious fix and the weaker one, because it recovers only what the feed
+  *currently serves*: fifteen items on HN, nothing at all from a dormant feed.
+  The articles are already in `articles`; link them (`articleIdsFromFeed` →
+  `linkToBeats`) and let the ranker do the rest. Use `maxItemAgeDays`, not
+  `retentionDays` — retention keeps 30 days but ingest only accepts 7, so a
+  full-retention backfill hands a new beat three-week-old stories to deliver as
+  news. `/addfeed` does this; `create-beat` must too.
 - **`retentionDays` and `maxItemAgeDays` may not be tuned independently.**
   Deleting an item frees its id, and the id *is* the dedupe — so a pruned story
   its feed still serves would be re-ingested with a null `deliveredAt` and
@@ -270,6 +357,71 @@ doesn't wrap without adding a second Telegram library.
   `deepseek/deepseek-v4-flash` ($0.14/$0.28) cleanly split but one run in three
   took 12s. Staying on m3 ($0.30/$1.20) is a deliberate cost call — the
   truncation is the price.
+- **A workflow *can* be started from a slash handler — verified 2026-07-29.**
+  The gotcha below is about a *script*, and it was read for a while as "nothing
+  can start a workflow but a schedule". `mastra.getWorkflow('discoverFeeds')
+  .createRun()` then an un-awaited `run.start()` works from inside
+  `sdk.onSlashCommand`, because the handler runs in the Mastra server and the
+  server owns the pubsub loop the evented engine needs. `/follow` does this and
+  both its messages arrived. Don't await it — `start()` resolves when the
+  *workflow* finishes, minutes later, and the acknowledgement has to go out
+  first.
+- **A search-native model is how this repo searches the web, and it needed no
+  dependency.** `openrouter/perplexity/sonar` routes through the same gateway and
+  key as everything else. Before reaching for a search SDK or a scraper, check
+  whether a model can do it. `sonar` over `sonar-pro` is measured on *verified
+  feeds*, not proposed sites — 18/24 vs 16/24 over three subjects, faster and
+  cheaper, and sonar-pro invented a domain (`chefpjacooks.com`) where sonar
+  returned the real one.
+- **Ask a model for sites, never for feed URLs.** A wrong feed URL never errors:
+  it is stored as a source that silently returns nothing forever. The homepage
+  goes to `discoverSiteFeed()`, which reads `<link rel="alternate">`, then tries
+  well-known paths, then follows one link to a feed-listing page — and
+  `checkFeed()` decides. Same discipline as templating an article's link rather
+  than letting the summarizer write it.
+- **Search in English even when the reader doesn't.** `"actualité de la formule
+  1"` returned 3 sites with 1 usable feed; the English phrasing of the same
+  subject returned 8 with 7. It costs the reader nothing — a source's language
+  never reaches them, since the digest is summarized and `/summarize` and
+  `/translate` answer in their language. The namer emits a `searchQuery` for this
+  and it is deliberately not stored.
+- **For a general outlet, hand the resolver the section page, not the root.**
+  `bbc.com` yielded nothing on a real run; `bbc.com/sport/formula1` resolved 3 of
+  3. A front page advertises no feed, and the section feed is the one worth
+  having anyway. Same for `espn.com` and `skysports.com`.
+- **The homepage fetch uses a browser User-Agent, and only that fetch.** With
+  `pipeline.userAgent`, `autosport.com` and `motorsport.com` answer **403** and
+  `racefans.net` answers **429** — three of the best sources for that subject.
+  Worth 4/10 → 7/10 on the first probe. The *feeds* those sites serve accept the
+  honest UA happily, so every feed fetch and every later poll keeps it; it is the
+  CDN in front of the page that objects. Don't "simplify" this to one UA.
+- **A feed's `<title>` is often not a name.** PlanetF1 ships 200 characters of
+  marketing copy, and that string would be the attribution under every article it
+  ever delivers. `sourceLabel()` takes the first segment before a dash and falls
+  back to the hostname past `pipeline.sourceMaxChars`. Note the dash class holds
+  en-dash *and* em-dash — a class with only one left `Contexte – Politiques
+  françaises et européennes` unsplit.
+- **`checkFeed()` cannot tell a feed from a sitemap.** `grandprix247.com`
+  declares a Google News sitemap as `application/rss+xml`; it parsed as 306
+  entries and was accepted. Unfixed.
+- **A dry-run script that rebuilds the workflow's own mapping will drift from
+  it.** `check-discovery.ts` had its own copy of the result mapping for one
+  commit, and the copy skipped `sourceLabel` — so the dry run showed a
+  47-character source name the real run would never produce. `describeSite` is
+  exported for this reason; import it rather than re-deriving it.
+- **A workflow written for one caller lies to the second one.** `discoverFeeds`
+  had exactly one caller — `/follow`, on a brand-new beat — and its report read
+  `results` for "feeds attached" and the run's `activate` flag for "is it
+  running". Both are correct only on that path. The weekly review's top-up is the
+  second caller: it runs on a beat *already near* `maxFeedsPerBeat`, so `attach`
+  keeps the first few and the report named every feed it had found, including the
+  ones it dropped on the floor; and it passes `activate: false` so as not to
+  un-pause anything, which made the report tell the owner of a **running** beat it
+  was paused. Neither was visible from `/follow`, where room is always 8 and
+  `activate` is always true. The fix is the shape to copy: `attach` now emits
+  `attachedFeeds` — what it actually wrote — and the report reads the beat's own
+  `archivedAt` rather than the caller's intent. **A step that reports on itself
+  must return what it did, not the inputs a caller can re-interpret.**
 - **A workflow can't be run from a plain script.** `createRun()` resolves fine
   and `run.start()` then hangs forever with "unsettled top-level await" —
   schedules are "only supported on the evented engine", and the evented engine
@@ -413,6 +565,181 @@ doesn't wrap without adding a second Telegram library.
 ## Where work stopped
 
 *Last updated: 2026-07-29.*
+
+**`/follow <subject>` ships — verified end to end on the real bot, 2026-07-29.**
+Say a subject in any language and a working beat comes back
+([ADR-0020](docs/decisions/0020-feed-discovery-from-a-subject.md)). This is
+phase 2 of managing beats from Telegram, and the **first workflow a conversation
+starts** — which the amended invariant 8 permits, for configuration only.
+
+A real `/follow formule 1` from the phone produced both messages in **Chat**: an
+acknowledgement naming the beat and its subtopics, then the report ~seconds
+later. The database shows what it should — `formula-1` with `archived_at` null,
+four feeds with clean source labels, null thresholds so it follows the defaults,
+and zero links because those URLs were new to the system.
+
+Two models, split by job, both registered as ordinary agents: `beat-namer`
+(cheap, no search) turns the subject into an English title, emoji, subtopics and
+rubric bullets; `beat-scout` (`perplexity/sonar`) proposes sites. **The scout
+never supplies a feed URL** — `src/services/feed-discovery.ts` resolves each page
+deterministically and `checkFeed()` is the only authority. See the six new
+gotchas above; every one of them was found by running, not by reading.
+
+**The rubric is a template with slots**, filled from the namer's bullets and
+assembled by `buildRubric()`. A model-authored rubric is a real quality risk that
+the ranker's ±10 noise floor would hide.
+
+`pnpm discovery:check "<subject>"` dry-runs the whole thing — names the beat,
+searches, resolves and verifies every feed, and renders the Telegram report —
+writing nothing and sending nothing. Use it before believing any change here.
+
+**Measured yield, and it depends on the subject.** Formula 1 settles at **6/8**
+across three runs with zero spread. EU policy ran **3/8, 4/8, 2/8**, and one run
+proposed two law firms and a PR agency. `formula1.com` publishes no feed at all;
+Sky Sports serves RSS at numeric ids nothing deterministic will find.
+
+**The weekly feed review ships — guards verified against fixtures, 2026-07-29.**
+`review-feeds` is the sixth schedule, **Monday 06:00**, between the memory review
+at 05:00 and the 08:00 digest. It restores, prunes, tops up, and reports:
+
+1. **Restore** first, so a feed coming back spends the week collecting a fresh
+   sample rather than being judged on the empty one it has. Restoring after
+   pruning would let a feed be brought back and archived again in one run.
+2. **Prune** feeds that earned nothing, under every guard in
+   `src/config/feed-review.ts`.
+3. **Top up** beats under the cap, by starting `discoverFeeds` with
+   `activate: false` — the same path `/follow` uses, so nothing unverified is
+   attached and there is no second copy of that logic to drift.
+
+**No model runs in the decision**; it is arithmetic over rows the ranker already
+scored. Only the top-up calls the scout.
+
+`beat_feeds` gained `archivedReason` and `trials` (`0012`). The reason is what
+separates "the review archived this" from "the reader typed `/removefeed`" — and
+**only the former is ever resurrected**. `trials` is the backoff: past
+`maxTrials` a feed stays archived and re-adding it is a deliberate `/addfeed`.
+
+**The guard that matters is `minBeatDelivered`.** If a beat has delivered
+nothing, the fault is the beat — a threshold too high, a rubric matching nothing
+— and *every* feed on it looks worthless. Without it, one misconfigured beat
+silently loses all its sources and the only symptom is quieter digests. Verified:
+against the live database today, all three beats are **skipped** for exactly this
+reason, because nothing is ranked yet. A review firing right now is a no-op,
+which is the correct behaviour and was the thing most at risk of being wrong.
+
+`pnpm review:check` runs 13 fixture cases over `verdictForBeat` — the pure,
+exported decision — and prints what a live run would do. Every guard has a case.
+Add one when you add a guard.
+
+**Per-source stats are on `/beat <slug>`.** `feedPerformance()` groups
+`article_beats` by `articles.feedUrl`: collected, ranked, delivered, mean and
+best score. It immediately showed that **arXiv contributes 340 of
+computer-science's 390 articles** — 87% of that beat's volume and rank cost from
+one feed. Note the attribution caveat in that function: `articles.feedUrl` is the
+feed a story was *first seen in*, so a feed whose stories usually arrive via a
+faster sibling looks emptier than it is. That is why `minCollected` exists.
+
+**No `/findfeeds` command, deliberately.** The weekly review is what re-runs
+discovery, so a manual entry point would be a second way to do the same thing.
+Studio drives it by hand: **Workflows → discoverFeeds**, with
+`{"slug":"…","subject":"…","activate":false}`.
+
+**Not yet seen on a real fire.** Nothing has been archived or restored for real —
+the first review has nothing to do until a beat has delivered something and a
+feed has 20 collected and 15 ranked against it. The restore path in particular
+cannot do anything for 30 days by construction.
+
+**Still no per-beat Telegram tab.** `/pause` archives a beat and there is no tab
+to close. When that lands, note that there is no Bot API method that *reads* a
+topic — a deleted tab is only discoverable by a send failing, and
+`createForumTopic` is not idempotent, so "check then create" makes duplicates.
+
+**The beat commands ship — verified offline, 2026-07-29.** Seven of them:
+`/beats`, `/beat <slug>`, `/pause`, `/resume`, `/addfeed`, `/removefeed`, and
+`/why` on a swipe. All answer in **Chat**, each as one message.
+
+**These are the first commands that write**, and the amended invariant 8 is what
+permits it — `beats` and `beat_feeds` only, never a score or a `deliveredAt`, and
+none of them starts a run. They are deterministic handlers with **no model call
+at all**, deliberately: archiving a beat should happen because the reader typed
+`/pause design`, not because a model inferred it from a sentence about being
+tired of design news.
+
+Two pieces here exist for the discovery workflow as much as for now.
+`services/feed-check.ts` fetches and parses a candidate and reports entries,
+newest date, whether it carries bodies — `/addfeed` refuses anything that fails,
+so a model-proposed URL will never reach the database unchecked. It uses its own
+fetch rather than `rss.ts` on purpose: that path writes `feed_state`, and
+recording an etag for a URL we might not subscribe to would make the first real
+ingest answer 304. **Checking a feed must leave no trace.**
+
+`/why` is the payoff for the join table. The ranker has always written a reason
+for everything it scores, and a single score column meant a rejected article's
+reason was overwritten by whichever beat looked at it last. Now every verdict
+survives: swipe an article, and it names each beat, its score, its reason, and
+which one sent it.
+
+`beatCommandReply()` is exported for the reason `renderSummary` and `welcome`
+are — it produces the message without sending, which is the only way to check
+block structure offline. It is *not* pure, unlike those two: checking `/pause`
+really does pause the beat.
+
+Verified against the live database, every command including its failure paths:
+unknown slug (lists the real ones), missing argument, a URL that 404s, a string
+that isn't a URL, double-pause, double-remove, and `/why` with no swipe. All
+eleven menu entries are under Telegram's 256-character cap with lowercase names —
+one bad entry rejects the **whole** `setMyCommands` call, not one row. Every
+reply parsed to distinct blocks through the real `formatConverter`, with the
+rubric fenced rather than escaped (it is prose full of parentheses and dashes,
+and escaping those is what made the first translation message unreadable).
+
+**Not yet seen against the real bot.** Every reply above came from
+`beatCommandReply` rather than Telegram, so what has never been observed is the
+command menu actually appearing, or `/addfeed` typed on a phone.
+
+**Beats are rows now, and a story can sit on several — schema and pipeline
+verified by running, 2026-07-29.** This is phase 1 of managing beats from
+Telegram ([ADR-0019](docs/decisions/0019-beats-as-reader-owned-data.md)).
+`CATEGORIES` is gone; `beats` and `beat_feeds` replace it, `items` is `articles`,
+and the per-beat verdict lives in `article_beats`. `curateCategory` became
+`curateAll`: `ingest → foreach(rankBeat) → assignBest → foreach(deliverBeat)`,
+three schedules instead of six, with an optional `beats` filter so a single beat
+can still be run from Studio.
+
+**Nothing conversational has changed yet.** Ava can *read* beats — the tools take
+a beat slug and her prompt renders the live list — but there is no `create-beat`,
+no discovery workflow, and no per-beat tab. Those are phases 2–4. What phase 1
+bought is that none of them now need a restart to take effect.
+
+Verified against the live database by running the functions each step calls
+(a workflow still cannot be driven from a script): migrations applied with
+`memories`, `telegram_topics` and every `mastra_*` table untouched; `seedBeats()`
+wrote 2 beats and 16 feeds from empty and returned 0 on a second call; 16 feeds
+fetched, 399 unique articles inserted and 399 links written, with a re-link
+returning **0**, which is the idempotence that stops a still-served story being
+re-scored; `articles_fts` at 399 against `articles` at 399 with a clean
+`integrity-check`; search working through the new index including the
+`fine-tune` punctuation case and the beat-scoped `EXISTS` filter; `read-article`
+returning a body and its verdicts, and null for an unknown id.
+
+Arbitration was checked with a story deliberately scored 70 on one beat and 90 on
+the other: it went to the **90**, the second story went the other way, both
+verdicts stayed readable, and after `markDelivered` it was a candidate on **zero**
+beats. A feed-pinned subtopic still beats the ranker's guess — an article ranked
+`ai-models` came back `frameworks` because GitHub Changelog pins it.
+
+**Schedules reconciled themselves, which was the open question.** `mastra_schedules`
+holds exactly 5 rows — `wf_curate-all__digest-0800/1300/1900`, `wf_prune-articles`,
+`wf_review-memories`. The six old `curate-category` rows and `wf_prune-items` are
+**gone**: Mastra deletes the rows of a workflow that no longer exists, so a renamed
+workflow does not leave a schedule firing into nothing. Worth knowing before
+renaming another one.
+
+**Not yet seen: a real scheduled fire, or anything in Telegram.** Every number
+above comes from calling the steps' functions directly. What has never run is
+`curateAll` itself — the `foreach` fan-out, the state carried across it, and
+delivery. The `dev` server has booted this code (it is what seeded the beats), so
+the next 19:00 fire is the first real test.
 
 **`/summarize [language]` — verified against the live model, and the command path
 confirmed on the real bot — 2026-07-29.** A real swipe followed by

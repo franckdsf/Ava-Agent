@@ -8,12 +8,14 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "mastra dev",
     "build": "mastra build",
-    "start": "node .mastra/output/index.mjs",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "feeds:check": "tsx scripts/check-feeds.ts",
+    "dev": "mastra dev",
+    "discovery:check": "tsx --env-file=.env scripts/check-discovery.ts",
+    "feeds:check": "tsx --env-file=.env scripts/check-feeds.ts",
+    "review:check": "tsx --env-file=.env scripts/check-feed-review.ts",
+    "start": "node .mastra/output/index.mjs",
     "telegram:check": "tsx --env-file=.env scripts/check-telegram.ts",
     "typecheck": "tsc --noEmit"
   },

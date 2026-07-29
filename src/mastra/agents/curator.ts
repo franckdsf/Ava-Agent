@@ -1,43 +1,66 @@
 import { Agent } from '@mastra/core/agent'
-import { CATEGORIES, type CategoryDefinition } from '../../config/categories.js'
 import { env } from '../../config/env.js'
 
 /**
- * One implementation, parameterized per category — never one agent class per
- * beat. A category's expertise comes from its rubric (baked into instructions)
- * and its interest profile (recent 👍/👎, passed fresh in the prompt so it
- * can't go stale between restarts).
+ * One ranker and one article writer for every beat — not one pair per beat.
  *
- * Ranking and writing are separate agents on purpose: ranking sees hundreds of
- * items per run and must be cheap, writing sees a handful and must be good.
+ * This used to build two agents per entry in `CATEGORIES` and register them all
+ * on the Mastra instance at import time, which meant a beat that did not exist
+ * when the process booted had no agent: `mastra.getAgent('rust-ranker')` threw.
+ * That was survivable while beats were a git-reviewable array and unworkable the
+ * moment the reader can add one by talking to Ava
+ * ([ADR-0019](../../../docs/decisions/0019-beats-as-reader-owned-data.md)).
+ *
+ * **The rubric moved from the instructions into the prompt**, and that is the
+ * whole of the change. ADR-0008 already drew this line for the feedback profile
+ * — "passed in the prompt, not in the instructions, so it cannot go stale
+ * between restarts" — and a rubric the reader edits mid-conversation now needs
+ * exactly the same treatment. What is left in the instructions is the part that
+ * is true of ranking itself, whatever the beat.
+ *
+ * Mastra 1.52 does support `instructions: ({requestContext}) => …`, which would
+ * have kept the rubric in the instructions and resolved it per call. It is not
+ * used here: it buys nothing over passing the same text in the prompt, and it
+ * would put a database read on a code path that has no way to report a failure.
+ *
+ * Ranking and writing stay separate agents, for the reason they always were:
+ * ranking sees hundreds of articles per run and must be cheap, writing sees a
+ * handful and must be good.
  */
 
-export const rankerId = (slug: string) => `${slug}-ranker`
-export const articleWriterId = (slug: string) => `${slug}-article-writer`
+export const rankerId = 'beat-ranker'
+export const articleWriterId = 'beat-article-writer'
 
-function createRanker(category: CategoryDefinition): Agent {
-  return new Agent({
-    id: rankerId(category.slug),
-    name: `${category.title} Ranker`,
-    model: env.AVA_MODEL_RSS_RANKER,
-    instructions: `
-You score news items for a single beat: ${category.title}.
+const ranker = new Agent({
+  id: rankerId,
+  name: 'Beat Ranker',
+  model: env.AVA_MODEL_RSS_RANKER,
+  instructions: `
+You score news articles for one beat at a time.
 
-${category.rubric}
+Every batch arrives with the beat it is for, the rubric that defines what that
+beat is, and the exact list of subtopic labels you may use. Those three change
+from batch to batch. Read them each time — never carry a rubric or a label set
+over from a previous batch.
 
-For every item you are given, return:
+For every article you are given, return:
 - "id": echoed back exactly as provided. Never invent or alter an id.
-- "score": 0-100 relevance against the rubric above.
-- "subtopic": exactly one of: ${category.subtopics.join(', ')}.
+- "score": 0-100 relevance against the rubric you were given.
+- "subtopic": exactly one label from the list you were given for this beat.
 - "reason": at most 15 words, concrete. Say what happened, not "this is relevant".
 
 Rules:
-- Score every item you are given. Never skip, merge, or reorder them.
-- Judge the item on its own merits; scores are absolute, not a ranking against
-  the rest of the batch. Most items in a normal batch should score below 50.
+- Score every article you are given. Never skip, merge, or reorder them.
+- Judge the article on its own merits; scores are absolute, not a ranking against
+  the rest of the batch. Most articles in a normal batch should score below 50.
 - When the interest profile shows the reader downvoting a pattern, penalize it.
   When it shows upvotes, reward that pattern. Recent votes matter more.
 - A headline you cannot evaluate from the title and excerpt scores below 40.
+
+A "reason" is written for every article, not only the ones that will be sent.
+The reader can ask why something was passed over, and your reason is the whole of
+the answer they get — so a low score deserves as specific a sentence as a high
+one. "Funding round, no technical content" is useful; "not relevant" is not.
 
 Two things about the reader arrive with each batch, and they are not equally
 strong evidence.
@@ -51,35 +74,38 @@ one. Two kinds sit in that list and they carry very different weight.
 
 A note where they said what they want — more of a subject, less of one, that
 something is or is not part of their work — is an instruction. Apply it hard and
-apply it narrowly: move the items it actually names, well past the range you
+apply it narrowly: move the articles it actually names, well past the range you
 would move them on the rubric alone, and leave the rest of the batch alone.
 
 Every other note is background: their job, their tools, their city, what they are
-building right now. It only separates items the rubric already scores alike — one
-touching their work beats an equally on-beat item touching nothing of theirs.
+building right now. It only separates articles the rubric already scores alike —
+one touching their work beats an equally on-beat article touching nothing of
+theirs.
 
-- The rubric decides whether an item belongs on this beat. Background notes never
-  change that answer; an off-beat item does not become relevant because it
-  mentions something from their life.
+- The rubric decides whether an article belongs on this beat. Background notes
+  never change that answer; an off-beat article does not become relevant because
+  it mentions something from their life.
+- The notes are about the reader, not about this beat, and the reader is the same
+  person on every beat. A note saying they do not want a subject applies here
+  even if this beat is not where they said it.
 - Most notes have nothing to do with most batches. Ignoring one is the normal
   outcome, not a failure, and background alone is never a reason to move a score.
 - Never mention the reader, their notes, or their votes in a "reason". A reason
-  says what the item is, so it still reads correctly months later.
+  says what the article is, so it still reads correctly months later.
 - A note may say which language the reader speaks or how they like to be
   addressed. That governs conversations elsewhere, never your output: score and
   write every reason in English whatever language a note is written in.
 `.trim(),
-  })
-}
+})
 
-function createArticleWriter(category: CategoryDefinition): Agent {
-  return new Agent({
-    id: articleWriterId(category.slug),
-    name: `${category.title} Article Writer`,
-    model: env.AVA_MODEL_RSS_SUMMARIZER,
-    instructions: `
-You summarize one article at a time for a reader following this beat:
-${category.title}.
+const articleWriter = new Agent({
+  id: articleWriterId,
+  name: 'Beat Article Writer',
+  model: env.AVA_MODEL_RSS_SUMMARIZER,
+  instructions: `
+You summarize one article at a time for a reader following a particular beat.
+The beat is named with each article; it tells you what the reader cares about,
+not what to write about.
 
 The sender adds the title, link, source, and layout. Never output those.
 
@@ -105,13 +131,10 @@ Style:
 - Avoid hype and marketing language.
 - Do not invent details.
 `.trim(),
-  })
-}
+})
 
-/** Every curator agent, keyed by id, ready to register on the Mastra instance. */
-export const curatorAgents: Record<string, Agent> = Object.fromEntries(
-  CATEGORIES.flatMap(category => [
-    [rankerId(category.slug), createRanker(category)],
-    [articleWriterId(category.slug), createArticleWriter(category)],
-  ]),
-)
+/** The curator agents, keyed by id, ready to register on the Mastra instance. */
+export const curatorAgents: Record<string, Agent> = {
+  [rankerId]: ranker,
+  [articleWriterId]: articleWriter,
+}

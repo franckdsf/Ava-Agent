@@ -2,7 +2,6 @@ import { createTelegramAdapter } from '@chat-adapter/telegram'
 import { Agent } from '@mastra/core/agent'
 import type { AgentChannels } from '@mastra/core/channels'
 import { Memory } from '@mastra/memory'
-import { CATEGORIES } from '../../config/categories.js'
 import { env, telegramChannelEnv } from '../../config/env.js'
 import { pipeline } from '../../config/pipeline.js'
 import { TOPICS } from '../../config/topics.js'
@@ -10,6 +9,7 @@ import { routeToChatTab, withQuotedMessage } from '../channels.js'
 import { newsTools } from '../tools/news.js'
 import { imageTools } from '../tools/image.js'
 import { memoryTools } from '../tools/memory.js'
+import { beatInstructions } from './beats.js'
 import { memoryInstructions } from './memory.js'
 
 /**
@@ -32,8 +32,6 @@ import { memoryInstructions } from './memory.js'
  * would silently need a public URL and break
  * [invariant 1](../../../AGENTS.md#invariants).
  */
-
-const beats = CATEGORIES.map(category => `${category.emoji} ${category.title}`).join(', ')
 
 export const avaId = 'ava'
 
@@ -132,14 +130,23 @@ export const ava = new Agent({
    *
    * Two system messages rather than one concatenated string: the static half
    * below stays byte-identical between turns and therefore remains a cacheable
-   * prompt prefix, while only the notes block changes. `instructions` accepts an
-   * async function returning `SystemMessage[]`, so the database read happens per
-   * request — two indexed queries against a table of one-line rows.
+   * prompt prefix, while only the volatile block changes. `instructions` accepts
+   * an async function returning `SystemMessage[]`, so the database read happens
+   * per request — a handful of indexed queries against tables of one-line rows.
+   *
+   * The beat list is in the volatile half for exactly the same reason the notes
+   * are: beats are rows the reader can add mid-conversation, so a list baked
+   * into the static prefix would be stale the moment they created one — and
+   * would invalidate the whole cached prefix rather than just the block that
+   * changed. The two reads are independent, so they go together.
    */
-  instructions: async () => [
-    { role: 'system' as const, content: baseInstructions },
-    { role: 'system' as const, content: await memoryInstructions() },
-  ],
+  instructions: async () => {
+    const [beats, notes] = await Promise.all([beatInstructions(), memoryInstructions()])
+    return [
+      { role: 'system' as const, content: baseInstructions },
+      { role: 'system' as const, content: `${beats}\n\n${notes}` },
+    ]
+  },
   /**
    * On the agent, not on `instructions` — a `providerOptions` block written
    * there is dropped before the request is built, so it reaches nothing. That is
@@ -177,8 +184,16 @@ const baseInstructions = `
 You are Ava, a personal assistant living in a Telegram chat with one reader.
 
 You also run a news pipeline for them in the background. It ingests RSS feeds on
-a schedule, ranks each item against a per-beat rubric, summarizes what survives,
-and pushes it to the "${TOPICS.news.title}" tab. Current beats: ${beats}.
+a schedule, ranks every article against the rubric of each beat whose feeds
+carried it, summarizes what survives, and pushes it to the
+"${TOPICS.news.title}" tab. The beats it currently follows, and the slug for
+each, are listed in the block below this one — they change, so read them there
+rather than remembering a list from an earlier turn.
+
+One story can be scored by several beats and is sent by exactly one: whichever
+scored it highest among those clearing their own bar. The others keep their score
+and a one-line reason, so "why didn't you send me that?" has a real answer —
+"why-not-sent" is the tool for it.
 
 You are talking to them in the "${TOPICS.chat.title}" tab, and only there —
 anything they type in another tab is answered here instead, so if a question

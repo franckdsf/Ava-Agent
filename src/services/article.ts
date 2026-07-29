@@ -1,5 +1,5 @@
 import { pipeline } from '../config/pipeline.js'
-import type { Item } from '../db/types.js'
+import type { Article } from '../db/types.js'
 
 /**
  * Article body extraction, kept dependency-free on purpose.
@@ -138,7 +138,7 @@ export function chunkText(text: string, max: number): string[] {
  * that ship only a headline, where the excerpt is boilerplate ("Article URL: …
  * Points: 180") and reading from it is reading from nothing.
  *
- * **Deliberately never written back to `items`.** It would be free self-healing,
+ * **Deliberately never written back to `articles`.** It would be free self-healing,
  * and it would also make the conversational surface a writer to the pipeline's
  * tables — see [invariant 8](../../AGENTS.md#invariants). The fetch is cheap
  * enough to repeat; the invariant is not worth spending.
@@ -148,10 +148,10 @@ export function chunkText(text: string, max: number): string[] {
  * Ava about a piece and then translates it should not get two different bodies.
  */
 export async function articleBody(
-  item: Pick<Item, 'content' | 'link'>,
+  article: Pick<Article, 'content' | 'link'>,
 ): Promise<{ text: string | null; from: 'feed' | 'fetched' | null }> {
-  if (item.content) return { text: item.content, from: 'feed' }
-  const fetched = await fetchArticleText(item.link)
+  if (article.content) return { text: article.content, from: 'feed' }
+  const fetched = await fetchArticleText(article.link)
   return { text: fetched, from: fetched ? 'fetched' : null }
 }
 

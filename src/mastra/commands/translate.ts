@@ -239,7 +239,7 @@ export function renderTranslation(
   const marker = part.total > 1 ? `${part.index}/${part.total}` : null
   const footer = [
     ...(part.index === part.total && source.kind === 'article'
-      ? [source.article.source, source.article.subtopic]
+      ? [source.article.source, source.subtopic]
       : []),
     marker,
   ]
@@ -250,7 +250,7 @@ export function renderTranslation(
   // Blank lines, not newlines: a single newline is a soft wrap in markdown and
   // collapses into the previous line when Telegram renders it.
   return [
-    ...(part.index === 1 && source.kind === 'article' ? [articleHeading(source.article), ''] : []),
+    ...(part.index === 1 && source.kind === 'article' ? [articleHeading(source.article, source.emoji), ''] : []),
     body,
     ...(footer ? ['', `_${footer}_`] : []),
   ].join('\n')

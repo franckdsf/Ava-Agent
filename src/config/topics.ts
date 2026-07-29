@@ -1,9 +1,16 @@
 /**
  * The tabs in the private chat with the bot.
  *
- * Config, not code — same reasoning as `CATEGORIES` in `categories.ts`. Adding a
- * tab means adding an entry here; needing to touch the topics service or the
- * delivery step would mean the abstraction is wrong.
+ * Config, not code: adding a tab means adding an entry here; needing to touch
+ * the topics service or the delivery step would mean the abstraction is wrong.
+ *
+ * These are the *system* tabs, and they are static on purpose — one per kind of
+ * traffic, decided here. Beats used to sit alongside them in the same style of
+ * config array and no longer do: they are rows the reader can create at runtime
+ * ([ADR-0019](../../docs/decisions/0019-beats-as-reader-owned-data.md)), so a
+ * per-beat tab cannot be an entry in a frozen object. `telegram_topics` is
+ * already keyed by `(chatId, slug)` with no reference to this list, which is
+ * what will let both kinds share it.
  *
  * Order here is only the order they are *created*. It is not the order Telegram
  * shows them: the client sorts tabs by most recent message, so News floats up at

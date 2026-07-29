@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto'
 import Parser from 'rss-parser'
-import type { CategoryDefinition, FeedDefinition } from '../config/categories.js'
 import { pipeline } from '../config/pipeline.js'
+import { getArticle } from '../db/articles.js'
 import { getFeedState, saveFeedState } from '../db/feeds.js'
-import { getItem } from '../db/items.js'
-import type { DiscoveredItem, Item } from '../db/types.js'
+import type { Article, DiscoveredArticle } from '../db/types.js'
 import { capText, htmlToText, toArticleText } from './article.js'
 
 /**
@@ -89,22 +88,22 @@ export function canonicalizeLink(link: string): string {
   }
 }
 
-export function itemId(link: string): string {
+export function articleId(link: string): string {
   return createHash('sha256').update(canonicalizeLink(link)).digest('hex').slice(0, 32)
 }
 
 /**
- * The stored item a URL points at — null if it was never ingested, or has since
- * been pruned.
+ * The stored article a URL points at — null if it was never ingested, or has
+ * since been pruned.
  *
- * The inverse of `itemId`, and only possible because of it: the id *is* the hash
- * of the canonical link, so any URL for an article is already its primary key.
- * That is what lets a reader point at a delivered digest without anything having
- * recorded which message carried which article
+ * The inverse of `articleId`, and only possible because of it: the id *is* the
+ * hash of the canonical link, so any URL for an article is already its primary
+ * key. That is what lets a reader point at a delivered digest without anything
+ * having recorded which message carried which article
  * ([ADR-0013](../../docs/decisions/0013-swipe-to-reply-as-article-context.md)).
  */
-export function itemForLink(link: string): Promise<Item | null> {
-  return getItem(itemId(link))
+export function articleForLink(link: string): Promise<Article | null> {
+  return getArticle(articleId(link))
 }
 
 function toExcerpt(raw: string | undefined): string | null {
@@ -113,9 +112,15 @@ function toExcerpt(raw: string | undefined): string | null {
   return text ? capText(text, pipeline.excerptMaxChars) : null
 }
 
+/** The minimum a fetch needs to know about a feed: where it is, and what to call it. */
+export interface FeedRef {
+  url: string
+  source: string
+}
+
 export interface FeedFetchResult {
   feedUrl: string
-  items: DiscoveredItem[]
+  articles: DiscoveredArticle[]
   /** Server answered 304 — nothing changed since our last fetch. */
   notModified: boolean
   error?: string
@@ -123,12 +128,14 @@ export interface FeedFetchResult {
 
 /**
  * Fetches one feed using conditional GET. A feed that fails is reported, never
- * thrown: one dead feed must not take down a category's whole run.
+ * thrown: one dead feed must not take down a whole run.
+ *
+ * Takes no beat. `feed_state` is keyed by URL globally, so a feed two beats both
+ * subscribe to must be fetched exactly once per run — fetching it per beat gave
+ * the second one a 304 and no articles at all. Which beats these articles belong
+ * to is decided by the caller, from the subscriptions on the URL.
  */
-export async function fetchFeed(
-  category: CategoryDefinition,
-  feed: FeedDefinition,
-): Promise<FeedFetchResult> {
+export async function fetchFeed(feed: FeedRef): Promise<FeedFetchResult> {
   const previous = await getFeedState(feed.url)
   const headers: Record<string, string> = { 'User-Agent': pipeline.userAgent }
   if (previous?.etag) headers['If-None-Match'] = previous.etag
@@ -149,7 +156,7 @@ export async function fetchFeed(
         lastStatus: '304',
         lastError: null,
       })
-      return { feedUrl: feed.url, items: [], notModified: true }
+      return { feedUrl: feed.url, articles: [], notModified: true }
     }
 
     if (!response.ok) {
@@ -161,13 +168,13 @@ export async function fetchFeed(
         lastStatus: String(response.status),
         lastError: error,
       })
-      return { feedUrl: feed.url, items: [], notModified: false, error }
+      return { feedUrl: feed.url, articles: [], notModified: false, error }
     }
 
     const parsed = await parser.parseString(await response.text())
     const oldestAccepted = Date.now() - pipeline.maxItemAgeDays * 24 * 60 * 60 * 1000
 
-    const items: DiscoveredItem[] = []
+    const found: DiscoveredArticle[] = []
     for (const entry of parsed.items ?? []) {
       const link = entry.link ?? entry.guid
       const title = entry.title?.trim()
@@ -176,9 +183,8 @@ export async function fetchFeed(
       const publishedAt = published ? Date.parse(published) : Number.NaN
       // Undated entries are kept — they just showed up, so treat them as current.
       if (!Number.isNaN(publishedAt) && publishedAt < oldestAccepted) continue
-      items.push({
-        id: itemId(link),
-        categorySlug: category.slug,
+      found.push({
+        id: articleId(link),
         feedUrl: feed.url,
         source: feed.source,
         title,
@@ -191,7 +197,6 @@ export async function fetchFeed(
         ),
         imageUrl: toImageUrl(entry),
         publishedAt: Number.isNaN(publishedAt) ? null : publishedAt,
-        subtopic: feed.subtopic ?? null,
       })
     }
 
@@ -203,7 +208,7 @@ export async function fetchFeed(
       lastError: null,
     })
 
-    return { feedUrl: feed.url, items, notModified: false }
+    return { feedUrl: feed.url, articles: found, notModified: false }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     await saveFeedState({
@@ -213,13 +218,34 @@ export async function fetchFeed(
       lastStatus: 'error',
       lastError: error,
     })
-    return { feedUrl: feed.url, items: [], notModified: false, error }
+    return { feedUrl: feed.url, articles: [], notModified: false, error }
   }
 }
 
-/** Fetches every feed for a category in parallel. Failures are reported, not thrown. */
-export async function fetchCategoryFeeds(
-  category: CategoryDefinition,
-): Promise<FeedFetchResult[]> {
-  return Promise.all(category.feeds.map(feed => fetchFeed(category, feed)))
+/**
+ * Fetches a set of distinct feeds in parallel. Failures are reported, not thrown.
+ *
+ * The caller is responsible for the set being distinct — this is the only place
+ * a feed is fetched, and fetching one twice in a run means the second call is a
+ * guaranteed 304 with nothing in it. `dedupeFeeds` builds that set.
+ */
+export async function fetchFeeds(feeds: readonly FeedRef[]): Promise<FeedFetchResult[]> {
+  return Promise.all(feeds.map(feed => fetchFeed(feed)))
+}
+
+/**
+ * Collapses per-beat subscriptions into one entry per URL.
+ *
+ * Several beats may subscribe to the same feed, each with its own `source`
+ * label and subtopic pin. Only one of them can describe the fetch, so the first
+ * subscription's `source` wins — the label is an attribution shown under an
+ * article, and two beats disagreeing about what to call Hacker News is not worth
+ * a second HTTP request.
+ */
+export function dedupeFeeds(subscriptions: readonly FeedRef[]): FeedRef[] {
+  const byUrl = new Map<string, FeedRef>()
+  for (const subscription of subscriptions) {
+    if (!byUrl.has(subscription.url)) byUrl.set(subscription.url, subscription)
+  }
+  return [...byUrl.values()]
 }

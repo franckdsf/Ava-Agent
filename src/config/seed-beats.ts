@@ -1,13 +1,24 @@
 /**
- * Categories are data, not classes. One curator agent and one workflow are
- * parameterized by these definitions, so adding a beat means adding an entry
- * here — never writing a new agent.
+ * The beats a brand-new database starts with.
  *
- * What lives here is declarative and git-reviewable. What the curator *learns*
- * (interest profile, feedback history) lives in Convex, keyed by category slug.
+ * **This is a seed, not configuration.** It was `CATEGORIES`, and editing that
+ * array was how you added a beat. Beats live in the `beats` table now
+ * ([ADR-0019](../../docs/decisions/0019-beats-as-reader-owned-data.md)) because
+ * the reader adds them by talking to Ava — so `seedBeats()` applies this list
+ * once, to an empty table, and never again. Changing a rubric here does **not**
+ * reach a beat that already exists; say it to Ava instead, or edit the row.
+ *
+ * It exists at all so a fresh clone, a fresh container, and a wiped development
+ * database all come up with something to read rather than an empty bot that
+ * cannot explain itself.
+ *
+ * Thresholds are omitted where they match `pipeline`'s defaults. That is the
+ * point of the nullable columns: a beat that never expressed an opinion follows
+ * the default when the default is retuned, instead of being pinned to whatever
+ * it was copied at.
  */
 
-export interface FeedDefinition {
+export interface SeedFeed {
   url: string
   /** Shown as the attribution in digests. */
   source: string
@@ -15,32 +26,27 @@ export interface FeedDefinition {
   subtopic?: string
 }
 
-export interface CategoryDefinition {
+export interface SeedBeat {
   slug: string
   title: string
   emoji: string
   /** Digest sections, and the label set the ranker must choose from. */
   subtopics: readonly string[]
-  feeds: readonly FeedDefinition[]
-  /** Injected into the ranker's instructions. This is what makes a curator expert. */
+  /** Injected into the ranker's prompt. This is what makes a curator expert. */
   rubric: string
-  /** 0–100. At or above this, an item joins the next scheduled digest. */
-  digestThreshold: number
-  /** 0–100. At or above this, an item interrupts immediately. */
-  breakingThreshold: number
-  /** Hard cap so a busy news day can't produce a wall of text. */
-  maxItemsPerDigest: number
+  /** Omit to follow `pipeline.defaultDigestThreshold`. */
+  digestThreshold?: number
+  /** Omit to follow `pipeline.defaultMaxItemsPerDigest`. */
+  maxItemsPerDigest?: number
+  feeds: readonly SeedFeed[]
 }
 
-export const CATEGORIES: readonly CategoryDefinition[] = [
+export const SEED_BEATS: readonly SeedBeat[] = [
   {
     slug: 'computer-science',
     title: 'Computer Science',
     emoji: '🧠',
     subtopics: ['ai-research', 'ai-models', 'frameworks'],
-    digestThreshold: 62,
-    breakingThreshold: 88,
-    maxItemsPerDigest: 6,
     rubric: `
 You are curating for a senior software engineer who builds AI applications daily.
 
@@ -87,8 +93,6 @@ Bias toward the primary source when several outlets carry the same story.
     title: 'Design',
     emoji: '🎨',
     subtopics: ['figma', 'platform-ui', 'design-systems', 'libraries'],
-    digestThreshold: 62,
-    breakingThreshold: 88,
     maxItemsPerDigest: 5,
     rubric: `
 You are curating for a senior engineer who ships product UI and cares about craft.
@@ -135,15 +139,4 @@ Prefer release notes and changelogs over articles describing them.
       },
     ],
   },
-] as const
-
-export function getCategory(slug: string): CategoryDefinition {
-  const category = CATEGORIES.find(c => c.slug === slug)
-  if (!category) {
-    const known = CATEGORIES.map(c => c.slug).join(', ')
-    throw new Error(`Unknown category "${slug}". Known categories: ${known}`)
-  }
-  return category
-}
-
-export const CATEGORY_SLUGS = CATEGORIES.map(c => c.slug)
+]

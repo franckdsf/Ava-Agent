@@ -265,7 +265,7 @@ export async function promoteMemories(ids: string[]): Promise<number> {
  * note promoted a moment earlier is no longer short and cannot be caught by the
  * sweep that follows. Nothing long-term is deletable by any scheduled job.
  *
- * Unbatched, unlike `deleteItemsOlderThan`: a week's worth of notes is tens of
+ * Unbatched, unlike `deleteArticlesOlderThan`: a week's worth of notes is tens of
  * rows with no FTS triggers behind them, so there is no write lock worth
  * chunking.
  */

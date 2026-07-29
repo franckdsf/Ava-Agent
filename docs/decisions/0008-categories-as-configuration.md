@@ -1,6 +1,11 @@
 # ADR-0008: Categories as configuration, one parameterized curator
 
-- **Status:** Accepted
+- **Status:** Partly superseded by [ADR-0019](0019-beats-as-reader-owned-data.md).
+  The decision below — one parameterized curator, expertise as data, never one
+  agent class per beat — is still exactly what the code does, and it is why 0019
+  was cheap. What 0019 replaces is only *where the data lives*: `CATEGORIES` in
+  a git-reviewable array became rows the reader owns. Read this one first; it
+  says why the shape is right.
 - **Date:** 2026-07-27
 
 ## Context

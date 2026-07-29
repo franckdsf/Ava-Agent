@@ -1,12 +1,13 @@
 import type { Mastra } from '@mastra/core'
 import type { AgentChannels, ChannelHandler } from '@mastra/core/channels'
-import { CATEGORIES } from '../config/categories.js'
+import { BEAT_COMMANDS } from '../config/beat-commands.js'
 import { env, telegramChatId } from '../config/env.js'
+import { activeBeats } from '../db/beats.js'
 import { pipeline } from '../config/pipeline.js'
 import { summary } from '../config/summary.js'
 import { TOPICS } from '../config/topics.js'
 import { TRANSLATIONS } from '../config/translation.js'
-import type { Item } from '../db/types.js'
+import type { Article } from '../db/types.js'
 import { quotedSource } from '../services/quoted-article.js'
 import {
   chatIdFromThreadId,
@@ -16,6 +17,8 @@ import {
   topicThreadId,
 } from '../services/telegram.js'
 import type { QuotedMessage } from '../services/telegram-reply.js'
+import { publishCommands } from '../services/telegram-topics.js'
+import { isBeatCommand, runBeatCommand } from './commands/beats.js'
 import { isSummaryCommand, runSummary } from './commands/summarize.js'
 import { isTranslationCommand, runTranslation } from './commands/translate.js'
 
@@ -103,7 +106,7 @@ export function withQuotedMessage(handler: ChannelHandler): ChannelHandler {
   }
 }
 
-function noteLines(quoted: QuotedMessage, article: Item | null): NoteLine[] {
+function noteLines(quoted: QuotedMessage, article: Article | null): NoteLine[] {
   const lines: NoteLine[] = [
     {
       text:
@@ -231,16 +234,72 @@ export async function registerChatCommands(
       return
     }
 
-    await sendToTelegram(event.command === '/start' ? welcome() : unknown(event.command), 'chat')
+    if (isBeatCommand(event.command)) {
+      // The only commands that write, and they write configuration only —
+      // `beats` and `beat_feeds`. See the restated
+      // [invariant 8](../../AGENTS.md#invariants). Answers in Chat: each one is
+      // a single short message. Sends its own message, including on failure.
+      await runBeatCommand(mastra, event, event.command)
+      return
+    }
+
+    await sendToTelegram(
+      event.command === '/start' ? await welcome() : unknown(event.command),
+      'chat',
+    )
+  })
+
+  // The menu Telegram offers when the reader types `/`. Fire-and-forget and
+  // deliberately after the handler is registered: a failure here costs the menu,
+  // never the commands themselves, and a command that is typed still runs.
+  void publishCommands(commandMenu()).catch(error => {
+    mastra.getLogger()?.error('Failed to publish the Telegram command menu', error)
   })
 }
 
-/** One line per command, for `/start` and for the unknown-command reply. */
+/**
+ * Every command, in the order the menu should show them.
+ *
+ * Built from the same config the help text is, so a command cannot be offered by
+ * the menu and unknown to `/start`, or the reverse. Reading, then managing:
+ * a reader scrolling this list is far more often looking for `/summarize` than
+ * for `/removefeed`.
+ */
+function commandMenu(): { command: string; description: string }[] {
+  return [
+    { command: '/start', description: 'What I do, and how to talk to me' },
+    { command: summary.command, description: summary.menuDescription },
+    ...Object.entries(TRANSLATIONS).map(([command, definition]) => ({
+      command,
+      description: definition.menuDescription,
+    })),
+    ...Object.entries(BEAT_COMMANDS).map(([command, definition]) => ({
+      command,
+      description: definition.description,
+    })),
+  ]
+}
+
+/**
+ * One line per command, for `/start` and for the unknown-command reply.
+ *
+ * Split in two because the list has outgrown a flat bullet run: reading commands
+ * work on an article you swiped, beat commands work on the pipeline itself, and
+ * a reader hunting for one is never hunting through the other group. Both halves
+ * come from the same config the Telegram menu is built from, so a command cannot
+ * be offered in one place and unknown in the other.
+ */
 function commandList(): string {
   return [
+    '**Reading**',
     '- `/start` — this message.',
     `- \`${summary.command}\` — ${summary.help}`,
     ...Object.entries(TRANSLATIONS).map(
+      ([command, definition]) => `- \`${command}\` — ${definition.help}`,
+    ),
+    '',
+    '**Beats**',
+    ...Object.entries(BEAT_COMMANDS).map(
       ([command, definition]) => `- \`${command}\` — ${definition.help}`,
     ),
   ].join('\n')
@@ -249,17 +308,25 @@ function commandList(): string {
 /**
  * What `/start` answers with — and the only place the three tabs are explained.
  *
- * Built from config so a new beat, a changed schedule or a new command can't
- * leave a stale description here ([invariant 3](../../AGENTS.md#invariants)).
+ * Built from the live beats and from config, so a new beat, a changed schedule
+ * or a new command can't leave a stale description here
+ * ([invariant 3](../../AGENTS.md#invariants)).
  *
- * Exported for the reason `renderTranslation` and `renderSummary` are: it is
- * pure, and it is the only way to check the message without sending one. A
- * single newline inside any entry below is a soft wrap that collapses two blocks
- * into one run-on line, which is invisible in code and obvious through
+ * Async now, because the beats it lists are rows rather than a config array. It
+ * is still exported for the reason `renderTranslation` and `renderSummary` are:
+ * it sends nothing, so it is the only way to check the message without sending
+ * one. A single newline inside any entry below is a soft wrap that collapses two
+ * blocks into one run-on line, which is invisible in code and obvious through
  * `formatConverter.toAst()`.
  */
-export function welcome(): string {
-  const beats = CATEGORIES.map(category => `- ${category.emoji} ${category.title}`).join('\n')
+export async function welcome(): Promise<string> {
+  const live = await activeBeats()
+  // A reader whose beats are all archived, or a database seeded with none, gets
+  // an invitation rather than an empty bullet list under a "Beats:" heading.
+  const beats =
+    live.length > 0
+      ? live.map(beat => `- ${beat.emoji} ${beat.title}`).join('\n')
+      : "- Nothing yet — tell me a subject to follow and I'll set one up."
   const hours = pipeline.digestHours.map(hour => `${String(hour).padStart(2, '0')}:00`)
 
   return [
@@ -275,7 +342,8 @@ export function welcome(): string {
     `Digests arrive at ${hours.join(', ')} ${env.AGENT_TIMEZONE}. Each article is delivered as its own message so you can read or save what matters.`,
     `Commands:`,
     commandList(),
-    `Every command works on a swipe: reply to any article and send the command on its own.`,
+    `The reading commands work on a swipe: reply to any article and send \`${summary.command}\`, \`/why\` or a translation on its own. The beat commands don't need one — they take a slug, and \`/beats\` lists them.`,
+    `\`/why\` is the one worth knowing about: every beat scores every article it sees and writes down what it made of it, so you can swipe something and ask why it arrived — or swipe one I skipped and see what it scored.`,
     `${Object.keys(TRANSLATIONS).map(command => `\`${command}\``).join(' and ')} answer in your own language, with the English kept in view, in the ${TOPICS.translations.title} tab — a long article arrives as several messages over a few minutes.`,
     `\`${summary.command}\` answers here in ${TOPICS.chat.title}, as one message: the article explained properly rather than compressed. It writes in ${summary.defaultLanguage} unless you name a language after it — \`${summary.command} fr\`, \`${summary.command} ru\`, or the language's own name.`,
     `If you want something specific, just ask — search the archive, show me a recent article, or tell me what interests you 😉.`,

@@ -1,13 +1,17 @@
 import { Mastra } from '@mastra/core'
+import { seedBeats } from '../db/beats.js'
 import { ava, avaId } from './agents/ava.js'
 import { curatorAgents } from './agents/curator.js'
 import { memoryReviewer, memoryReviewerId } from './agents/memory.js'
+import { scoutAgents } from './agents/scout.js'
 import { summarizer, summarizerId } from './agents/summarizer.js'
 import { translator, translatorId } from './agents/translator.js'
 import { registerChatCommands } from './channels.js'
 import { storage } from './storage.js'
-import { curateCategory } from './workflows/curate-category.js'
-import { pruneItems } from './workflows/prune-items.js'
+import { curateAll } from './workflows/curate-all.js'
+import { discoverFeedsWorkflow } from './workflows/discover-feeds.js'
+import { pruneArticles } from './workflows/prune-articles.js'
+import { reviewFeedsWorkflow } from './workflows/review-feeds.js'
 import { reviewMemoriesWorkflow } from './workflows/review-memories.js'
 
 export const mastra = new Mastra({
@@ -20,16 +24,49 @@ export const mastra = new Mastra({
   // registered here rather than constructed at their call site so they resolve
   // through `mastra.getAgent` like every other model call, and so their runs
   // show up in Studio.
+  //
+  // There are exactly two curator agents now, not two per beat. Building them
+  // from a config array was what tied the agent set to boot time, and a beat the
+  // reader creates at 3pm has to be rankable at 3pm
+  // ([ADR-0019](../../docs/decisions/0019-beats-as-reader-owned-data.md)).
   agents: {
     ...curatorAgents,
+    ...scoutAgents,
     [avaId]: ava,
     [memoryReviewerId]: memoryReviewer,
     [translatorId]: translator,
     [summarizerId]: summarizer,
   },
-  workflows: { curateCategory, pruneItems, reviewMemories: reviewMemoriesWorkflow },
+  // `discoverFeeds` is the only one with no schedule: it runs because a reader
+  // typed `/follow`, never on a clock. It is also the only workflow a
+  // conversation may start, and it may write configuration only — see the
+  // amended [invariant 8](../../AGENTS.md#invariants).
+  workflows: {
+    curateAll,
+    discoverFeeds: discoverFeedsWorkflow,
+    pruneArticles,
+    reviewFeeds: reviewFeedsWorkflow,
+    reviewMemories: reviewMemoriesWorkflow,
+  },
   storage,
 })
+
+// Writes the starter beats if the table is empty, so a fresh clone or a wiped
+// development database comes up with something to read rather than a bot that
+// cannot explain itself. A no-op on every boot after the first — the table is
+// the authority once it has anything in it, and re-applying the seed would
+// resurrect an archived beat and overwrite an edited rubric.
+//
+// Fire-and-forget with the same disposition as the channel registration below:
+// the pipeline must still come up if this fails, and every repository call
+// awaits its own `migrate()` anyway.
+void seedBeats()
+  .then(created => {
+    if (created > 0) mastra.getLogger()?.info(`Seeded ${created} starter beats`)
+  })
+  .catch(error => {
+    mastra.getLogger()?.error('Failed to seed starter beats', error)
+  })
 
 // Slash commands can only be registered on the live Chat SDK instance, which
 // exists only once `AgentChannels.initialize()` has resolved. Registering the

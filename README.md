@@ -60,16 +60,28 @@ pnpm dev                 # Studio at http://localhost:4111
 Only `OPENROUTER_API_KEY` is required to start — Telegram variables are
 validated lazily, so the news pipeline is fully usable before the bot exists.
 
-In Studio, open **Workflows → curateCategory**, run it with
-`{ "categorySlug": "design" }`, and watch each step. **Workflows → Schedules**
-lists the seven declared fire times — six digests and the nightly prune.
+On first boot the `beats` table is seeded from
+[`src/config/seed-beats.ts`](src/config/seed-beats.ts) so there is something to
+read. After that the table is the authority — the file is a starting state, not
+configuration.
 
-## Adding a category
+In Studio, open **Workflows → curateAll** and run it with `{}` for every beat, or
+`{ "beats": ["design"] }` for one. **Workflows → Schedules** lists five declared
+fire times: three digests, the nightly prune, and the weekly memory review.
 
-Add an entry to [`src/config/categories.ts`](src/config/categories.ts) — slug,
-subtopics, feeds, rubric, thresholds. Nothing else. The agents, the workflow and
-the schedules are all derived from that array, and the rubric plus a per-category
-feedback history is what makes each curator expert on its beat.
+## Adding a beat
+
+A beat is a row in `beats` plus its feeds in `beat_feeds` — slug, subtopics,
+rubric, and optional thresholds that fall back to `src/config/pipeline.ts` when
+null. Nothing is derived at boot any more, so a beat added while the process is
+running is picked up by the next digest with no restart
+([ADR-0019](docs/decisions/0019-beats-as-reader-owned-data.md)). What makes each
+curator expert on its beat is its rubric, passed in the ranker's prompt, plus a
+per-beat feedback history and Ava's notes about the reader.
+
+A story carried by two beats' feeds is stored once and scored by both, and is
+delivered by whichever scored it higher. The others keep their score and a
+one-line reason, so you can ask why something was skipped.
 
 Then verify the feeds resolve:
 
@@ -83,7 +95,7 @@ pnpm feeds:check
 | --- | --- |
 | `pnpm dev` | Mastra Studio — run agents and workflows, read traces |
 | `pnpm build` | Bundle to `.mastra/output` |
-| `pnpm feeds:check` | Confirm every configured feed is reachable and parses |
+| `pnpm feeds:check` | Confirm every subscribed feed is reachable and parses |
 | `pnpm db:generate` | Emit a migration after editing `src/db/schema.ts` |
 | `pnpm db:studio` | Browse the database |
 | `pnpm typecheck` | `tsc --noEmit` |

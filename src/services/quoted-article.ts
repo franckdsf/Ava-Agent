@@ -1,6 +1,6 @@
 import { pipeline } from '../config/pipeline.js'
-import type { Item } from '../db/types.js'
-import { itemForLink } from './rss.js'
+import type { Article } from '../db/types.js'
+import { articleForLink } from './rss.js'
 import { type QuotedMessage, quotedMessage } from './telegram-reply.js'
 
 /**
@@ -22,7 +22,7 @@ export interface QuotedSource {
   /** The message replied to, flattened out of whichever shape it arrived in. */
   quoted: QuotedMessage
   /** The stored article it links to, or null when it links to nothing we hold. */
-  article: Item | null
+  article: Article | null
 }
 
 /**
@@ -42,13 +42,13 @@ export async function quotedSource(raw: unknown): Promise<QuotedSource | undefin
  *
  * First hit wins: a digest carries exactly one link and it is the article's, so
  * anything after it is a link Ava wrote into a later message. How a URL becomes
- * a row is `itemForLink`'s business — all that is decided here is how many of a
+ * a row is `articleForLink`'s business — all that is decided here is how many of a
  * quoted message's links are worth trying.
  */
-async function quotedArticle(links: string[]): Promise<Item | null> {
+async function quotedArticle(links: string[]): Promise<Article | null> {
   for (const link of links.slice(0, pipeline.quotedLinkLookups)) {
-    const item = await itemForLink(link)
-    if (item) return item
+    const article = await articleForLink(link)
+    if (article) return article
   }
   return null
 }

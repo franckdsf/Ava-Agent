@@ -220,11 +220,18 @@ Shape of an implementation here: enable Threaded Mode; call `createForumTopic`
 directly (not wrapped); route with `encodeThreadId({ chatId, messageThreadId })`;
 key conversation memory on the thread id rather than the chat id.
 
-The obvious fit is one topic per category from `src/config/categories.ts`,
-replacing today's single flat stream into `TELEGRAM_CHAT_ID`. That is a real
-design change with a real cost — topic ids must be persisted and reconciled, and
-delivery stops being idempotent in the same way. **It needs an ADR**
-([how](decisions/README.md)), not a quiet commit.
+The obvious fit is one topic per beat, replacing today's single flat stream into
+`TELEGRAM_CHAT_ID`. That is a real design change with a real cost — topic ids must
+be persisted and reconciled, and delivery stops being idempotent in the same way.
+**It needs an ADR** ([how](decisions/README.md)), not a quiet commit.
+
+Since [ADR-0019](decisions/0019-beats-as-reader-owned-data.md) the beats are rows
+rather than a config array, so the tab set is no longer knowable at boot and
+`TopicSlug` cannot stay a compile-time union covering both kinds.
+`telegram_topics` is keyed `(chatId, slug)` with no reference to `TOPICS`, so it
+already holds whatever slugs it is given. Two things that will need answering and
+have not been probed: how many topics a private chat may hold, and the rate limit
+on creating them.
 
 ---
 

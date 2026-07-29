@@ -20,6 +20,14 @@ export const summary = {
   /** The literal Telegram command. */
   command: '/summarize' as const,
 
+  /**
+   * One short sentence for Telegram's command menu, pushed with `setMyCommands`.
+   *
+   * Separate from `help` for the reason the translation commands' is: the menu is
+   * read while typing, capped at 256 characters, and renders markdown literally.
+   */
+  menuDescription: 'Summarize the article you swiped, in any language',
+
   /** One line, shown by `/start` and by the unknown-command reply. */
   help:
     'a detailed summary of the article. In English by default — add a language ' +

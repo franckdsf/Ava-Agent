@@ -71,6 +71,31 @@ const coreSchema = z.object({
   AVA_MODEL_SUMMARIZER: gatewayModelId.default('openrouter/google/gemini-3.1-flash-lite'),
 
   /**
+   * `/follow`: turns the subject the reader typed into an English beat
+   * definition — title, emoji, subtopics, rubric bullets.
+   *
+   * Cheap and schema-constrained, like the ranker. It runs once per beat ever
+   * created, over one line of input, and needs no search — which is the whole
+   * reason it is not the scout below.
+   */
+  AVA_MODEL_BEAT_NAMER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
+  /**
+   * `/follow`: proposes websites that publish about the subject.
+   *
+   * **The only model here that needs the open web**, and the reason no search
+   * dependency was added — `perplexity/sonar` searches natively and bills
+   * through the same `OPENROUTER_API_KEY` as everything else.
+   *
+   * `sonar` rather than `sonar-pro` is measured, not assumed: 18/24 verified
+   * feeds against 16/24 over three subjects, faster and cheaper, with sonar-pro
+   * inventing a domain on one of them. See `src/mastra/agents/scout.ts`. If you
+   * change this, the replacement must actually search — a plain chat model will
+   * confidently return sites from its training data and the misses will be
+   * silent ones.
+   */
+  AVA_MODEL_BEAT_SCOUT: gatewayModelId.default('openrouter/perplexity/sonar'),
+
+  /**
    * Durable state: Mastra memory/workflows/scores plus the app's own tables.
    * `file:` for local dev, `libsql://…` (Turso) in production so the container
    * stays stateless and needs no volume.

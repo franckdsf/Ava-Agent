@@ -114,7 +114,7 @@ export function renderSummary(source: Source, paragraphs: string[], language: st
     .join('\n\n')
 
   const footer = [
-    ...(source.kind === 'article' ? [source.article.source, source.article.subtopic] : []),
+    ...(source.kind === 'article' ? [source.article.source, source.subtopic] : []),
     language.trim(),
   ]
     .filter((value): value is string => Boolean(value))
@@ -124,7 +124,7 @@ export function renderSummary(source: Source, paragraphs: string[], language: st
   // Blank lines, not newlines: a single newline is a soft wrap in markdown and
   // collapses into the previous line when Telegram renders it.
   return [
-    ...(source.kind === 'article' ? [articleHeading(source.article), ''] : []),
+    ...(source.kind === 'article' ? [articleHeading(source.article, source.emoji), ''] : []),
     body,
     ...(footer ? ['', `_${footer}_`] : []),
   ].join('\n')

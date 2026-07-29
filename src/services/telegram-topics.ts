@@ -42,6 +42,31 @@ async function callBotApi<T>(method: string, params: Record<string, unknown> = {
   return body.result as T
 }
 
+/**
+ * Publishes the command menu — the list Telegram shows when a reader types `/`.
+ *
+ * Straight to the Bot API for the reason topic lifecycle is: the adapter wraps
+ * no `setMyCommands`. It is not the same thing as *handling* a command, which
+ * `channels.ts` does with a catch-all; this only decides what is offered. A
+ * command absent from here still works when typed.
+ *
+ * Pushed on every boot rather than once, because it is a full replacement and
+ * the source of truth is the config. Telegram caps `description` at 256
+ * characters and rejects the whole call if any entry is longer or if a command
+ * name is not lowercase — so a bad entry costs the *entire* menu, not one row.
+ */
+export async function publishCommands(
+  commands: readonly { command: string; description: string }[],
+): Promise<void> {
+  await callBotApi('setMyCommands', {
+    // Telegram wants them without the leading slash.
+    commands: commands.map(entry => ({
+      command: entry.command.replace(/^\//, ''),
+      description: entry.description,
+    })),
+  })
+}
+
 interface BotIdentity {
   id: number
   username?: string

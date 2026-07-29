@@ -10,6 +10,17 @@ export const pipeline = {
   feedTimeoutMs: 20_000,
 
   /**
+   * Longest source label taken from a feed's own `<title>`.
+   *
+   * A feed title is not always a name. PlanetF1's is 200 characters of marketing
+   * copy — *"PlanetF1 - news articles, features, everything - we're only giving
+   * away a teaser, we want to promote everything we've got…"* — and that string
+   * is the attribution printed under every article the feed ever delivers.
+   * Past this, the hostname is used instead, which is always a name.
+   */
+  sourceMaxChars: 40,
+
+  /**
    * Excerpt length handed to the ranker. arXiv abstracts run long and the
    * ranker sees hundreds of items per run — this is the main cost lever.
    */
@@ -33,6 +44,29 @@ export const pipeline = {
   maxItemsPerRankingRun: 250,
 
   /**
+   * What a beat scores against when it has expressed no opinion of its own.
+   *
+   * `beats.digest_threshold` and `beats.max_items_per_digest` are nullable, and
+   * null reads as these numbers rather than being copied into the row at
+   * creation. That is deliberate: tuning here retunes every beat that never
+   * overrode it, which is what you want when a reader-created beat has no
+   * business having a hand-picked threshold.
+   */
+  defaultDigestThreshold: 62,
+  defaultMaxItemsPerDigest: 6,
+
+  /**
+   * How many beats curate at once inside one run.
+   *
+   * Each one is a ranker call over its own batch plus a handful of writer calls,
+   * so this is a concurrency limit on the model provider more than on this
+   * process. Kept low: the beats share a database connection, and a burst of
+   * parallel ranking runs would contend on the same write lock the ingest step
+   * just finished with.
+   */
+  beatConcurrency: 2,
+
+  /**
    * Items older than this are dropped at ingest. Many feeds (Figma, OpenAI)
    * serve their entire history — hundreds of entries — so without this the
    * first run pays to rank years-old news.
@@ -49,7 +83,7 @@ export const pipeline = {
   feedbackWindow: 40,
 
   /**
-   * bm25 column weights for article search, in the column order `items_fts`
+   * bm25 column weights for article search, in the column order `articles_fts`
    * declares: title, excerpt, body. Unweighted, bm25 treats a term buried in an
    * 8k-character body as worth the same as one in the headline, which sorts the
    * obvious answer below three passing mentions.
@@ -91,7 +125,7 @@ export const pipeline = {
 
   /**
    * Rows deleted per statement by the prune job. Each delete fires the
-   * `items_fts` delete trigger, so this bounds how long one write lock is held
+   * `articles_fts` delete trigger, so this bounds how long one write lock is held
    * rather than how much work is done — the job loops until nothing is left.
    */
   pruneBatchSize: 500,

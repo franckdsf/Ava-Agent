@@ -1,0 +1,15 @@
+-- Forgets every conditional-GET etag, because 0008 deleted the articles they
+-- correspond to.
+--
+-- `feed_state` survived the drop — it is keyed by URL and its shape did not
+-- change — and that is exactly the problem. It still holds the etag and
+-- last-modified from the final fetch before the migration, so the first ingest
+-- after it would send `If-None-Match`, receive 304 from all 16 feeds, and store
+-- nothing at all. `articles` would stay empty through a run that reported no
+-- errors: the "conditional GET hides schema changes" gotcha in AGENTS.md, this
+-- time caused by us rather than survived by us.
+--
+-- A DELETE rather than a DROP: the table's shape is still right, only its
+-- contents are stale. On a fresh database (the container's first boot) this is a
+-- no-op, which is correct — there is nothing to forget.
+DELETE FROM `feed_state`;

@@ -28,8 +28,17 @@ export interface TranslationDefinition {
    * commands lives in these two paragraphs.
    */
   gloss: string
-  /** One line, shown by `/start` and by the unknown-command reply. */
+  /** One line, shown by `/start` and by the unknown-command reply. Markdown is fine. */
   help: string
+  /**
+   * One short sentence for Telegram's command menu, pushed with `setMyCommands`.
+   *
+   * A different audience from `help`, which is why it is a separate field rather
+   * than a truncation: the menu is read *while typing*, capped at 256 characters
+   * by Telegram, and renders markdown literally — backticks and asterisks show
+   * up as themselves.
+   */
+  menuDescription: string
   /**
    * Glosses per 100 words below which the result is treated as a failed call and
    * retried once.
@@ -56,6 +65,7 @@ export const TRANSLATIONS = {
       'more than a reading aid would carry. When a word is borderline, gloss it: ' +
       'this mode errs toward more.',
     help: 'the article in your language, with the English behind every word worth learning.',
+    menuDescription: 'Translate the article you swiped, glossed for learning',
     /**
      * Was 10 when this glossed every content word and measured in the high
      * twenties per 100 words. Levelling the rule cut that by design — most of
@@ -85,6 +95,7 @@ export const TRANSLATIONS = {
       'two glosses in an average paragraph. When an ordinary word is borderline, ' +
       'leave it — but a domain term is never borderline.',
     help: 'the article in your language, with only the key terms shown in English.',
+    menuDescription: 'Translate the article you swiped, keeping key terms in English',
     /**
      * Zero, so density never triggers a retry. A passage whose vocabulary sits
      * entirely at or below the reader's level should come back clean — retrying

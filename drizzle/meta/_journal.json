@@ -57,6 +57,41 @@
       "when": 1785256123262,
       "tag": "0007_slim_rattler",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785326116430,
+      "tag": "0008_tiny_masque",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1785326141568,
+      "tag": "0009_gigantic_ted_forrester",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1785400000000,
+      "tag": "0010_articles_fts",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1785400000001,
+      "tag": "0011_reset_feed_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1785400001001,
+      "tag": "0012_gorgeous_hulk",
+      "breakpoints": true
     }
   ]
 }
