@@ -8,11 +8,16 @@ import { pipeline } from './pipeline.js'
  * conversational surface — see
  * [ADR-0017](../../docs/decisions/0017-translation-commands.md).
  *
- * Commands are configuration, not code, in the same sense categories are
- * ([invariant 3](../../AGENTS.md#invariants)): the two below differ *only* in
- * how densely they gloss, so a third density is an entry in `TRANSLATIONS`, not
- * a second handler. If adding one ever means touching the agent or the command
+ * Commands are configuration, not code: the two below differ *only* in how
+ * densely they gloss, so a third density is an entry in `TRANSLATIONS`, not a
+ * second handler. If adding one ever means touching the agent or the command
  * dispatcher, the split is in the wrong place.
+ *
+ * Beats made the same move and then kept going — they are rows now, because the
+ * reader creates them by talking to Ava ([invariant 3](../../AGENTS.md#invariants)).
+ * These stay in a file on purpose. A gloss density is something this repo ships
+ * and tunes against measurements, not something the reader invents, and a table
+ * nothing writes to at runtime buys nothing but a migration.
  */
 
 /** Which command was typed. The key is the literal Telegram command. */
