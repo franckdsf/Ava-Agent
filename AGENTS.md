@@ -422,6 +422,21 @@ doesn't wrap without adding a second Telegram library.
   `attachedFeeds` — what it actually wrote — and the report reads the beat's own
   `archivedAt` rather than the caller's intent. **A step that reports on itself
   must return what it did, not the inputs a caller can re-interpret.**
+- **"Feeds this beat has" means the archived ones too, when the question is
+  whether to add one.** Discovery excluded what `feedsForBeats` returned, which
+  is live-only — right for ingest, wrong for an exclusion list. `addBeatFeed`
+  upserts `archivedAt` back to null, so any re-proposed archived feed simply
+  returned. Two ways that bites, and the second is the bad one: a feed dropped
+  with `/removefeed` comes back on its own, defeating the whole point of
+  `archivedReason = 'reader'`; and the weekly review, which runs
+  `restore → prune → topUp` in **one** pass, archives a feed and re-adds it in
+  that same run — pruning is what puts the beat under the cap that makes the
+  top-up fire, and the scout proposes on-topic sites first, which is exactly what
+  the feed it just dropped is. `trials` never advances, the 30-day rest never
+  happens, and the backoff silently does nothing. `subscribedFeedUrls` is the
+  exclusion list; verified against a copy — `/removefeed` took `computer-science`
+  from 9 live feeds to 8 while the exclusion list stayed at 9, and re-proposing
+  `blog.google` probed 1 site under the old list and 0 under the new one.
 - **A workflow can't be run from a plain script.** `createRun()` resolves fine
   and `run.start()` then hangs forever with "unsettled top-level await" —
   schedules are "only supported on the evented engine", and the evented engine

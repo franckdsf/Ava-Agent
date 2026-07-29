@@ -114,6 +114,36 @@ export async function feedsForBeats(slugs: readonly string[]): Promise<BeatFeed[
 }
 
 /**
+ * Every feed URL this beat has ever subscribed to — **archived ones included**.
+ *
+ * The exclusion list for discovery, and deliberately not `feedsForBeats`. That
+ * one is live-only, which is right for ingest and wrong here: a search that
+ * excludes only live feeds will happily re-propose a source the beat already
+ * rejected, and `addBeatFeed` upserts `archivedAt` back to null — so it returns
+ * as if nothing had happened.
+ *
+ * Two things that breaks, both reachable. A feed the reader dropped with
+ * `/removefeed` comes back on its own, which is exactly what `archivedReason =
+ * 'reader'` exists to prevent. And the weekly review, which runs
+ * `restore → prune → topUp` in one pass, archives a feed and then re-adds it in
+ * the *same run* — pruning is what puts the beat under the cap that makes the
+ * top-up fire, and the scout proposes on-topic sites first, which is what that
+ * feed is. `trials` never advances and the 30-day rest never happens, so the
+ * backoff quietly does nothing.
+ *
+ * Restoring an archived feed is the restore step's job, under its own rules.
+ * Discovery's job is to find sites this beat has never seen.
+ */
+export async function subscribedFeedUrls(beatSlug: string): Promise<string[]> {
+  await migrate()
+  const rows = await db()
+    .select({ feedUrl: beatFeeds.feedUrl })
+    .from(beatFeeds)
+    .where(eq(beatFeeds.beatSlug, beatSlug))
+  return rows.map(row => row.feedUrl)
+}
+
+/**
  * Creates a beat, **paused**, and reports whether the slug was free.
  *
  * Paused is the whole point. `/follow` writes the row before discovery has found

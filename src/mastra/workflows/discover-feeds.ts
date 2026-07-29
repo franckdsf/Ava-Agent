@@ -3,7 +3,13 @@ import { z } from 'zod'
 import { discovery } from '../../config/discovery.js'
 import { pipeline } from '../../config/pipeline.js'
 import { articleIdsFromFeed, linkToBeats } from '../../db/articles.js'
-import { addBeatFeed, feedsForBeats, getBeat, setBeatArchived } from '../../db/beats.js'
+import {
+  addBeatFeed,
+  feedsForBeats,
+  getBeat,
+  setBeatArchived,
+  subscribedFeedUrls,
+} from '../../db/beats.js'
 import { sourceLabel } from '../../services/feed-check.js'
 import { discoverFeeds, type SiteDiscovery } from '../../services/feed-discovery.js'
 import { escapeMarkdown, sendToTelegram } from '../../services/telegram.js'
@@ -105,17 +111,19 @@ const attached = checked.extend({
  * The beat's existing feeds are handed over as hostnames so the scout does not
  * spend its slots re-proposing them. That is a hint; `discoverFeeds` excludes
  * them for real in the next step.
+ *
+ * **Every subscription it has ever had, not just the live ones** — see
+ * `subscribedFeedUrls`. A feed this beat archived is not a site to rediscover.
  */
 const search = createStep({
   id: 'search',
   inputSchema: runInput,
   outputSchema: found,
   execute: async ({ inputData, mastra }) => {
-    const existing = await feedsForBeats([inputData.slug])
-    const avoid = existing
-      .map(feed => {
+    const avoid = (await subscribedFeedUrls(inputData.slug))
+      .map(feedUrl => {
         try {
-          return new URL(feed.feedUrl).hostname.replace(/^www\./, '')
+          return new URL(feedUrl).hostname.replace(/^www\./, '')
         } catch {
           return null
         }
@@ -138,10 +146,12 @@ const verify = createStep({
   inputSchema: found,
   outputSchema: checked,
   execute: async ({ inputData }) => {
-    const existing = await feedsForBeats([inputData.slug])
     const discovered = await discoverFeeds(
       inputData.sites.map(site => site.homepage),
-      existing.map(feed => feed.feedUrl),
+      // Archived subscriptions included. This is the guard the prompt hint in
+      // `search` is not, and it is the one that has to know about a feed the
+      // beat already tried and dropped.
+      await subscribedFeedUrls(inputData.slug),
     )
     return { ...inputData, results: discovered.map(describeSite) }
   },
