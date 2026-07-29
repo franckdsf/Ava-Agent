@@ -2,7 +2,7 @@ import type { Mastra } from '@mastra/core'
 import { TRANSLATIONS, type TranslationCommand, translation } from '../../config/translation.js'
 import { capText, chunkText } from '../../services/article.js'
 import { escapeMarkdown, sendToTelegram } from '../../services/telegram.js'
-import { translateChunk } from '../agents/translator.js'
+import { type Translation, translateChunk } from '../agents/translator.js'
 import {
   articleHeading,
   quotedArticleSource,
@@ -55,14 +55,38 @@ const TRANSLATION_TAB = 'translations' as const
 /**
  * Runs one translation command end to end, sending as it goes.
  *
- * Parts are translated **in sequence and sent as each lands**, rather than
- * assembled and sent at the end. That costs nothing — the calls were always
- * going to be sequential, since each carries forward the language the first one
- * resolved — and it buys the two things a long translation needs most: the
- * reader sees the opening of the article in seconds instead of waiting out the
- * whole piece against a typing indicator that expired after five, and a failure
- * in part three leaves parts one and two delivered rather than losing
- * everything.
+ * **Part one alone, then every remaining part at once.** The article used to be
+ * translated strictly in sequence, which made a five-part piece five of
+ * `deepseek-v4-flash`'s 9s–283s waits end to end. Only the *first* of those is
+ * load-bearing: it resolves the reader's language from Ava's notes, and every
+ * later part is pinned to what it decided so a long article cannot switch
+ * language halfway through (see `translateChunk`). Once that answer exists there
+ * is nothing left for the parts to tell each other, so they all go out together
+ * and the article costs roughly two waits rather than N.
+ *
+ * The gate is the reason this is not one `Promise.all` over `parts`. Firing part
+ * one with the rest would mean six independent readings of the same notes, which
+ * is the failure ADR-0017 pinned the language to avoid — and it would buy one
+ * wait, exactly the one the reader is already watching a message about.
+ *
+ * **Delivery stays in order.** The calls settle in whatever order the provider
+ * finishes them, so the loop below walks the parts by index and awaits each in
+ * turn: a part that landed early waits its turn in `inFlight` and is sent the
+ * instant its predecessor has been, and a part still running holds the ones
+ * behind it. That is the queue — awaiting an already-running promise costs
+ * nothing, so no separate buffer, no flush lock, and no way for `2/5` to arrive
+ * after `3/5`.
+ *
+ * Parts are still **sent as each lands** rather than assembled and sent at the
+ * end, which is what a failure in part three needs: parts one and two are
+ * already delivered rather than lost with it.
+ *
+ * The one thing concurrency costs is a wasted call. A sequential run stopped
+ * spending at the part that failed; here parts four and five are already in
+ * flight when part three fails, and their results are dropped on the floor.
+ * That is a few thousand tokens of the cheapest model in the system against
+ * minutes of a human's waiting, and there is no signal to cancel them with —
+ * `generate()` is not handed an `AbortSignal` on this path.
  *
  * Never throws. A command that fails silently is the bug the catch-all handler
  * in `channels.ts` exists to prevent, so every path here ends in a message.
@@ -79,33 +103,82 @@ export async function runTranslation(
   }
 
   const parts = chunkText(source.text, translation.sourceChunkChars)
+  const [opening, ...remaining] = parts
+  // Only reachable on text that is nothing but whitespace, which `resolveSource`
+  // already refuses — but the empty article has to go somewhere, and the usage
+  // message is the honest place.
+  if (!opening) {
+    await sendToTelegram(nothingToTranslate(command), 'chat')
+    return
+  }
+
   await sendToTelegram(starting(source, parts.length), TRANSLATION_TAB)
 
-  let language: string | undefined
-  let sent = 0
+  const translate = (text: string, index: number, language?: string) =>
+    translateChunk(mastra, {
+      text,
+      definition: TRANSLATIONS[command],
+      language,
+      part: { index, total: parts.length },
+    })
 
-  for (const [index, part] of parts.entries()) {
-    try {
-      const result = await translateChunk(mastra, {
-        text: part,
-        definition: TRANSLATIONS[command],
-        language,
-        part: { index: index + 1, total: parts.length },
-      })
-      language ??= result.language.trim() || undefined
-      await sendToTelegram(
-        renderTranslation(source, result.paragraphs, { index: index + 1, total: parts.length }),
-        TRANSLATION_TAB,
-      )
-      sent += 1
-    } catch (error) {
-      mastra.getLogger()?.error('Translation failed', { command, part: index + 1, error })
-      // With the partial output, not in Chat: "the rest is missing" only means
-      // something next to the parts that did arrive.
-      await sendToTelegram(failed(sent, parts.length), TRANSLATION_TAB)
+  const deliver = (result: Translation, index: number) =>
+    sendToTelegram(
+      renderTranslation(source, result.paragraphs, { index, total: parts.length }),
+      TRANSLATION_TAB,
+    )
+
+  const fail = async (error: unknown, index: number, sent: number) => {
+    mastra.getLogger()?.error('Translation failed', { command, part: index, error })
+    // With the partial output, not in Chat: "the rest is missing" only means
+    // something next to the parts that did arrive.
+    await sendToTelegram(failed(sent, parts.length), TRANSLATION_TAB)
+  }
+
+  let first: Translation
+  try {
+    first = await translate(opening, 1)
+  } catch (error) {
+    await fail(error, 1, 0)
+    return
+  }
+
+  // Launched before part one is sent, so the fan-out is already running while
+  // Telegram takes the first message.
+  const language = first.language.trim() || undefined
+  const inFlight = remaining.map((part, offset) => settled(translate(part, offset + 2, language)))
+
+  await deliver(first, 1)
+  let sent = 1
+
+  for (const [offset, pending] of inFlight.entries()) {
+    const outcome = await pending
+    if (outcome.status === 'rejected') {
+      await fail(outcome.reason, offset + 2, sent)
       return
     }
+    await deliver(outcome.value, offset + 2)
+    sent += 1
   }
+}
+
+type Settled<T> = { status: 'fulfilled'; value: T } | { status: 'rejected'; reason: unknown }
+
+/**
+ * A promise that reports its failure instead of throwing it.
+ *
+ * Not cosmetic: the parts run concurrently and are read one at a time, so part
+ * five can reject while part two is still being awaited. A rejection with no
+ * handler attached in the turn it happens is an `unhandledRejection`, which Node
+ * treats as fatal by default — the command would take the process down with it
+ * rather than telling the reader the translation stopped. Attaching the handler
+ * at launch is what makes reading them in order safe.
+ */
+function settled<T>(promise: Promise<T>): Promise<Settled<T>> {
+  return promise.then(
+    value => ({ status: 'fulfilled' as const, value }),
+    (reason: unknown) => ({ status: 'rejected' as const, reason }),
+  )
 }
 
 /**
@@ -225,7 +298,7 @@ function nothingToTranslate(command: TranslationCommand): string {
   return [
     `${escapeMarkdown(command)} needs something to translate.`,
     `Swipe to reply on an article and send ${escapeMarkdown(command)} on its own, ` +
-      `or type the text after it: \`${command} your text here\`.`,
+    `or type the text after it: \`${command} your text here\`.`,
     `_${escapeMarkdown(command)} — ${TRANSLATIONS[command].help}_`,
   ].join('\n\n')
 }

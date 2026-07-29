@@ -260,12 +260,18 @@ async function languageNotes(): Promise<string> {
 /**
  * Translates one chunk of an article.
  *
- * `language` is passed on every call after the first, carrying forward what the
- * first chunk resolved. Letting each chunk decide for itself would be one model
- * call's worth of cheaper prompt and a real failure mode: a five-part article
- * that switches language halfway because the second chunk read the notes
- * differently. The notes are therefore only sent when nothing has been decided
- * yet.
+ * `language` pins a chunk to an answer another chunk already gave. Leaving every
+ * chunk to decide for itself is a real failure mode — a five-part article that
+ * switches language halfway because the fourth chunk read the notes differently
+ * — and the notes are only sent when nothing has been decided yet, so the pinned
+ * call is the cheaper prompt too.
+ *
+ * **It is not passed on the first pass any more.** `runTranslation` launches
+ * every part at once, so there is no earlier answer to carry forward when they
+ * start; each part reads the notes, and one that disagrees with part one is
+ * called a second time *with* this argument. So the pin is now a correction
+ * rather than a precondition, and it is worth keeping cheap: it is on the
+ * reader's critical path only when it fires.
  */
 export async function translateChunk(
   mastra: Mastra,

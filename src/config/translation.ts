@@ -139,12 +139,18 @@ export const translation = {
   /**
    * Source characters handed to the model per call.
    *
-   * The article is translated in sequence, one chunk per call, and each result
-   * is sent as it lands. That bounds two different things at once: the output of
-   * any single call stays well inside what a model will emit before truncating
-   * — a densely glossed translation runs to roughly 2× its source — and the
-   * reader sees the opening of the article in ~15s instead of waiting out the
-   * whole piece in silence.
+   * The article is translated one chunk per call, every call is launched at
+   * once, and each result is sent once the parts before it have been. That
+   * bounds two different things at once: the output of any single call stays
+   * well inside what a model will emit before truncating — a densely glossed
+   * translation runs to roughly 2× its source — and the reader sees the opening
+   * of the article after one call's wait instead of the whole piece's.
+   *
+   * **This is now a concurrency knob as much as a size one.** Lowering it no
+   * longer costs proportional time, since the parts no longer queue behind each
+   * other — it puts proportionally more calls in flight at the same instant. At
+   * 1500 a full-length article (`maxSourceChars`, 8000) is six simultaneous
+   * calls; at 500 it would be sixteen.
    *
    * Chunks split on paragraph boundaries, so this is a ceiling rather than a
    * stride; a chunk is usually smaller.
