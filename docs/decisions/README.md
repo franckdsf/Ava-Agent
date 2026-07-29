@@ -35,6 +35,7 @@ something looks the way it does.
 | [0015](0015-weekly-memory-review.md) | A weekly model-judged review promotes memories, then expires them | Accepted |
 | [0016](0016-reader-notes-in-the-ranker.md) | The ranker reads Ava's notes about the reader | Accepted |
 | [0017](0017-translation-commands.md) | Translation as slash commands, glossed inline, in their own tab | Accepted |
+| [0018](0018-summarize-command.md) | `/summarize [language]`, answered in Chat, with the language typed rather than remembered | Accepted |
 
 ## Template
 

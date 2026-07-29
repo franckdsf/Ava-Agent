@@ -59,10 +59,10 @@ changing any of them.
    the answer validated against that set on the way back. A scheduled job that
    lets an LLM choose its own control flow produces surprise bills and duplicate
    messages. Inbound, human-triggered calls are a separate category and are
-   governed by invariant 8 instead — Ava, and the translator behind
-   `/translearn` / `/translate`. The distinction is who decides to spend: a cron
-   fire nobody watches, or a person typing.
-   ([0015](docs/decisions/0015-weekly-memory-review.md), [0017](docs/decisions/0017-translation-commands.md))
+   governed by invariant 8 instead — Ava, the translator behind `/translearn` /
+   `/translate`, and the summarizer behind `/summarize`. The distinction is who
+   decides to spend: a cron fire nobody watches, or a person typing.
+   ([0015](docs/decisions/0015-weekly-memory-review.md), [0017](docs/decisions/0017-translation-commands.md), [0018](docs/decisions/0018-summarize-command.md))
 3. **Categories are config, not code.** Adding a beat means adding an entry to
    `CATEGORIES`. Needing to touch agent or workflow code means the abstraction is
    wrong. ([0008](docs/decisions/0008-categories-as-configuration.md))
@@ -98,8 +98,12 @@ changing any of them.
 9. **One tab, one kind of traffic.** Ava answers in Chat and nowhere else —
    messages typed in any other tab are *moved* there, not answered in place.
    Digests go to News. Translations go to Translations. Breaking this means the
-   tabs stop meaning anything.
-   ([0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md), [0017](docs/decisions/0017-translation-commands.md))
+   tabs stop meaning anything. **The criterion is length, not "is it a
+   command"** — `/summarize` answers in Chat alongside `/start` and the
+   unknown-command reply, because one short message is what Chat is for, while a
+   translation is several thousand characters over several messages and would
+   bury the conversation. A new tab per command is the misreading to avoid.
+   ([0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md), [0017](docs/decisions/0017-translation-commands.md), [0018](docs/decisions/0018-summarize-command.md))
 
 ## Writing Mastra code
 
@@ -377,6 +381,26 @@ doesn't wrap without adding a second Telegram library.
   Adding a "drop page furniture" rule fixed that and produced a run whose first
   paragraph was a bulleted note listing what it had removed. Both rules are
   needed: drop it, **and** never describe the drop.
+- **A prompt rule written in English gets applied to English.** `/summarize`
+  was told never to write about the article, only about its subject — the usual
+  "no 'This article covers…'" rule. Four live runs on one article: both English
+  runs obeyed it and both non-English runs broke it, with
+  `Cet article détaille une conversation…` and
+  `Este resumo aborda um painel de discussão…`. The model was matching the
+  *strings* the rule named rather than the shape of sentence it described. The
+  fix was to quote the observed non-English openers verbatim and say outright
+  that the rule is about the sentence, not about the English words — zero of
+  four on a re-run of the same article. **So test a multilingual prompt in the
+  languages it will actually run in**; an English pass proves nothing about the
+  others, and this is the same class of failure as the reasons-must-be-English
+  rule in the ranker, seen from the other side.
+- **"Code goes in backticks" over-applies to proper nouns.** The same command
+  came back with `Claude Code`, `Claude Tag` and `Fable` fenced as code
+  throughout, which reads like a config file. Adding an explicit "a name is not
+  code — backticks are for things you would *type*" cut it to three instances in
+  one run of four (`Bun`, `Rust`, `Slack`) and did not eliminate it. Left in the
+  prompt deliberately: a deterministic backtick-stripper would corrupt the real
+  code spans the rule exists to produce.
 - **`deepseek-v4-flash` has a latency range, not a latency.** Ten runs on one
   1556-character chunk: 9s, 11.6s, 21.1s, 25.7s, 52.8s, 68s, 107s, 160.8s,
   207.7s, 282.8s — a factor of thirty, uncorrelated with output length. Two runs
@@ -388,7 +412,52 @@ doesn't wrap without adding a second Telegram library.
 
 ## Where work stopped
 
-*Last updated: 2026-07-28.*
+*Last updated: 2026-07-29.*
+
+**`/summarize [language]` — verified against the live model, and the command path
+confirmed on the real bot — 2026-07-29.** A real swipe followed by
+`/summarize ru` came back in Russian from the phone. That run predates the prompt
+fixes recorded below, so what has been seen end to end is the *path*, not the
+current prompt. Swipe an article, send the command, and it comes back as one
+message in **Chat**: several paragraphs plus bullets where the article really is
+a list of specifics. `/summarize` alone writes English; `/summarize fr`,
+`/summarize ru`, `/summarize français` write that language
+([ADR-0018](docs/decisions/0018-summarize-command.md)).
+
+**The argument means the opposite of what it means to `/translate`.** There, text
+after the command *is the text to translate*; here it is the target language and
+the text comes from the swipe. That is why this is its own config
+(`src/config/summary.ts`), its own handler, and not a third entry in
+`TRANSLATIONS`. Anyone tempted to unify the two argument parsers should read
+ADR-0018 first.
+
+Three things are deliberately unlike the translator, all in ADR-0018: **one call
+with no chunking** (a summary of part 3 is not a summary), **no
+degenerate-result retry** (the translator's exists against a measured 1-in-7
+failure; nothing equivalent has been observed here, and inventing one would
+double the wait), and **no read of `memories`** (the language is typed, not
+remembered — so this command touches only `items`).
+
+Verified against the live database and the live model, eight runs over one real
+7998-character article: `/summarize` → English, `ru` → Russian, `fr` → French,
+and the deliberately mistyped `protuguese` → **Portuguese**, which the model
+corrected rather than falling back on. 296–465 words, 6–8 blocks, **5.4s to
+11.8s** — nothing like the translator's 9s–283s, which is why there is no
+partial-output machinery here. `items` was 293 before and 293 after, which is the
+check that nothing was written. Offline, the language guard was checked against
+12 accepted and 8 rejected arguments, and `renderSummary` parsed to
+`heading, paragraph, paragraph, list, paragraph, paragraph` through the real
+`formatConverter` with the link intact and an asterisk in the title escaped.
+
+Two prompt defects were found by those runs and one is only mostly fixed — see
+the two new gotchas above about multilingual rules and backticked proper nouns.
+
+**The unknown-language path has never been observed.** `protuguese` was meant to
+trigger the "write in English and report English" fallback and instead got
+corrected, so the branch that handles a token naming no language at all is
+written and untested. The reader would see a summary footed `English`; nothing
+worse can happen, since the argument is shape-checked before it reaches the
+model.
 
 **Working and verified:** ingest with conditional GET, global dedupe, clustering,
 ranking, per-article summarization, seven registered schedules (2 categories ×

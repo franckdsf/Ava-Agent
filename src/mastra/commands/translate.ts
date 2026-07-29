@@ -1,11 +1,14 @@
 import type { Mastra } from '@mastra/core'
-import { CATEGORIES } from '../../config/categories.js'
 import { TRANSLATIONS, type TranslationCommand, translation } from '../../config/translation.js'
-import type { Item } from '../../db/types.js'
-import { articleBody, capText, chunkText } from '../../services/article.js'
-import { quotedSource } from '../../services/quoted-article.js'
+import { capText, chunkText } from '../../services/article.js'
 import { escapeMarkdown, sendToTelegram } from '../../services/telegram.js'
 import { translateChunk } from '../agents/translator.js'
+import {
+  articleHeading,
+  quotedArticleSource,
+  type SlashCommandEvent,
+  type Source,
+} from './article-context.js'
 
 /**
  * `/translearn` and `/translate` — the article in the reader's own language,
@@ -29,15 +32,6 @@ import { translateChunk } from '../agents/translator.js'
  * `memories`, may fetch a page the feed shipped no body for, and writes nothing.
  */
 
-/** The slash-command event, narrowed to what this needs. */
-export interface SlashCommandEvent {
-  command: string
-  /** Whatever the reader typed after the command. */
-  text: string
-  /** The untouched Telegram message the adapter passes through. */
-  raw: unknown
-}
-
 /** True when this command is one of the translation commands. */
 export function isTranslationCommand(command: string): command is TranslationCommand {
   return command in TRANSLATIONS
@@ -57,11 +51,6 @@ export function isTranslationCommand(command: string): command is TranslationCom
  * is `nothingToTranslate` — no translation exists, so there is nothing to file.
  */
 const TRANSLATION_TAB = 'translations' as const
-
-/** Where the text came from, which decides how the message is titled. */
-export type Source =
-  | { kind: 'article'; text: string; article: Item }
-  | { kind: 'text'; text: string }
 
 /**
  * Runs one translation command end to end, sending as it goes.
@@ -123,33 +112,22 @@ export async function runTranslation(
  * What to translate, in the order the reader most likely meant.
  *
  * Text typed after the command wins outright — that is an explicit instruction,
- * and it is also the only path that works with no swipe at all. Otherwise the
- * article behind the swiped message, which is the case the whole feature is
- * for. The quoted message's own text is the last resort, and it is a real one:
- * an article whose body cannot be had still has a digest summarizing it, and a
- * reply Ava wrote is worth translating too.
+ * and it is also the only path that works with no swipe at all. Everything after
+ * it is the shared swipe resolution, so this and `/summarize` cannot disagree
+ * about what the article is.
+ *
+ * **The argument means something different here than it does to `/summarize`,**
+ * where it names the target language. That divergence is deliberate and it is
+ * the reason these two commands cannot share one argument parser: `/translate`
+ * has a language already (the reader's, from Ava's notes) and no other use for
+ * free text, while `/summarize` has a fixed default language and needs a way to
+ * override it.
  */
 async function resolveSource(event: SlashCommandEvent): Promise<Source | undefined> {
   const typed = event.text.trim()
   if (typed) return { kind: 'text', text: capText(typed, translation.maxSourceChars) }
 
-  const quoted = await quotedSource(event.raw)
-  if (!quoted) return undefined
-
-  if (quoted.article) {
-    const body = await articleBody(quoted.article)
-    const text = body.text ?? quoted.article.excerpt ?? quoted.quoted.text
-    if (text.trim()) {
-      return {
-        kind: 'article',
-        text: capText(text, translation.maxSourceChars),
-        article: quoted.article,
-      }
-    }
-  }
-
-  const text = quoted.quoted.text.trim()
-  return text ? { kind: 'text', text: capText(text, translation.maxSourceChars) } : undefined
+  return quotedArticleSource(event.raw, translation.maxSourceChars)
 }
 
 /**
@@ -199,16 +177,10 @@ export function renderTranslation(
   // Blank lines, not newlines: a single newline is a soft wrap in markdown and
   // collapses into the previous line when Telegram renders it.
   return [
-    ...(part.index === 1 && source.kind === 'article' ? [heading(source.article), ''] : []),
+    ...(part.index === 1 && source.kind === 'article' ? [articleHeading(source.article), ''] : []),
     body,
     ...(footer ? ['', `_${footer}_`] : []),
   ].join('\n')
-}
-
-/** The linked title, carrying its beat's emoji the way a delivered article does. */
-function heading(article: Item): string {
-  const emoji = CATEGORIES.find(category => category.slug === article.categorySlug)?.emoji
-  return `## ${emoji ? `${emoji} ` : ''}[${escapeMarkdown(article.title)}](${article.link})`
 }
 
 /**

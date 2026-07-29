@@ -55,6 +55,20 @@ const coreSchema = z.object({
    * a slow model expensive in a way the ranker's slowness never is.
    */
   AVA_MODEL_TRANSLATOR: gatewayModelId.default('openrouter/google/gemini-3.1-flash-lite'),
+  /**
+   * `/summarize`: explains one article at length, in whatever language the
+   * reader named.
+   *
+   * Its own entry rather than sharing `AVA_MODEL_RSS_SUMMARIZER`, which is the
+   * *digest* writer — that one runs on a schedule nobody waits on and emits two
+   * fields, this one is a reader waiting on their phone for several paragraphs.
+   * The two are tuned against different costs and want to move independently.
+   *
+   * Not the orchestrator either, deliberately: `minimax-m3` is the model with
+   * the `</think>` truncation documented in AGENTS.md, and a summary that starts
+   * mid-word is this command's worst failure.
+   */
+  AVA_MODEL_SUMMARIZER: gatewayModelId.default('openrouter/google/gemini-3.1-flash-lite'),
 
   /**
    * Durable state: Mastra memory/workflows/scores plus the app's own tables.

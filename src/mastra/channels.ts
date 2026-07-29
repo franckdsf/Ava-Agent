@@ -3,6 +3,7 @@ import type { AgentChannels, ChannelHandler } from '@mastra/core/channels'
 import { CATEGORIES } from '../config/categories.js'
 import { env, telegramChatId } from '../config/env.js'
 import { pipeline } from '../config/pipeline.js'
+import { summary } from '../config/summary.js'
 import { TOPICS } from '../config/topics.js'
 import { TRANSLATIONS } from '../config/translation.js'
 import type { Item } from '../db/types.js'
@@ -15,6 +16,7 @@ import {
   topicThreadId,
 } from '../services/telegram.js'
 import type { QuotedMessage } from '../services/telegram-reply.js'
+import { isSummaryCommand, runSummary } from './commands/summarize.js'
 import { isTranslationCommand, runTranslation } from './commands/translate.js'
 
 /**
@@ -213,11 +215,19 @@ export async function registerChatCommands(
     await ensureTopics()
 
     if (isTranslationCommand(event.command)) {
-      // Answers in Chat like everything else, wherever it was typed — the
-      // reader swipes a digest in News, and the translation still lands in Chat
+      // Answers in the Translations tab, wherever it was typed — a translated
+      // article is several messages and would bury the conversation
       // ([invariant 9](../../AGENTS.md#invariants)). It sends its own messages,
-      // several of them, as each part of the article comes back.
+      // as each part of the article comes back.
       await runTranslation(mastra, event, event.command)
+      return
+    }
+
+    if (isSummaryCommand(event.command)) {
+      // Answers in Chat, unlike the translation commands: a summary is one
+      // short message, which is the size of thing Chat is for. Sends its own
+      // messages — an acknowledgement, then the summary.
+      await runSummary(mastra, event)
       return
     }
 
@@ -229,6 +239,7 @@ export async function registerChatCommands(
 function commandList(): string {
   return [
     '- `/start` — this message.',
+    `- \`${summary.command}\` — ${summary.help}`,
     ...Object.entries(TRANSLATIONS).map(
       ([command, definition]) => `- \`${command}\` — ${definition.help}`,
     ),
@@ -236,12 +247,18 @@ function commandList(): string {
 }
 
 /**
- * What `/start` answers with — and the only place the two tabs are explained.
+ * What `/start` answers with — and the only place the three tabs are explained.
  *
- * Built from config so a new beat or a changed schedule can't leave a stale
- * description here ([invariant 3](../../AGENTS.md#invariants)).
+ * Built from config so a new beat, a changed schedule or a new command can't
+ * leave a stale description here ([invariant 3](../../AGENTS.md#invariants)).
+ *
+ * Exported for the reason `renderTranslation` and `renderSummary` are: it is
+ * pure, and it is the only way to check the message without sending one. A
+ * single newline inside any entry below is a soft wrap that collapses two blocks
+ * into one run-on line, which is invisible in code and obvious through
+ * `formatConverter.toAst()`.
  */
-function welcome(): string {
+export function welcome(): string {
   const beats = CATEGORIES.map(category => `- ${category.emoji} ${category.title}`).join('\n')
   const hours = pipeline.digestHours.map(hour => `${String(hour).padStart(2, '0')}:00`)
 
@@ -258,13 +275,15 @@ function welcome(): string {
     `Digests arrive at ${hours.join(', ')} ${env.AGENT_TIMEZONE}. Each article is delivered as its own message so you can read or save what matters.`,
     `Commands:`,
     commandList(),
-    `The translation commands work on a swipe: reply to any article and send the command on its own. They answer in your own language, with the English kept in view, in the ${TOPICS.translations.title} tab — a long article arrives as several messages over a few minutes.`,
+    `Every command works on a swipe: reply to any article and send the command on its own.`,
+    `${Object.keys(TRANSLATIONS).map(command => `\`${command}\``).join(' and ')} answer in your own language, with the English kept in view, in the ${TOPICS.translations.title} tab — a long article arrives as several messages over a few minutes.`,
+    `\`${summary.command}\` answers here in ${TOPICS.chat.title}, as one message: the article explained properly rather than compressed. It writes in ${summary.defaultLanguage} unless you name a language after it — \`${summary.command} fr\`, \`${summary.command} ru\`, or the language's own name.`,
     `If you want something specific, just ask — search the archive, show me a recent article, or tell me what interests you 😉.`,
   ].join('\n\n')
 }
 
 /** Commands are swallowed before the agent sees them, so an unknown one needs its own reply. */
-function unknown(command: string): string {
+export function unknown(command: string): string {
   return [
     `${escapeMarkdown(command)} isn't a command I know. What I have:`,
     commandList(),

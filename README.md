@@ -163,5 +163,24 @@ Output lands in a third tab, **Translations**, because a full article arrives as
 several messages over a few minutes
 ([ADR-0017](docs/decisions/0017-translation-commands.md)).
 
+A third command explains an article instead of translating it. Swipe and send
+`/summarize` for a few hundred words on what it is, what changed, the concrete
+numbers, and the caveats the digest card had no room for — noticeably more than
+the digest already gave you. It writes in English by default, or in whatever
+language you name after it:
+
+```
+/summarize        → English
+/summarize fr     → French
+/summarize ru     → Russian
+/summarize deutsch
+```
+
+A code, an English name or the language's own name all work; the footer reports
+which language it actually used, so a typo is visible rather than silent. This
+one answers in **Chat**, not in Translations — it is one short message, and the
+tab split is about length, not about being a command
+([ADR-0018](docs/decisions/0018-summarize-command.md)).
+
 Not yet wired: the 👍/👎 feedback loop. The inbound path exists now, but nothing
 handles a reaction yet.
