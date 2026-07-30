@@ -30,6 +30,7 @@ import { db, migrate } from '../../db/client.js'
 import { articleBeats, articles } from '../../db/schema.js'
 import { checkFeed, normalizeFeedUrl, sourceLabel } from '../../services/feed-check.js'
 import { escapeMarkdown, sendToTelegram } from '../../services/telegram.js'
+import { setBeatTopicOpen } from '../../services/telegram-topics.js'
 import { quotedSource } from '../../services/quoted-article.js'
 import type { SlashCommandEvent } from './article-context.js'
 
@@ -117,9 +118,9 @@ export function beatCommandReply(
     case '/beat':
       return showBeat(args[0])
     case '/pause':
-      return setPaused(args[0], true)
+      return setPaused(args[0], true, mastra)
     case '/resume':
-      return setPaused(args[0], false)
+      return setPaused(args[0], false, mastra)
     case '/addfeed':
       return addFeed(args[0], args[1])
     case '/removefeed':
@@ -386,7 +387,11 @@ function feedLine(source: string, stats: FeedPerformance | undefined): string {
 
 /* ────────────────────────────── /pause · /resume ───────────────────────────── */
 
-async function setPaused(slug: string | undefined, paused: boolean): Promise<string> {
+async function setPaused(
+  slug: string | undefined,
+  paused: boolean,
+  mastra: Mastra,
+): Promise<string> {
   const command: BeatCommand = paused ? '/pause' : '/resume'
   const beat = await resolveSlug(command, slug)
   if (typeof beat === 'string') return beat
@@ -400,17 +405,54 @@ async function setPaused(slug: string | undefined, paused: boolean): Promise<str
 
   await setBeatArchived(beat.slug, paused)
 
+  // The tab follows the beat where the chat type allows it
+  // ([ADR-0021](../../../docs/decisions/0021-a-tab-per-beat.md)). Best-effort on
+  // purpose: the database write above *is* the command, and a Telegram failure
+  // must not report a pause that did happen as a failure. Only a genuine error
+  // reaches the catch — 'no-tab' and 'unsupported' are ordinary outcomes.
+  const tab = await setBeatTopicOpen(beat, !paused).catch(error => {
+    mastra.getLogger()?.error('Could not follow the beat with its tab', {
+      slug: beat.slug,
+      paused,
+      error,
+    })
+    return 'failed' as const
+  })
+
   return paused
     ? [
         `⏸ Paused ${beat.emoji} **${escapeMarkdown(beat.title)}**.`,
         'No ingest, no ranking, no digests. Nothing is deleted — its articles, ' +
           'scores and your votes all stay, and `/resume ' + beat.slug + '` picks it ' +
           'up where it left off.',
+        pausedTabNote(tab),
       ].join('\n\n')
     : [
         `▶️ Resumed ${beat.emoji} **${escapeMarkdown(beat.title)}**.`,
-        'It rejoins the next scheduled digest.',
+        tab === 'changed'
+          ? 'Its tab is open again, and it rejoins the next scheduled digest.'
+          : 'It rejoins the next scheduled digest.',
       ].join('\n\n')
+}
+
+/**
+ * What to say about the tab after a pause.
+ *
+ * `unsupported` is the live case on a private chat — Telegram has no
+ * `closeForumTopic` there — so this says the true thing rather than the intended
+ * one: the tab stays, and it simply goes quiet, which is what "no digests" above
+ * already promised. Claiming a closed tab the reader can see is open would make
+ * every other line of this reply suspect.
+ */
+function pausedTabNote(tab: 'changed' | 'no-tab' | 'unsupported' | 'failed'): string {
+  switch (tab) {
+    case 'changed':
+      return 'Its tab is closed. Everything it sent is still there to read.'
+    case 'no-tab':
+      return 'It has no tab yet — one appears the first time a beat sends you something.'
+    default:
+      return 'Its tab stays where it is and goes quiet. Everything it sent is still there to read.'
+  }
 }
 
 /* ──────────────────────────── /addfeed · /removefeed ───────────────────────── */

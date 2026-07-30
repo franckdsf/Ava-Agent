@@ -1,4 +1,11 @@
-import { TOPIC_LIST, topicTabName, type TopicSlug } from '../config/topics.js'
+import {
+  beatTabName,
+  beatTopicSlug,
+  TOPIC_LIST,
+  topicTabName,
+  type TabSlug,
+  type TopicSlug,
+} from '../config/topics.js'
 import { telegramEnv } from '../config/env.js'
 import { forgetTopic, rememberTopic, renameTopic, topicIds } from '../db/topics.js'
 
@@ -132,30 +139,144 @@ export async function resolveTopics(): Promise<Partial<Record<TopicSlug, number>
   const resolved: Record<string, number> = {}
 
   for (const topic of TOPIC_LIST) {
-    const name = topicTabName(topic)
-    const existing = known[topic.slug]
-    if (existing !== undefined) {
-      resolved[topic.slug] = existing.messageThreadId
-      if (existing.name !== name) {
-        await callBotApi('editForumTopic', {
-          chat_id: chatId,
-          message_thread_id: existing.messageThreadId,
-          name,
-        })
-        await renameTopic(chatId, topic.slug, name)
-      }
-      continue
-    }
-    const created = await callBotApi<ForumTopic>('createForumTopic', {
-      chat_id: chatId,
-      name,
-      ...(topic.iconCustomEmojiId ? { icon_custom_emoji_id: topic.iconCustomEmojiId } : {}),
-    })
-    await rememberTopic(chatId, topic.slug, created.message_thread_id, name)
-    resolved[topic.slug] = created.message_thread_id
+    resolved[topic.slug] = await ensureTopic(
+      chatId,
+      topic.slug,
+      topicTabName(topic),
+      topic.iconCustomEmojiId,
+      known[topic.slug],
+    )
   }
 
   return resolved
+}
+
+/**
+ * Creates a tab if its row is missing, renames it if config has moved on, and
+ * returns Telegram's id for it either way.
+ *
+ * `existing` is passed in rather than read here so the caller decides how many
+ * table reads a batch costs: `resolveTopics` reads the whole map once for three
+ * tabs, while a beat resolves one at a time.
+ *
+ * The persisted row is the authority on existence, because `createForumTopic` is
+ * not idempotent — calling it twice makes two identically-named tabs, and there
+ * is no method that reads a topic back to check. That asymmetry is the whole
+ * reason this table exists.
+ */
+async function ensureTopic(
+  chatId: string,
+  slug: TabSlug,
+  name: string,
+  iconCustomEmojiId: string | null,
+  existing: { messageThreadId: number; name: string | null } | undefined,
+): Promise<number> {
+  if (existing !== undefined) {
+    if (existing.name !== name) {
+      await callBotApi('editForumTopic', {
+        chat_id: chatId,
+        message_thread_id: existing.messageThreadId,
+        name,
+      })
+      await renameTopic(chatId, slug, name)
+    }
+    return existing.messageThreadId
+  }
+
+  const created = await callBotApi<ForumTopic>('createForumTopic', {
+    chat_id: chatId,
+    name,
+    ...(iconCustomEmojiId ? { icon_custom_emoji_id: iconCustomEmojiId } : {}),
+  })
+  await rememberTopic(chatId, slug, created.message_thread_id, name)
+  return created.message_thread_id
+}
+
+/** The bits of a beat a tab is made from. `Beat` satisfies it; so does a seed. */
+export interface BeatTab {
+  slug: string
+  emoji: string
+  title: string
+}
+
+/**
+ * Ensures one beat's tab exists, and returns its thread id.
+ *
+ * Called on the delivery path rather than at `/follow`, so a tab appears the
+ * moment a beat first wins an article and never before
+ * ([ADR-0021](../../docs/decisions/0021-a-tab-per-beat.md)). A beat whose
+ * discovery found no usable feeds, or whose ranker never clears the threshold,
+ * costs no tab at all — which matters because `/follow` is cheap to type and a
+ * dead tab cannot be tidied away from here.
+ *
+ * Throws like `resolveTopics` does. The caller decides what a failure means; for
+ * delivery it means falling back to News, which is why this is not swallowed
+ * here — a beat silently losing its tab forever is worse than one loud error.
+ */
+export async function resolveBeatTopic(beat: BeatTab): Promise<number | undefined> {
+  const chatId = telegramEnv().TELEGRAM_CHAT_ID
+  if ((await topicRoute()) === 'unavailable') return undefined
+
+  const slug = beatTopicSlug(beat.slug)
+  const known = await topicIds(chatId)
+  return ensureTopic(chatId, slug, beatTabName(beat), null, known[slug])
+}
+
+/**
+ * What `setBeatTopicOpen` was able to do. Three outcomes, not a boolean: two of
+ * these are perfectly normal and mean different things to the reader, and
+ * collapsing them told the owner of a real tab that they had none.
+ */
+export type BeatTabToggle =
+  /** Telegram accepted it — the tab is now closed, or open again. */
+  | 'changed'
+  /** The beat has never delivered, so there is no tab to close. Not an error. */
+  | 'no-tab'
+  /** This chat type has no close/reopen. Also not an error — see below. */
+  | 'unsupported'
+
+/**
+ * Closes or reopens a beat's tab, following `/pause` and `/resume`.
+ *
+ * A closed topic keeps everything in it readable and refuses new messages, which
+ * is exactly what a paused beat is: nothing is deleted, and the reader can still
+ * scroll what it sent ([ADR-0019](../../docs/decisions/0019-beats-as-reader-owned-data.md)
+ * made pause a soft delete for the same reason).
+ *
+ * **`closeForumTopic` does not exist for private-chat topics — probed
+ * 2026-07-29.** Against the live bot with `has_topics_enabled: true`, both
+ * `closeForumTopic` and `reopenForumTopic` answer
+ * `Bad Request: the chat is not a supergroup forum`, while `editForumTopic` on
+ * the same chat and the same id answers `TOPIC_ID_INVALID` — so renaming is
+ * supported there and closing simply is not. Bot API 9.3's release notes list the
+ * methods extended to private chats and close/reopen are absent from that list,
+ * which now reads as deliberate rather than as an omission. The call is kept
+ * because the supergroup-forum route is a real deployment of this bot (it is the
+ * fallback for anyone who cannot reach the BotFather toggle), and there it works.
+ *
+ * **Never creates a tab.** A beat paused before it ever delivered has no row, and
+ * making one just to close it would leave an empty tab that only the pause
+ * produced.
+ */
+export async function setBeatTopicOpen(beat: BeatTab, open: boolean): Promise<BeatTabToggle> {
+  const chatId = telegramEnv().TELEGRAM_CHAT_ID
+  const existing = (await topicIds(chatId))[beatTopicSlug(beat.slug)]
+  if (existing === undefined) return 'no-tab'
+
+  try {
+    await callBotApi(open ? 'reopenForumTopic' : 'closeForumTopic', {
+      chat_id: chatId,
+      message_thread_id: existing.messageThreadId,
+    })
+    return 'changed'
+  } catch (error) {
+    // Matched on the text because Telegram has no error code for it. Narrow on
+    // purpose: any other failure is a real one and must still reach the caller.
+    if (error instanceof Error && /not a supergroup forum/i.test(error.message)) {
+      return 'unsupported'
+    }
+    throw error
+  }
 }
 
 /**
@@ -166,6 +287,6 @@ export async function resolveTopics(): Promise<Partial<Record<TopicSlug, number>
  * self-healing on the *next* run is deliberate — recreating a tab mid-digest
  * would scatter one batch across two tabs.
  */
-export async function invalidateTopic(slug: TopicSlug): Promise<void> {
+export async function invalidateTopic(slug: TabSlug): Promise<void> {
   await forgetTopic(telegramEnv().TELEGRAM_CHAT_ID, slug)
 }

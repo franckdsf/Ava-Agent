@@ -331,14 +331,15 @@ export async function welcome(): Promise<string> {
 
   return [
     `## Hi, I'm Ava 😊`,
-    `I'm here to help you keep up with the topics you care about. Use the Chat tab to talk with me directly and the News tab to receive scheduled digests — I won't reply in News so the digests stay tidy.`,
+    `I'm here to help you keep up with the topics you care about. Use the ${TOPICS.chat.title} tab to talk with me directly — every other tab is one I push to and don't answer in, so what you're reading stays tidy.`,
     `What I do:`,
     `- **${TOPICS.chat.title}** — chat with me about anything, ask for details, or follow up on an article 📰.\n` +
     `- I keep our conversation in one place so your context stays intact.`,
-    `- **${TOPICS.news.title}** — I push curated digests on a schedule 📅; I don't answer there.`,
+    `- **One tab per beat** — each subject you follow gets its own 📅, and its digests go there and nowhere else.`,
     `- **${TOPICS.translations.title}** — where ${Object.keys(TRANSLATIONS).join(' and ')} put an article once you've asked for it 📜.`,
     `Beats:`,
     beats,
+    `A beat's tab appears the first time it has something to send you, so a brand new one is quiet until then. \`/pause\` closes a tab without deleting anything in it, and \`/resume\` opens it again.`,
     `Digests arrive at ${hours.join(', ')} ${env.AGENT_TIMEZONE}. Each article is delivered as its own message so you can read or save what matters.`,
     `Commands:`,
     commandList(),

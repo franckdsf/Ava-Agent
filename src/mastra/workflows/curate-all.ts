@@ -548,7 +548,10 @@ const deliverBeat = createStep({
     const sendErrors: string[] = []
     for (const message of messages) {
       try {
-        await sendArticle(message.text, message.imageUrl)
+        // Into this beat's own tab. `beat` is the whole row, which is what the
+        // transport needs to create the tab the first time this beat wins
+        // anything ([ADR-0021](../../../docs/decisions/0021-a-tab-per-beat.md)).
+        await sendArticle(message.text, message.imageUrl, beat)
         await markDelivered([message.articleId], beat.slug, 'digest')
         sent += 1
       } catch (err) {

@@ -26,7 +26,7 @@ something looks the way it does.
 | [0006](0006-drizzle-orm-for-application-tables.md) | Drizzle ORM for application tables | Accepted |
 | [0007](0007-lexical-clustering-instead-of-embeddings.md) | Lexical clustering instead of embeddings | Accepted |
 | [0008](0008-categories-as-configuration.md) | Categories as configuration, one parameterized curator | Partly superseded by [0019](0019-beats-as-reader-owned-data.md) |
-| [0009](0009-telegram-topics-as-tabs.md) | Telegram topics as tabs, splitting chat from news | Accepted |
+| [0009](0009-telegram-topics-as-tabs.md) | Telegram topics as tabs, splitting chat from news | Partly superseded by [0021](0021-a-tab-per-beat.md) |
 | [0010](0010-ava-answers-only-in-the-chat-tab.md) | Ava answers only in the Chat tab | Accepted |
 | [0011](0011-fts5-for-article-search.md) | FTS5 for article search, not embeddings | Accepted |
 | [0012](0012-thirty-day-retention-on-items.md) | Thirty-day retention on items, enforced by a scheduled prune | Accepted |
@@ -38,6 +38,7 @@ something looks the way it does.
 | [0018](0018-summarize-command.md) | `/summarize [language]`, answered in Chat, with the language typed rather than remembered | Accepted |
 | [0019](0019-beats-as-reader-owned-data.md) | Beats are rows the reader owns, and a story is scored per beat but sent once | Accepted |
 | [0020](0020-feed-discovery-from-a-subject.md) | `/follow <subject>` — the model proposes sites, the code finds the feeds | Accepted |
+| [0021](0021-a-tab-per-beat.md) | A tab per beat, created on first delivery | Accepted |
 
 ## Template
 

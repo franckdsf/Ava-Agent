@@ -121,13 +121,17 @@ changing any of them.
    ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0014](docs/decisions/0014-two-tier-memory-for-ava.md), [0016](docs/decisions/0016-reader-notes-in-the-ranker.md), [0019](docs/decisions/0019-beats-as-reader-owned-data.md))
 9. **One tab, one kind of traffic.** Ava answers in Chat and nowhere else —
    messages typed in any other tab are *moved* there, not answered in place.
-   Digests go to News. Translations go to Translations. Breaking this means the
-   tabs stop meaning anything. **The criterion is length, not "is it a
-   command"** — `/summarize` answers in Chat alongside `/start` and the
-   unknown-command reply, because one short message is what Chat is for, while a
-   translation is several thousand characters over several messages and would
-   bury the conversation. A new tab per command is the misreading to avoid.
-   ([0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md), [0017](docs/decisions/0017-translation-commands.md), [0018](docs/decisions/0018-summarize-command.md))
+   Translations go to Translations. **A digest goes to its own beat's tab**, and
+   News is now only the fallback for a beat tab that could not be made — a
+   message landing there is a report that something failed, not routine
+   ([0021](docs/decisions/0021-a-tab-per-beat.md)). Breaking this means the tabs
+   stop meaning anything. **The criterion is length, not "is it a command"** —
+   `/summarize` answers in Chat alongside `/start` and the unknown-command reply,
+   because one short message is what Chat is for, while a translation is several
+   thousand characters over several messages and would bury the conversation. A
+   new tab per command is the misreading to avoid; a tab per *beat* is not the
+   same thing, because a beat is a stream of traffic rather than a verb.
+   ([0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md), [0017](docs/decisions/0017-translation-commands.md), [0018](docs/decisions/0018-summarize-command.md), [0021](docs/decisions/0021-a-tab-per-beat.md))
 
 ## Writing Mastra code
 
@@ -437,6 +441,39 @@ doesn't wrap without adding a second Telegram library.
   exclusion list; verified against a copy — `/removefeed` took `computer-science`
   from 9 live feeds to 8 while the exclusion list stayed at 9, and re-proposing
   `blog.google` probed 1 site under the old list and 0 under the new one.
+- **A workflow *can* be triggered from a terminal — over HTTP, not from a script.
+  Verified 2026-07-30.** The gotcha below is about `run.start()` in-process, and
+  it was read for a long time as "Studio is the only way", which is false and
+  costs an agent a browser it does not have. `POST` to the running dev server
+  instead; it owns the pubsub loop, so the evented engine is satisfied:
+
+  ```powershell
+  Invoke-RestMethod -Uri "http://localhost:4111/api/workflows/curateAll/start-async" `
+    -Method Post -ContentType "application/json" `
+    -Body '{"inputData":{},"initialState":{"feedsFetched":0,"discovered":0,"linked":0,"feedErrors":[]}}'
+  ```
+
+  Four things bite, in the order they bit:
+
+  - **`npx mastra api workflow run start curateAll '{"inputData":{}}'` fails with
+    `INVALID_JSON` under PowerShell.** PowerShell strips the inner double quotes
+    passing the argument to a native exe. Use `Invoke-RestMethod`, or the `--%`
+    stop-parsing token. The CLI is still the way to *discover* the contract:
+    `npx mastra api workflow run start --schema` prints the route and body shape.
+  - **The route needs the `/api` prefix.** `api-schema` reports the path as
+    `/workflows/:workflowId/start-async`; the server mounts it under `/api`, and
+    without the prefix it is a bare 404 with no hint.
+  - **`initialState` is required and is not defaulted.** `curateAll` declares a
+    `stateSchema` whose four fields have no defaults, so an empty body is a 500
+    listing them — `feedsFetched: expected number, received undefined`. Studio
+    fills this in from the schema, which is why it never comes up there.
+  - **A 504 does not stop the run.** `start-async` waits for completion and the
+    server's gateway timeout fires first on anything long; the workflow carries
+    on regardless. Deliveries here landed up to 6 minutes *after* the 504.
+    **Never retry on a 504** — poll
+    `GET /api/workflows/:id/runs/:runId` for `status`, or read the database.
+    Re-firing is how two runs end up delivering at once.
+
 - **A workflow can't be run from a plain script.** `createRun()` resolves fine
   and `run.start()` then hangs forever with "unsettled top-level await" —
   schedules are "only supported on the evented engine", and the evented engine
@@ -664,10 +701,70 @@ the first review has nothing to do until a beat has delivered something and a
 feed has 20 collected and 15 ranked against it. The restore path in particular
 cannot do anything for 30 days by construction.
 
-**Still no per-beat Telegram tab.** `/pause` archives a beat and there is no tab
-to close. When that lands, note that there is no Bot API method that *reads* a
-topic — a deleted tab is only discoverable by a send failing, and
-`createForumTopic` is not idempotent, so "check then create" makes duplicates.
+**A tab per beat ships — typechecked, not yet seen against the real bot,
+2026-07-29.** Phase 4 ([ADR-0021](docs/decisions/0021-a-tab-per-beat.md)).
+`deliverBeat` passes the beat row to `sendArticle`, which resolves that beat's
+tab, creating it on the beat's **first delivery** and never at `/follow` — a beat
+that never wins an article costs no tab. `/pause` closes the tab, `/resume`
+reopens it, and neither creates one.
+
+Three things about it that are easy to get wrong:
+
+- **Beat rows in `telegram_topics` are namespaced `beat:<slug>`.**
+  `slugPattern` accepts `news`, so `/follow the news` can produce a beat that
+  would otherwise share a primary key with the News tab and inherit its thread
+  id. Never write a bare beat slug to that table.
+- **News is a fallback now, not a destination.** `sendToTelegram` walks an
+  ordered chain — beat tab, News, flat chat — invalidating each row as Telegram
+  rejects it. A digest in News means a beat tab could not be made, and that is
+  the only signal there is: the transport has no logger.
+- **`sendArticle`'s target is required.** It used to default to `'news'`. Don't
+  restore the default to "simplify" a call site.
+
+**`closeForumTopic` does not exist for private-chat topics — probed against the
+live bot 2026-07-29.** With `has_topics_enabled: true` on a `private` chat, both
+`closeForumTopic` and `reopenForumTopic` answer `Bad Request: the chat is not a
+supergroup forum`, while `editForumTopic` against the *same chat and the same
+bogus id* answers `TOPIC_ID_INVALID`. So renaming reaches private-chat topics and
+closing does not, and Bot API 9.3's list of extended methods was accurate by
+omission. Consequences worth knowing:
+
+- **`/pause` cannot close a tab on a private chat.** A paused beat's tab stays in
+  the strip and merely goes quiet, which is what the reply now says.
+  `setBeatTopicOpen` returns `'unsupported'` for it — a *tri-state*, not a
+  boolean, because the first version returned `false` for both "no tab exists"
+  and "the call failed" and so told the owner of a real tab they had none.
+- **The call is kept anyway.** The supergroup-forum route is a real deployment of
+  this bot and close/reopen work there.
+- **Probe with a bogus `message_thread_id`** rather than a live tab; the error
+  text is the answer and nothing can be closed by accident. The script is
+  disposable — it reads `.env` and raw-fetches, importing nothing from `src/`,
+  because importing anything that builds the adapter with a token present starts
+  a second poller (invariant 7).
+
+**Verified end to end against the real bot, 2026-07-30.** Two `curateAll` runs
+delivered **13 articles into two tabs that did not exist beforehand** —
+`beat:computer-science` (`🧠 Computer Science`, thread 104433) and `beat:design`
+(`🎨 Design`, 104436), both rows written the moment their beat's first article
+was sent. `sendErrors` was **empty on both runs**, which is the proof nothing
+fell back to News: the fallback is the only thing that could have put a digest
+there, and it records a failure when it fires. Counters reconcile exactly against
+`articles` — scheduled run 6 + 1, manual run 6 + 0, database 12 + 1.
+
+`formula-1` is paused and has **no tab**, which is the create-on-first-delivery
+rule doing what it says: it delivered 6 articles back when News was the
+destination, and pausing it created nothing.
+
+**Two runs were in flight at once, and that was a mistake.** The missed 08:00
+schedule fired on boot at 10:13Z, spent ~6.5 minutes on ingest and ranking, and
+began delivering at 10:19:58Z — by which point a manual run started at 10:19:09Z
+was already going. Nothing was double-sent, because `markDelivered` marks each
+article as it lands and the losing run found it gone, but that is the guard
+holding rather than the design working. **Check `workflow run list` for a run
+in progress before starting one** (invariant 6).
+
+Still no way to *delete* a tab. `deleteForumTopic` is deliberately not wired —
+see the ADR's costs.
 
 **The beat commands ship — verified offline, 2026-07-29.** Seven of them:
 `/beats`, `/beat <slug>`, `/pause`, `/resume`, `/addfeed`, `/removefeed`, and
