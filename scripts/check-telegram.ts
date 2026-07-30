@@ -1,13 +1,17 @@
+import { profileOverflows } from '../src/config/bot-profile.js'
 import { telegramEnv } from '../src/config/env.js'
 import { TOPIC_LIST, topicTabName } from '../src/config/topics.js'
 import { topicIds } from '../src/db/topics.js'
-import { topicRoute } from '../src/services/telegram-topics.js'
+import { profileDrift, topicRoute } from '../src/services/telegram-topics.js'
 
 /**
- * Reports whether the target chat can hold tabs, and which are provisioned.
+ * Reports whether the target chat can hold tabs, which are provisioned, and
+ * whether the bot's own profile matches config.
  *
- * Read-only — `getChat`, `getMe` and one table read. Sends nothing and creates
- * nothing, so it is safe against the live bot at any time.
+ * Read-only — `getChat`, `getMe`, the three profile getters and one table read.
+ * Sends nothing and creates nothing, so it is safe against the live bot at any
+ * time. The profile section in particular shows what the *next boot* would push
+ * without pushing it.
  *
  * Exists because the prerequisite is a manual toggle no API can set, it differs
  * by chat type, and its absence otherwise surfaces as an opaque
@@ -39,6 +43,30 @@ const route = await topicRoute()
 console.log(`chat    ${TELEGRAM_CHAT_ID} (${chat.type})`)
 console.log(`name    ${chat.title ?? chat.username ?? '—'}`)
 console.log(`tabs    ${route === 'unavailable' ? 'UNAVAILABLE' : `on, via ${route}`}`)
+
+// Before the tabs branch below, because the profile is independent of them — an
+// unavailable chat still has a name and a description worth reporting on.
+console.log('\nprofile')
+const overflows = profileOverflows()
+if (overflows.length > 0) {
+  // Boot throws on this rather than pushing a partial profile, so it is the one
+  // thing here that is a failure and not a pending change.
+  for (const overflow of overflows) console.log(`  TOO LONG  ${overflow}`)
+} else {
+  const drifted = await profileDrift()
+  if (drifted.length === 0) {
+    console.log('  up to date — the next boot pushes nothing')
+  } else {
+    for (const entry of drifted) {
+      // An empty `have` is a field never set, which is what a fresh bot looks
+      // like. Worth distinguishing from a value that has simply moved on.
+      console.log(`  ${entry.field.padEnd(17)} ${entry.have === '' ? 'unset' : 'differs'}`)
+      console.log(`    now  ${entry.have === '' ? '—' : entry.have}`)
+      console.log(`    next ${entry.want}`)
+    }
+    console.log(`\n  ${drifted.length} field(s) pushed on the next boot.`)
+  }
+}
 
 if (route === 'unavailable') {
   console.log('\nDigests fall back to one flat stream. Two ways to get tabs:\n')

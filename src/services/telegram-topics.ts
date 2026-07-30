@@ -6,6 +6,7 @@ import {
   type TabSlug,
   type TopicSlug,
 } from '../config/topics.js'
+import { botProfile, profileOverflows } from '../config/bot-profile.js'
 import { telegramEnv } from '../config/env.js'
 import { forgetTopic, rememberTopic, renameTopic, topicIds } from '../db/topics.js'
 
@@ -72,6 +73,90 @@ export async function publishCommands(
       description: entry.description,
     })),
   })
+}
+
+/**
+ * One field of the bot's public profile: what config wants, and what Telegram
+ * currently has. `method` is what would push it.
+ */
+export interface ProfileField {
+  field: keyof typeof botProfile
+  method: 'setMyName' | 'setMyShortDescription' | 'setMyDescription'
+  /** The Bot API's parameter name, which is not the config key for two of three. */
+  param: 'name' | 'short_description' | 'description'
+  want: string
+  have: string
+}
+
+/**
+ * The three profile fields, paired with the Bot API's own names for them.
+ *
+ * The mapping is spelled out rather than derived because the two vocabularies
+ * disagree: `shortDescription` is `short_description` on the wire and lives on a
+ * `BotShortDescription`, and a naming convention that happens to work for two of
+ * three fields is the kind that breaks silently on the fourth.
+ */
+const PROFILE_FIELDS: readonly Omit<ProfileField, 'want' | 'have'>[] = [
+  { field: 'name', method: 'setMyName', param: 'name' },
+  { field: 'shortDescription', method: 'setMyShortDescription', param: 'short_description' },
+  { field: 'description', method: 'setMyDescription', param: 'description' },
+]
+
+/**
+ * Reads the live profile and reports which fields config disagrees with.
+ *
+ * Read-only — three GETs, no writes — so it is safe against the live bot at any
+ * time, which is what lets `pnpm telegram:check` show pending changes without
+ * making them.
+ *
+ * Telegram returns an empty string for a field that was never set, so a fresh
+ * bot reports all three as drifted and a fully-provisioned one reports none.
+ */
+export async function profileDrift(): Promise<ProfileField[]> {
+  const drifted: ProfileField[] = []
+
+  for (const entry of PROFILE_FIELDS) {
+    const current = await callBotApi<Record<string, string>>(
+      // `getMyName` from `setMyName`, and so on for all three.
+      entry.method.replace(/^set/, 'get'),
+    )
+    const have = current[entry.param] ?? ''
+    const want = botProfile[entry.field]
+    if (have !== want) drifted.push({ ...entry, want, have })
+  }
+
+  return drifted
+}
+
+/**
+ * Brings the bot's name and descriptions in line with `src/config/bot-profile.ts`.
+ *
+ * Called at boot beside `publishCommands`, so a container brought up against a
+ * fresh bot token provisions its own identity — the point being that the only
+ * BotFather step left is Threaded Mode, which no API can set.
+ *
+ * **Reads before it writes, unlike `publishCommands`.** A full replacement is the
+ * right shape for the menu and the wrong one here: `setMyName` is flood-limited
+ * hard enough that a restart loop would exhaust it, and the failure would be a
+ * bot that cannot rename itself for the rest of the day. Diffing costs three GETs
+ * and makes the steady state zero writes.
+ *
+ * Returns what it changed, so the caller can log a real provisioning event rather
+ * than "profile published" on every boot. An over-long field is skipped with the
+ * others still pushed — Telegram rejects each call separately here, so unlike the
+ * command menu one bad field costs only itself.
+ */
+export async function publishProfile(): Promise<ProfileField[]> {
+  const overflows = profileOverflows()
+  if (overflows.length > 0) {
+    throw new Error(`Bot profile is not sendable: ${overflows.join('; ')}`)
+  }
+
+  const drifted = await profileDrift()
+  for (const entry of drifted) {
+    await callBotApi(entry.method, { [entry.param]: entry.want })
+  }
+  return drifted
 }
 
 interface BotIdentity {

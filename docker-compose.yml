@@ -4,8 +4,16 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      # These three describe the *container's* layout, so they override whatever
+      # `.env` says — that file is written for the dev machine, and `env_file`
+      # loses to `environment` by design. Copying `.env.example` verbatim brings
+      # a relative `AVA_MIGRATIONS_DIR=drizzle` along with it; it happens to
+      # resolve here too, because the bundle ships a package.json for
+      # `resolveFromRoot()` to anchor on, but relying on that walk is how the
+      # "Can't find meta/_journal.json" failure in AGENTS.md happened once.
       AVA_DATA_DB_URL: file:/data/ava.db
       AVA_TRACES_DB_URL: file:/data/traces.db
+      AVA_MIGRATIONS_DIR: /app/drizzle
     volumes:
       - ava-data:/data
     ports:

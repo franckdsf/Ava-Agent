@@ -44,7 +44,7 @@ The full list is in the [README](README.md#commands). These three carry obligati
 | `pnpm feeds:check` | Run after adding or changing a feed. It reads `beat_feeds`, so it needs `.env` now — it used to need nothing. |
 | `pnpm discovery:check "<subject>"` | Dry-runs `/follow` end to end — names the beat, searches, verifies every feed, renders the report — writing and sending nothing. Run before believing any change to the namer, the scout, or feed resolution. |
 | `pnpm review:check` | **Required** after touching `verdictForBeat` or `src/config/feed-review.ts`. It is the only exercise the weekly feed review gets: a guard with no case here is a guard that silently stops applying, and the failure is a beat quietly losing good sources. Also prints what a run *today* would do to the live beats. |
-| `pnpm telegram:check` | Run before debugging a missing tab. Reports whether BotFather's Threaded Mode is on — the one prerequisite no code can set. |
+| `pnpm telegram:check` | Run before debugging a missing tab. Reports whether BotFather's Threaded Mode is on — the one prerequisite no code can set — plus any profile field the next boot would push. Read-only, safe against a running bot. |
 
 ## Invariants
 
@@ -611,12 +611,90 @@ doesn't wrap without adding a second Telegram library.
   will tell you whatever you want to hear, in either direction; the first pair
   measured here said 68s/107s and nearly justified switching models on it. Don't
   quote a number for this model, and don't tune a timeout against one.
+- **`pnpm-workspace.yaml` is a build input, and the Dockerfile has to copy it.**
+  pnpm 10+ refuses to run a dependency's install script unless it is approved in
+  that file, and it **errors** rather than warning — `ERR_PNPM_IGNORED_BUILDS`,
+  exit 1. The only entry here is `esbuild`, whose postinstall fetches the native
+  binary `mastra build` needs, so the file is not optional decoration. The
+  Dockerfile copied `package.json` and `pnpm-lock.yaml` into the install layer
+  and nothing else, which meant **`docker compose up --build` had never worked**;
+  found 2026-07-30 by running it. Anything else that install reads belongs in
+  that same `COPY`, before `pnpm install`, not with the source afterwards.
+- **Pin `packageManager`, or corepack picks the pnpm of the day.** With no pin,
+  `corepack enable` fetched **11.18.0** into the image against a lockfile written
+  by **11.0.3** — same major by luck, and the next major would arrive just as
+  quietly. `package.json` now pins it and the Dockerfile sets
+  `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`, since the download is not a decision
+  anyone is present to make.
+- **`environment:` beats `env_file:` in compose, and that is what makes the
+  container's paths safe.** `.env` is written for the dev machine — copying
+  `.env.example` verbatim brings `AVA_MIGRATIONS_DIR=drizzle` with it — so the
+  three path variables are overridden explicitly in `docker-compose.yml`. The
+  relative value does resolve in the container (the bundle ships a package.json
+  for `resolveFromRoot()` to anchor on), but leaning on that walk is how "Can't
+  find meta/_journal.json" happened the first time.
+- **An empty `ava-data` volume against a chat you already use is not a clean
+  start — it is a fork.** The container's database has no `telegram_topics`, and
+  the persisted id is the only authority on whether a tab exists, so
+  `resolveTopics()` creates a **second** Chat, News and Translations in the same
+  chat; `createForumTopic` is not idempotent and `deleteForumTopic` is not wired,
+  so that cleanup is manual. It also re-seeds `beats` from
+  `src/config/seed-beats.ts` — losing every beat made with `/follow`, which lives
+  nowhere else — and empties `feed_state`, so the next digest re-ingests
+  everything and re-delivers read news. Seed the volume from `.data/` first
+  (procedure in the [README](README.md#moving-an-existing-database-into-the-volume)).
+  Checked 2026-07-30 against a seeded volume: 3 beats including `formula-1`, 967
+  articles, all 5 topic rows, clean FTS `integrity-check`.
+- **A bot's own profile is three fields and three *different* nouns.**
+  `setMyName` is the chat title, `setMyShortDescription` is the profile page and
+  share previews, `setMyDescription` is the empty-chat screen above Start. The
+  wire names are not the config names (`short_description`), and each has its own
+  getter — so unlike `setMyCommands`, `publishProfile()` reads all three back and
+  pushes only what drifted. That is not a micro-optimisation: `setMyName` is
+  flood-limited, and a container in a restart loop pushing it every boot would
+  lock the bot out of renaming itself for the day. All six methods verified
+  against the live bot 2026-07-30, including the writes — probe them with
+  `language_code: 'eo'`, which exercises the real method against a locale nothing
+  will ever request and leaves the default profile untouched.
 - **`.history/` must stay gitignored.** An IDE extension snapshots `.env`
   verbatim into it.
 
 ## Where work stopped
 
-*Last updated: 2026-07-29.*
+*Last updated: 2026-07-30.*
+
+**The container provisions the bot, and `docker compose --build` works for the
+first time — 2026-07-30.** Two separate things, found together because verifying
+the first meant finally running the second.
+
+`src/config/bot-profile.ts` holds the name and both descriptions;
+`publishProfile()` pushes them at boot beside `publishCommands()`, so a fresh
+token gets its menu, its name, its profile-page line and its empty-chat blurb
+with nobody typing into @BotFather. **Threaded Mode is still manual** and now has
+nothing else keeping it company.
+
+The build was broken the whole time and nothing had run it: `pnpm install`
+exited 1 on `ERR_PNPM_IGNORED_BUILDS` because `pnpm-workspace.yaml` was never
+copied into the install layer. See the three Docker gotchas above — all three
+were found in one `docker build`.
+
+Verified by running, against the live bot and a throwaway container:
+
+- All six `getMy*`/`setMy*` methods answer. The read path was checked by
+  `pnpm telegram:check` reporting **up to date** against config copied from the
+  live values — which is also what proved the concatenated string literals are
+  byte-identical, em dashes and curly apostrophes included. The write path was
+  checked on `language_code: 'eo'`: each of the three wrote, read back equal,
+  cleared, and the default profile was unchanged afterwards.
+- The image boots from an **empty volume** into a complete deployment: 13
+  migrations applied, `articles_fts` and its shadow tables present, 2 beats and
+  16 feeds seeded, and all 6 schedules registered in `mastra_schedules`.
+
+**Not yet seen: a real container against the real token.** The smoke test ran
+with no `TELEGRAM_BOT_TOKEN` on purpose — `registerChatCommands` returns early
+without one, so nothing polled and nothing was published. Booting the real
+compose stack starts a second poller if `pnpm dev` is up (invariant 7) and fires
+any missed digest schedule on boot, so it is a deliberate act, not a smoke test.
 
 **`/follow <subject>` ships — verified end to end on the real bot, 2026-07-29.**
 Say a subject in any language and a working beat comes back

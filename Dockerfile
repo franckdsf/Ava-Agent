@@ -7,9 +7,21 @@
 FROM node:22-slim AS build
 WORKDIR /app
 
+# Corepack reads `packageManager` from package.json and fetches that exact pnpm.
+# Without the pin it takes whatever is latest on the day of the build: this image
+# resolved 11.18.0 against a lockfile written by 11.0.3, and the next major would
+# arrive the same silent way. The prompt is disabled because the download is not
+# a decision anyone is here to make.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 
-COPY package.json pnpm-lock.yaml ./
+# `pnpm-workspace.yaml` belongs in this layer, not with the source below.
+# pnpm 10+ refuses to run a dependency's build script unless it is approved
+# there, and *errors* rather than warning — `ERR_PNPM_IGNORED_BUILDS`. esbuild's
+# postinstall is what fetches its native binary, so without this file the install
+# fails outright and, if it did not, `mastra build` would fail for want of a
+# bundler. Copying it after the install is too late to be seen.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .

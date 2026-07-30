@@ -17,7 +17,7 @@ import {
   topicThreadId,
 } from '../services/telegram.js'
 import type { QuotedMessage } from '../services/telegram-reply.js'
-import { publishCommands } from '../services/telegram-topics.js'
+import { publishCommands, publishProfile } from '../services/telegram-topics.js'
 import { isBeatCommand, runBeatCommand } from './commands/beats.js'
 import { isSummaryCommand, runSummary } from './commands/summarize.js'
 import { isTranslationCommand, runTranslation } from './commands/translate.js'
@@ -255,6 +255,23 @@ export async function registerChatCommands(
   void publishCommands(commandMenu()).catch(error => {
     mastra.getLogger()?.error('Failed to publish the Telegram command menu', error)
   })
+
+  // Name and descriptions, from `src/config/bot-profile.ts`. Same disposition as
+  // the menu — a bot whose profile page is stale still delivers news — and the
+  // same reason for being here at all: a container brought up against a fresh
+  // token should provision itself, leaving BotFather's Threaded Mode as the only
+  // manual step. Unlike the menu this diffs first, so it is normally silent.
+  void publishProfile()
+    .then(changed => {
+      if (changed.length > 0) {
+        mastra.getLogger()?.info(
+          `Published the Telegram bot profile: ${changed.map(entry => entry.field).join(', ')}`,
+        )
+      }
+    })
+    .catch(error => {
+      mastra.getLogger()?.error('Failed to publish the Telegram bot profile', error)
+    })
 }
 
 /**

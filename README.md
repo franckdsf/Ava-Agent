@@ -109,6 +109,60 @@ docker compose up -d --build
 State lives in the `ava-data` volume, so back it up — it holds your dedupe
 history and the feedback that trains the rankers.
 
+### Moving an existing database into the volume
+
+**Do this before the first `compose up` if you have been running `pnpm dev`**,
+because an empty volume against a chat you already use is not a clean start:
+
+- `telegram_topics` is empty, so `resolveTopics()` creates a **second** set of
+  tabs. `createForumTopic` is not idempotent and `deleteForumTopic` is not wired
+  — the cleanup is manual, on the phone.
+- `beats` re-seeds from `src/config/seed-beats.ts`, so every beat you made with
+  `/follow` is gone.
+- `feed_state` is empty, so the next digest re-ingests every feed from scratch
+  and re-delivers what you have already read.
+
+Stop the dev server first — a libsql database is only complete once it has
+checkpointed, and a live `.db` file without its `-wal` sibling is missing
+whatever has not been flushed:
+
+```bash
+ls .data/                       # copy ava.db-wal and -shm too if they exist
+docker volume create ava-data
+docker run --rm -v ava-data:/data -v "$(pwd)/.data:/seed:ro" node:22-slim \
+  sh -c "cp /seed/ava.db* /data/ && chown -R 1000:1000 /data"
+```
+
+`traces.db` is disposable and does not need copying. Check a row count you know
+before trusting the copy.
+
+### The bot provisions itself
+
+Bring the container up against a fresh bot token and it publishes its own
+identity on boot — no retyping anything into @BotFather:
+
+| What | From | Method |
+| --- | --- | --- |
+| The `/` command menu | `TRANSLATIONS`, `BEAT_COMMANDS`, `summary` | `setMyCommands` |
+| Name, and both descriptions | [`src/config/bot-profile.ts`](src/config/bot-profile.ts) | `setMyName`, `setMyShortDescription`, `setMyDescription` |
+| The tabs | [`src/config/topics.ts`](src/config/topics.ts) | `createForumTopic`, on first use |
+
+The profile **reads before it writes**, so editing the config is what changes the
+bot and a restart loop costs nothing — `setMyName` is flood-limited hard enough
+that pushing it on every boot would eventually lock the bot out of renaming
+itself. The command menu is a full replacement every boot, which is safe for
+`setMyCommands` and is what keeps the config the source of truth.
+
+**One step no API can do: Threaded Mode.** It is a BotFather toggle, and without
+it the tabs degrade to one flat stream:
+
+```
+@BotFather → /mybots → <your bot> → Bot Settings → Threads Settings → Threaded Mode
+```
+
+`pnpm telegram:check` reports whether it is on, which tabs exist, and any profile
+field the next boot would push. It is read-only — safe against a running bot.
+
 To run stateless instead, point `AVA_DATA_DB_URL` at a Turso database and drop
 the volume. Turso *is* libSQL, so this is a URL change, not a code change:
 

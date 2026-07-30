@@ -107,8 +107,44 @@ answer it directly.
 
 No public escape hatch: `botToken` and `apiBaseUrl` are `protected`. Anything the
 adapter doesn't expose — topic lifecycle (`createForumTopic`, `editForumTopic`,
-`deleteForumTopic`), `sendMessageDraft`, and everything added after 4.35.0 — you
-call yourself.
+`deleteForumTopic`), the bot's own profile (`setMyCommands`, `setMyName`,
+`setMyDescription`, `setMyShortDescription`), `sendMessageDraft`, and everything
+added after 4.35.0 — you call yourself.
+
+### The bot's own profile is provisioned in code
+
+`src/services/telegram-topics.ts` publishes all four at boot, from
+`src/config/bot-profile.ts` and the command config, so a deployment against a
+fresh token needs no BotFather session. Four fields, four different places the
+reader sees them:
+
+| Method | Where it shows | Cap |
+| --- | --- | --- |
+| `setMyCommands` | the list when you type `/` | 256 per description |
+| `setMyName` | the chat title, on every message | 64 |
+| `setMyShortDescription` | profile page, and share previews | 120 |
+| `setMyDescription` | the empty-chat screen, above Start | 512 |
+
+The methods shipped in **Bot API 6.6** (2023-03-09) and `setMyName` in **6.7**
+(2023-04-21), each with a matching `getMy*` — read from the changelog, and all
+six confirmed against the live bot on 2026-07-30.
+
+Two things worth knowing before touching this:
+
+- **Read before you write.** Every field has a getter, and `setMyName` is
+  flood-limited hard enough that a container in a restart loop would exhaust it.
+  `publishProfile()` diffs and normally writes nothing. `setMyCommands` is the
+  exception and is pushed whole every boot — it is a full replacement with no
+  meaningful limit, and one over-long or non-lowercase entry rejects the
+  **entire** menu rather than one row.
+- **Probe writes on a throwaway locale.** All four take `language_code`. Writing
+  to `'eo'` exercises the real method and leaves the default profile alone;
+  passing an empty string removes the localized entry afterwards. That is how the
+  write path here was verified without overwriting a live description — the
+  alternative, testing where the cap falls, overwrites the real field the moment
+  the guess about the boundary is wrong.
+
+The caps above are the reference's, **not probe-verified**, for that same reason.
 
 ---
 
