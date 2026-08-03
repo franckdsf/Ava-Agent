@@ -14,7 +14,7 @@ import { pipeline } from './pipeline.js'
  * dispatcher, the split is in the wrong place.
  *
  * Beats made the same move and then kept going — they are rows now, because the
- * reader creates them by talking to Ava ([invariant 3](../../AGENTS.md#invariants)).
+ * reader creates them by talking to Newy ([invariant 3](../../AGENTS.md#invariants)).
  * These stay in a file on purpose. A gloss density is something this repo ships
  * and tunes against measurements, not something the reader invents, and a table
  * nothing writes to at runtime buys nothing but a migration.
@@ -146,7 +146,7 @@ export const translation = {
   /**
    * Target language when the notes say nothing about what the reader reads in.
    *
-   * The real answer comes from Ava's notes — this is what a fresh database
+   * The real answer comes from Newy's notes — this is what a fresh database
    * falls back to, so the command works on day one rather than failing on a
    * fact nobody has told her yet.
    */

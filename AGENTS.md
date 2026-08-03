@@ -8,6 +8,28 @@ Operating contract for anyone — human or agent — working in this repo.
 
 ---
 
+## Names
+
+**Ava is the system. Agents have their own names.** Ava is the repo, the
+database, the container, the `AVA_*` environment, the volume — everything that
+outlives any one agent. **Newy** is the conversational agent behind the Chat tab,
+formerly called Ava, renamed 2026-08-03
+([ADR-0022](docs/decisions/0022-ava-is-the-system-agents-have-names.md)).
+
+The rule for reading this repo, and for naming anything new in it:
+
+- **Lowercase `ava` in a path, an identifier, an env var or a volume is the
+  system** — `ava.db`, `ava-data`, `ava-storage`, `AVA_MODEL_*`, `ava-agent`.
+  Leave it alone. Renaming any of it is a migration, not a rename.
+- **A capitalised name in a prompt, a tab, a bot profile or an agent id is an
+  agent** — today that is only `Newy`.
+- **A knob shared by every conversational agent keeps its role name**, not an
+  agent's. `AVA_MODEL_ORCHESTRATOR` is the model a reader talks to, whichever
+  agent is doing the talking; retuning it is a decision about the surface, and
+  one variable moving all of them together is the intent.
+- **ADRs 0001–0021 predate the split and are frozen.** Where they say "Ava" of
+  the chat agent, read "Newy". ADR-0022 carries the mapping; do not rewrite them.
+
 ## Working agreement
 
 - **pnpm only.** Never npm. This was corrected explicitly.
@@ -61,7 +83,7 @@ changing any of them.
    the answer validated against that set on the way back. A scheduled job that
    lets an LLM choose its own control flow produces surprise bills and duplicate
    messages. Inbound, human-triggered calls are a separate category and are
-   governed by invariant 8 instead — Ava, the translator behind `/translearn` /
+   governed by invariant 8 instead — Newy, the translator behind `/translearn` /
    `/translate`, and the summarizer behind `/summarize`. The distinction is who
    decides to spend: a cron fire nobody watches, or a person typing.
    ([0015](docs/decisions/0015-weekly-memory-review.md), [0017](docs/decisions/0017-translation-commands.md), [0018](docs/decisions/0018-summarize-command.md))
@@ -87,7 +109,7 @@ changing any of them.
    score and their reason, which is what makes "why didn't you send me that?"
    answerable. ([0019](docs/decisions/0019-beats-as-reader-owned-data.md))
 6. **Single replica.** Two would double-send digests and double-poll Telegram.
-7. **Exactly one adapter polls.** Ava's adapter (`mode: 'polling'`) owns the only
+7. **Exactly one adapter polls.** Newy's adapter (`mode: 'polling'`) owns the only
    inbound path; `src/services/telegram.ts` is outbound-only and never
    initializes a `ChatInstance`. Two pollers consume each other's updates.
    Never use `mode: 'auto'` — it falls back to *webhook* when it can't verify
@@ -96,7 +118,7 @@ changing any of them.
 8. **The conversational surface may write what the next run reads, and never
    what a run produced.** This used to read "read-only over the pipeline" with
    `memories` as its one exception; that wording could not survive the reader
-   creating beats by talking to Ava, and a principle is better than a growing
+   creating beats by talking to Newy, and a principle is better than a growing
    list. The line now falls between *configuration* and *run output*:
 
    - **May be written from a conversation:** `memories`, `beats`, `beat_feeds`.
@@ -119,7 +141,7 @@ changing any of them.
    `curateAll`. A reader-triggered run is governed by invariant 2's own
    distinction — a person typing, not a cron fire nobody watches.
    ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0014](docs/decisions/0014-two-tier-memory-for-ava.md), [0016](docs/decisions/0016-reader-notes-in-the-ranker.md), [0019](docs/decisions/0019-beats-as-reader-owned-data.md))
-9. **One tab, one kind of traffic.** Ava answers in Chat and nowhere else —
+9. **One tab, one kind of traffic.** Newy answers in Chat and nowhere else —
    messages typed in any other tab are *moved* there, not answered in place.
    Translations go to Translations. **A digest goes to its own beat's tab**, and
    News is now only the fallback for a beat tab that could not be made — a
@@ -311,7 +333,7 @@ doesn't wrap without adding a second Telegram library.
   `INSERT INTO items_fts(items_fts) VALUES('integrity-check')`.
 - **A tool that returns only headlines produces a model that hedges.** The
   original `search-news` returned title/source/link/score and nothing else, so
-  even a *successful* search left Ava unable to say anything about an article —
+  even a *successful* search left Newy unable to say anything about an article —
   she hedged, and it read as a search failure. It returns `excerpt` and `reason`
   now, and `read-article` returns the body for one item at a time.
 - **Listing and reading are separate tools on purpose.** `search-news` matches
@@ -320,7 +342,7 @@ doesn't wrap without adding a second Telegram library.
   wrong one twice over: at the 8k cap fifteen results is ~30k tokens a search,
   and it buries the article the reader asked about under fourteen others. Both
   tools return `id` so the model can go from one to the other — if that field
-  is ever dropped from `articleShape`, reading breaks silently and Ava goes back
+  is ever dropped from `articleShape`, reading breaks silently and Newy goes back
   to answering from excerpts.
 - **Telegram feeds carry no body worth having, so `read-article` fetches.**
   Hacker News items store the HN boilerplate as their excerpt — `Article URL: …
@@ -494,7 +516,7 @@ doesn't wrap without adding a second Telegram library.
   change to `memories` is to update a fact in place when it stops being true.
   Doing it deletes the only thing that makes the table more than a key-value
   store: "dark hair (2025-01)" followed by "blond hair (2026-01)" is what lets
-  Ava answer *"blond, since January — dark before that"*. Verified against the
+  Newy answer *"blond, since January — dark before that"*. Verified against the
   live model, which said exactly that. `forget-memory` is for a fact that was
   never true, not for one that changed.
   ([0014](docs/decisions/0014-two-tier-memory-for-ava.md))
@@ -520,13 +542,13 @@ doesn't wrap without adding a second Telegram library.
   model acts on something at all, don't A/B *presence* — flip the input's
   *direction* and watch the items it names: `+80.0` on those against `+5.3` on
   the rest is a mechanism, `+15` on everything is weather.
-- **French is a facade on Ava's replies, and nowhere else.** A memory may record
+- **French is a facade on Newy's replies, and nowhere else.** A memory may record
   that the reader writes in French and expects `vous`. That note is now in the
   *ranker's* prompt too, where obeying it would produce French `reason` strings
   in `items` — read later by `search-news`, by the article writer, and by
   whoever opens the database. Every stored string, every prompt, every note is
   English; only the text Telegram shows a human follows the reader's language.
-  Both prompts say so explicitly (`curator.ts` for reasons, `ava.ts` for notes)
+  Both prompts say so explicitly (`curator.ts` for reasons, `newy.ts` for notes)
   because neither model infers it — verified across six ranking runs carrying a
   lasting "writes in French" note, all reasons English.
 - **`decide` and `apply` are separate steps so a bad model response can't
@@ -535,7 +557,7 @@ doesn't wrap without adding a second Telegram library.
   "the model returned junk" and "nothing was worth keeping" must never be the
   same value. Promotion also runs *before* the sweep, and the sweep matches
   `tier = 'short'` only, so a note rescued this run cannot be deleted by it.
-- **Ava's instructions are a function now, and the notes go in a second system
+- **Newy's instructions are a function now, and the notes go in a second system
   message.** Concatenating them into the one string would change the whole
   prompt every turn and lose the cacheable prefix. The block also carries today's
   date — without it every date in the notes is an opaque string and the
@@ -896,7 +918,7 @@ and the per-beat verdict lives in `article_beats`. `curateCategory` became
 three schedules instead of six, with an optional `beats` filter so a single beat
 can still be run from Studio.
 
-**Nothing conversational has changed yet.** Ava can *read* beats — the tools take
+**Nothing conversational has changed yet.** Newy can *read* beats — the tools take
 a beat slug and her prompt renders the live list — but there is no `create-beat`,
 no discovery workflow, and no per-beat tab. Those are phases 2–4. What phase 1
 bought is that none of them now need a restart to take effect.
@@ -1002,8 +1024,8 @@ does — the local converter is not authoritative.
 
 **Tabs and the conversational surface — built, not yet verified end to end.**
 Three Telegram topics (`src/config/topics.ts`): **Chat**, **News** and
-**Translations**. Digests target News, translations target Translations; `Ava`
-(`src/mastra/agents/ava.ts`) answers in Chat and owns the only inbound path — a
+**Translations**. Digests target News, translations target Translations; `Newy`
+(`src/mastra/agents/newy.ts`) answers in Chat and owns the only inbound path — a
 polling adapter on `channels.adapters`. She has five read-only tools over the
 news tables. See [ADR-0009](docs/decisions/0009-telegram-topics-as-tabs.md).
 
@@ -1020,7 +1042,7 @@ in its own settings (`getChat.is_forum`). `topicRoute()` checks whichever applie
 disabled tabs in a group. `pnpm telegram:check` reports the route and the fix for
 whichever chat type it finds.
 
-**Ava answers in Chat — verified end to end 2026-07-28.** Real inbound messages
+**Newy answers in Chat — verified end to end 2026-07-28.** Real inbound messages
 from the phone were answered in the Chat tab: four updates Telegram had queued
 drained on boot and got replies, then live messages after them. The polling
 adapter, the tab router and memory-on-one-thread all work against the real bot.
@@ -1041,9 +1063,9 @@ it still always returns empty. `recordVote(item, vote)` takes the whole item now
 not an id — the caller has it in hand, since a reaction arrives on a message
 built from it.
 
-**The ranker reads Ava's notes about the reader — verified offline, 2026-07-28.**
+**The ranker reads Newy's notes about the reader — verified offline, 2026-07-28.**
 `rank` now renders `memoriesForCuration()` beside the (still empty) vote profile,
-so the reader steers their digest by telling Ava what they want
+so the reader steers their digest by telling Newy what they want
 ([ADR-0016](docs/decisions/0016-reader-notes-in-the-ranker.md)). This is what the
 👍/👎 loop was going to be and isn't yet: a thumb can only teach the ranker about
 a pattern it has already sent, a sentence can name a subject it never has.
@@ -1058,17 +1080,17 @@ prompt — the first measurement of this change was a false positive.
 **Not yet seen on a real fire.** Every run above was `agent.generate()` from a
 script against a *copy* of the database with seeded notes (live `memories` was 2
 rows before and after). What has never been observed is a scheduled run ranking
-against notes Ava wrote herself, and the live table has nothing in it yet that
+against notes Newy wrote herself, and the live table has nothing in it yet that
 expresses a preference — "Franck has brown eyes" is exactly the background the
-ranker is told to ignore. Telling Ava one thing you want more of, in the Chat
+ranker is told to ignore. Telling Newy one thing you want more of, in the Chat
 tab, is what makes the next 08:00 run the first real test.
 
-**Ava has memory — verified end to end against the live model, 2026-07-28.** A
+**Newy has memory — verified end to end against the live model, 2026-07-28.** A
 `memories` table (Drizzle, `0007`), two tiers, one row per fact, and the whole
 thing injected into her instructions every turn
 ([ADR-0014](docs/decisions/0014-two-tier-memory-for-ava.md)). This is the "real
 feedback system" the 👍/👎 loop was never going to be: 👍/👎 trains the *ranker's*
-taste, this is what Ava knows about the *person*.
+taste, this is what Newy knows about the *person*.
 
 Three new tools, and they are the only ones on the conversational surface that
 write — see the amended invariant 8. `remember` (one fact, tier chosen at write
@@ -1121,12 +1143,12 @@ and its schedule reads `{ cron: '0 5 * * 1', timezone: 'Europe/Paris' }`.
 expire — the oldest note dates from today — so the first real run has nothing to
 do until late August. Studio (**Workflows → reviewMemories**, input `{}`) is the
 way to watch one; it cannot be driven from a script, see the evented-engine
-gotcha. What has never been observed is a run over notes Ava wrote *herself*
+gotcha. What has never been observed is a run over notes Newy wrote *herself*
 rather than fixtures written to test her.
 
 **Search rebuilt on FTS5, and the reply streams — 2026-07-28.** Both came out of
 one real conversation that went wrong: the reader asked about *"the 500$ rl fine
-tune"*, watched an empty chat for ~30 seconds, and got told Ava didn't know which
+tune"*, watched an empty chat for ~30 seconds, and got told Newy didn't know which
 model they meant — about an article she had delivered to them that morning.
 
 Two independent causes, both since fixed and verified:
@@ -1150,7 +1172,7 @@ checked against the live database and through a real agent turn. `streaming:
 true` typechecks and the draft path was read in the compiled adapter, but it has
 not yet been watched on a phone — that needs a real inbound message.
 
-**Ava is on vous, and the streaming report was a red herring — 2026-07-28.** A
+**Newy is on vous, and the streaming report was a red herring — 2026-07-28.** A
 real session came back reading like a chat between mates: `T'as d'autres
 questions !`, a reply that was nothing but `✨`, and `Tu veux que je te dise quoi
 en plus ?`. The prompt's only tone rules were "skip the flattery" and "short by
@@ -1169,7 +1191,7 @@ The truncated first message in the same session looked like the streaming work
 regressing. It wasn't — see the `</think>` gotcha above. Streaming itself is
 still only verified offline.
 
-**Ava is scoped to the Chat tab — 2026-07-28.** `src/mastra/channels.ts` swaps
+**Newy is scoped to the Chat tab — 2026-07-28.** `src/mastra/channels.ts` swaps
 the inbound thread for the Chat tab's before the default handler runs, on all
 three inbound events, so a message typed in News is *answered in Chat* rather
 than in place. One thread id means one conversation memory.
@@ -1189,7 +1211,7 @@ Since verified with real inbound messages too — see *Where work stopped*.
 **Tab names carry an emoji, and a rename reconciles — 2026-07-28.** `emoji` is a
 separate field from `title` in `src/config/topics.ts` because the two have
 different audiences: `topicTabName()` joins them for Telegram, while `title`
-alone is what Ava's instructions and the welcome interpolate (`the "💬 Chat" tab`
+alone is what Newy's instructions and the welcome interpolate (`the "💬 Chat" tab`
 reads badly in a prompt). `resolveTopics()` now pushes a changed name with
 `editForumTopic` and records what it sent in `telegram_topics.name` — there is no
 `getForumTopic` to read a name back with, so remembering it is the only way to
@@ -1247,7 +1269,7 @@ cannot be driven from a script — see the evented-engine gotcha above.
 **`mastra_*` tables are not covered and must not be.** Mastra owns them
 (invariant 4), and they are not spare capacity — they are what Studio and the
 runtime read: `mastra_workflow_snapshot` is workflow run history *and* the state
-a suspended run resumes from, `mastra_threads` / `mastra_messages` are Ava's
+a suspended run resumes from, `mastra_threads` / `mastra_messages` are Newy's
 conversation memory. Deleting rows there is not a cleanup, it is deleting the
 chat history and breaking resumability. They are small today (22 snapshots, 30
 messages) but grow per run and per turn with nothing trimming them, so this will
@@ -1262,7 +1284,7 @@ by construction — they live in `traces.db`, which is disposable as a whole fil
 to a digest and asking "what is this about?" used to arrive as those five words
 and nothing else. `withQuotedMessage` (`src/mastra/channels.ts`) prepends what
 the reader pointed at, and when the quoted message carries a link to a stored
-item, the note names that item's id so Ava calls `read-article` rather than
+item, the note names that item's id so Newy calls `read-article` rather than
 searching. **No table was needed and none was added** — the item id is a hash of
 the canonical link and the digest carries that link in its heading, so the URL in
 the quoted message *is* the primary key
@@ -1304,7 +1326,7 @@ body came back at 7995 chars via the fetch fallback; `items` was 293 before and
 parsed to `heading, paragraph, paragraph, paragraph` through the real
 `formatConverter` with the heading only on part 1, the source footer only on the
 last, and the `n/N` marker absent when there is one part. Against the live model,
-both commands resolved **French** from Ava's own notes with no language
+both commands resolved **French** from Newy's own notes with no language
 configured anywhere, and separated cleanly on density — **26.1 vs 2.0 glosses
 per 100 words** on the same chunk.
 

@@ -1,6 +1,6 @@
 import { Mastra } from '@mastra/core'
 import { seedBeats } from '../db/beats.js'
-import { ava, avaId } from './agents/ava.js'
+import { newy, newyId } from './agents/newy.js'
 import { curatorAgents } from './agents/curator.js'
 import { memoryReviewer, memoryReviewerId } from './agents/memory.js'
 import { scoutAgents } from './agents/scout.js'
@@ -15,12 +15,12 @@ import { reviewFeedsWorkflow } from './workflows/review-feeds.js'
 import { reviewMemoriesWorkflow } from './workflows/review-memories.js'
 
 export const mastra = new Mastra({
-  // Ava is registered alongside the curators, not instead of them: the curators
-  // are internal pipeline steps with no channel, Ava is the only one with an
+  // Newy is registered alongside the curators, not instead of them: the curators
+  // are internal pipeline steps with no channel, Newy is the only one with an
   // inbound surface. The memory reviewer is a third kind again: no channel and
   // no place in the news pipeline, woken once a week by its own workflow. The
   // translator and the summarizer are a fourth kind: no channel either, woken by
-  // a slash command the adapter routes around Ava entirely. All of them are
+  // a slash command the adapter routes around Newy entirely. All of them are
   // registered here rather than constructed at their call site so they resolve
   // through `mastra.getAgent` like every other model call, and so their runs
   // show up in Studio.
@@ -32,7 +32,7 @@ export const mastra = new Mastra({
   agents: {
     ...curatorAgents,
     ...scoutAgents,
-    [avaId]: ava,
+    [newyId]: newy,
     [memoryReviewerId]: memoryReviewer,
     [translatorId]: translator,
     [summarizerId]: summarizer,
@@ -73,6 +73,6 @@ void seedBeats()
 // agent above already started that, so this awaits it rather than racing it.
 // Fire-and-forget with the same disposition Mastra itself uses: a channel that
 // fails to come up must not take the scheduled pipeline down with it.
-void registerChatCommands(mastra, ava.getChannels()).catch(error => {
+void registerChatCommands(mastra, newy.getChannels()).catch(error => {
   mastra.getLogger()?.error('Failed to register Telegram commands', error)
 })

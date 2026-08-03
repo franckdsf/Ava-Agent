@@ -8,7 +8,7 @@ import { env } from '../../config/env.js'
  * on the Mastra instance at import time, which meant a beat that did not exist
  * when the process booted had no agent: `mastra.getAgent('rust-ranker')` threw.
  * That was survivable while beats were a git-reviewable array and unworkable the
- * moment the reader can add one by talking to Ava
+ * moment the reader can add one by talking to Newy
  * ([ADR-0019](../../../docs/decisions/0019-beats-as-reader-owned-data.md)).
  *
  * **The rubric moved from the instructions into the prompt**, and that is the

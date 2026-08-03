@@ -145,7 +145,7 @@ export function chunkText(text: string, max: number): string[] {
  *
  * One function rather than one per caller, because `read-article` and the
  * translation commands must agree on what "the article" is: a reader who asks
- * Ava about a piece and then translates it should not get two different bodies.
+ * Newy about a piece and then translates it should not get two different bodies.
  */
 export async function articleBody(
   article: Pick<Article, 'content' | 'link'>,

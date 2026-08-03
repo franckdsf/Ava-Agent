@@ -41,7 +41,7 @@ export async function quotedSource(raw: unknown): Promise<QuotedSource | undefin
  * The stored article a quoted message points at, if any.
  *
  * First hit wins: a digest carries exactly one link and it is the article's, so
- * anything after it is a link Ava wrote into a later message. How a URL becomes
+ * anything after it is a link Newy wrote into a later message. How a URL becomes
  * a row is `articleForLink`'s business — all that is decided here is how many of a
  * quoted message's links are worth trying.
  */

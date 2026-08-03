@@ -98,7 +98,7 @@ export async function memoryInstructions(now = new Date()): Promise<string> {
 /* ────────────────────────────── weekly review ─────────────────────────────── */
 
 /**
- * The reviewer. Its whole job is a tier decision Ava could not have made at the
+ * The reviewer. Its whole job is a tier decision Newy could not have made at the
  * time: she writes a note the moment she hears it, with no idea whether it will
  * still matter in a month, and is told to prefer "short" when unsure. This runs
  * a month later, when the answer is obvious.

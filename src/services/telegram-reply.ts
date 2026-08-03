@@ -6,7 +6,7 @@ import { capText } from './article.js'
  * Reads the message a reader swiped-to-reply on, off the raw Telegram payload.
  *
  * Pure parsing, no I/O and no adapter instance — the inbound handler in
- * `src/mastra/channels.ts` turns what this returns into context for Ava, and
+ * `src/mastra/channels.ts` turns what this returns into context for Newy, and
  * `src/services/telegram.ts` stays what it says it is.
  *
  * Two things make this necessary rather than a field read:

@@ -21,7 +21,7 @@ export const feedState = sqliteTable('feed_state', {
  * against.
  *
  * This was `CATEGORIES` in `src/config/categories.ts`, a git-reviewable array.
- * It is a table now because the reader adds beats by talking to Ava rather than
+ * It is a table now because the reader adds beats by talking to Newy rather than
  * by editing code ([ADR-0019](../../docs/decisions/0019-beats-as-reader-owned-data.md)).
  * `src/config/seed-beats.ts` still exists, but it is a *seed* applied once to an
  * empty table — editing it does not reach a beat that already exists.
@@ -278,7 +278,7 @@ export const feedback = sqliteTable(
 )
 
 /**
- * What Ava knows about the reader. One row per fact, in her own words.
+ * What Newy knows about the reader. One row per fact, in her own words.
  *
  * Split into two tiers by how long the fact stays true, not by how it was
  * learned. `long` is biography — a name, where they live, what they do, a
@@ -315,7 +315,7 @@ export const memories = sqliteTable(
      *
      * It only catches *verbatim* repeats — "Their name is Franck" and "The
      * reader is called Franck" are two rows. The prompt is the real guard there,
-     * since Ava is shown everything she already knows before she decides to
+     * since Newy is shown everything she already knows before she decides to
      * write anything.
      */
     id: text('id').primaryKey(),
@@ -325,7 +325,7 @@ export const memories = sqliteTable(
     /**
      * When the fact was true, which is not always when it was recorded — "I ate
      * at Kodawari on Saturday" said on Monday is Saturday's memory. Supplied by
-     * Ava when the reader dates it, otherwise the moment it was written.
+     * Newy when the reader dates it, otherwise the moment it was written.
      *
      * This is what orders the rendered block, so it is the column that carries
      * the whole supersedes-by-recency reading.

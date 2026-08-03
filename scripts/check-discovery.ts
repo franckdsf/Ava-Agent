@@ -10,7 +10,7 @@
  * the report Telegram would receive — without creating a beat, subscribing it to
  * anything, or sending a message.
  *
- * **The token is deleted before anything is imported.** Constructing Ava with
+ * **The token is deleted before anything is imported.** Constructing Newy with
  * `TELEGRAM_BOT_TOKEN` present builds a second polling adapter, and it would eat
  * the live bot's updates ([invariant 7](../AGENTS.md#invariants)). This never
  * imports her at all — a bare `Mastra` holding only the two scout agents is

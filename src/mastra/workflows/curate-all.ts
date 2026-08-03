@@ -205,7 +205,7 @@ function renderInterestProfile(signals: FeedbackSignal[]): string {
 }
 
 /**
- * What Ava has written down about the reader, rendered for the ranker.
+ * What Newy has written down about the reader, rendered for the ranker.
  *
  * The 👍/👎 profile above says what they thought of articles; this says who they
  * are — and the two answer different halves of "would they want this?". A vote

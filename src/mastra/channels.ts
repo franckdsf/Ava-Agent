@@ -23,7 +23,7 @@ import { isSummaryCommand, runSummary } from './commands/summarize.js'
 import { isTranslationCommand, runTranslation } from './commands/translate.js'
 
 /**
- * The inbound half of the tab split: Ava only ever speaks in the Chat tab.
+ * The inbound half of the tab split: Newy only ever speaks in the Chat tab.
  *
  * [ADR-0010](../../docs/decisions/0010-ava-answers-only-in-the-chat-tab.md).
  * Two separate things had to be built for that, because Telegram messages reach
@@ -347,7 +347,7 @@ export async function welcome(): Promise<string> {
   const hours = pipeline.digestHours.map(hour => `${String(hour).padStart(2, '0')}:00`)
 
   return [
-    `## Hi, I'm Ava 😊`,
+    `## Hi, I'm Newy 😊`,
     `I'm here to help you keep up with the topics you care about. Use the ${TOPICS.chat.title} tab to talk with me directly — every other tab is one I push to and don't answer in, so what you're reading stays tidy.`,
     `What I do:`,
     `- **${TOPICS.chat.title}** — chat with me about anything, ask for details, or follow up on an article 📰.\n` +

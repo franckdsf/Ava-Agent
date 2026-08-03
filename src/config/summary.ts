@@ -36,13 +36,13 @@ export const summary = {
   /**
    * The language used when the reader types the command on its own.
    *
-   * **English, deliberately — not the reader's language from Ava's notes.** The
+   * **English, deliberately — not the reader's language from Newy's notes.** The
    * translation commands read the notes because translating *into English* is
    * the one thing they can never usefully do; a summary has no such asymmetry,
    * and the articles are English, so an English summary is the cheap, obvious
    * default and the argument is there for when it isn't wanted. It also keeps
    * this path off `memories` entirely — one fewer read, and one fewer way for a
-   * command to fail because of something Ava did or did not write down.
+   * command to fail because of something Newy did or did not write down.
    */
   defaultLanguage: 'English',
 

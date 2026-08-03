@@ -14,7 +14,7 @@ import { reviewMemories } from '../agents/memory.js'
  * rest once it is past the window.
  *
  * This is the other half of the two-tier design
- * ([ADR-0014](../../../docs/decisions/0014-two-tier-memory-for-ava.md)). Ava
+ * ([ADR-0014](../../../docs/decisions/0014-two-tier-memory-for-ava.md)). Newy
  * writes a note the moment she hears something and is told to prefer "short"
  * when unsure, because a wrong "long" is permanent and a wrong "short" is
  * recoverable — *this job is what makes that true*. Without it, either short-term

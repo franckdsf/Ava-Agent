@@ -36,7 +36,14 @@ const coreSchema = z.object({
   AVA_MODEL_RSS_RANKER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
   /** Strong: writes the digest for the handful of items that survive ranking. */
   AVA_MODEL_RSS_SUMMARIZER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
-  /** Conversational surface in Telegram. Vision-capable: images arrive inline. */
+  /**
+   * Conversational surface in Telegram. Vision-capable: images arrive inline.
+   *
+   * Named for the *role*, not for the agent, and deliberately so: Newy reads it
+   * today and every later conversational agent reads the same one. One knob
+   * moves all of them together, which is the point — retuning the model a reader
+   * talks to is a decision about the surface, not about one persona.
+   */
   AVA_MODEL_ORCHESTRATOR: gatewayModelId.default('openrouter/minimax/minimax-m3'),
   /**
    * Weekly memory review: decides which short-term notes become biography.

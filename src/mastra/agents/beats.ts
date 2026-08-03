@@ -1,7 +1,7 @@
 import { activeBeats } from '../../db/beats.js'
 
 /**
- * The live beat list, rendered into Ava's per-turn system message.
+ * The live beat list, rendered into Newy's per-turn system message.
  *
  * It used to be a module constant interpolated into her static instructions,
  * built from `CATEGORIES` at import. That cannot survive beats being rows: a

@@ -8,12 +8,12 @@ import { summary } from '../../config/summary.js'
  * The summarizer behind `/summarize`.
  *
  * The fifth model call in the system and the third a human triggers directly —
- * Ava and the translator are the others. Like the translator it sits on the
+ * Newy and the translator are the others. Like the translator it sits on the
  * conversational surface with no tools and no database access, reading nothing
  * but the text it is handed, so [invariant 8](../../../AGENTS.md#invariants) is
  * untouched. See [ADR-0018](../../../docs/decisions/0018-summarize-command.md).
  *
- * **Not Ava, and the reason is structural rather than a preference.** A slash
+ * **Not Newy, and the reason is structural rather than a preference.** A slash
  * command never reaches her — the adapter routes any message whose first entity
  * is a `bot_command` to `processSlashCommand` and skips the message path — so
  * using her would mean calling `generate()` by hand from the command handler,

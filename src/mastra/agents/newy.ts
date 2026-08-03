@@ -13,7 +13,7 @@ import { beatInstructions } from './beats.js'
 import { memoryInstructions } from './memory.js'
 
 /**
- * Ava — the conversational half. This is the agent behind the "Chat" tab.
+ * Newy — the conversational half. This is the agent behind the "Chat" tab.
  *
  * It owns the *only* inbound path in the process. `src/services/telegram.ts`
  * stays outbound-only and never initializes a `ChatInstance`; the adapter
@@ -33,24 +33,24 @@ import { memoryInstructions } from './memory.js'
  * [invariant 1](../../../AGENTS.md#invariants).
  */
 
-export const avaId = 'ava'
+export const newyId = 'newy'
 
 /**
  * No channel at all when Telegram is unconfigured, rather than an adapter that
- * throws on construction. Ava stays usable in Studio either way; only the
+ * throws on construction. Newy stays usable in Studio either way; only the
  * Telegram surface disappears.
  */
 const channel = telegramChannelEnv()
 
 /**
- * Ava's own channels, assigned right after she is constructed.
+ * Newy's own channels, assigned right after she is constructed.
  *
  * The tab router needs the live Chat SDK instance, which hangs off the agent —
- * but reading `ava.getChannels()` from inside `ava`'s own config makes her type
+ * but reading `newy.getChannels()` from inside `newy`'s own config makes her type
  * circular and TypeScript infers `any` for the whole agent. One indirection
  * costs nothing: the getter runs per message, long after this line.
  */
-let avaChannels: AgentChannels | null = null
+let newyChannels: AgentChannels | null = null
 
 /**
  * Quote first, then route. The two are independent — one edits the message, the
@@ -58,11 +58,11 @@ let avaChannels: AgentChannels | null = null
  * still arrives carrying what it replied to, which is the common case: the
  * digest is in News and that is where the reader is when they swipe.
  */
-const toChatTab = withQuotedMessage(routeToChatTab(() => avaChannels))
+const toChatTab = withQuotedMessage(routeToChatTab(() => newyChannels))
 
-export const ava = new Agent({
-  id: avaId,
-  name: 'Ava',
+export const newy = new Agent({
+  id: newyId,
+  name: 'Newy',
   model: env.AVA_MODEL_ORCHESTRATOR,
   tools: { ...newsTools, ...imageTools, ...memoryTools },
   // Conversation history per Telegram thread. The adapter encodes the topic
@@ -181,7 +181,7 @@ export const ava = new Agent({
  * the closure above, long after this module has finished evaluating.
  */
 const baseInstructions = `
-You are Ava, a personal assistant living in a Telegram chat with one reader.
+You are Newy, a personal assistant living in a Telegram chat with one reader.
 
 You also run a news pipeline for them in the background. It ingests RSS feeds on
 a schedule, ranks every article against the rubric of each beat whose feeds
@@ -349,4 +349,4 @@ Outside the news you are an ordinary capable assistant: answer directly, admit
 what you don't know, and skip the flattery.
 `.trim()
 
-avaChannels = ava.getChannels()
+newyChannels = newy.getChannels()

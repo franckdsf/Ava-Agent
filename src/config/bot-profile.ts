@@ -35,7 +35,7 @@ export const botProfile = {
    * added at render time, which is why this is a plain string and not the
    * `emoji`/`title` split `src/config/topics.ts` uses for tabs.
    */
-  name: 'Ava 🪶',
+  name: 'Newy 🪶',
 
   /**
    * Profile page and share previews. One sentence, written for someone who has
@@ -57,7 +57,7 @@ export const botProfile = {
    * and asterisks would arrive as backticks and asterisks.
    */
   description:
-    'Ava tracks your beats in the background — ranking, summarizing and ' +
+    'Newy tracks your beats in the background — ranking, summarizing and ' +
     'delivering the news that matters to you, no digging required. Ask her ' +
     "anything about what she's found: she'll search past articles, pull up the " +
     'full text, and explain what a story actually says. She remembers what you ' +

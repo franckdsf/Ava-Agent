@@ -16,12 +16,12 @@ import {
  *
  * See [ADR-0017](../../../docs/decisions/0017-translation-commands.md). Two
  * properties of the surrounding system make this a command rather than a tool
- * on Ava:
+ * on Newy:
  *
  * - **A slash command never reaches the agent.** The adapter routes any message
  *   whose first entity is a `bot_command` to `processSlashCommand` and skips the
  *   message path entirely, so this runs in the catch-all handler in
- *   `channels.ts` rather than as something Ava decides to call.
+ *   `channels.ts` rather than as something Newy decides to call.
  * - **The swipe still survives.** `handleSlashCommandUpdate` passes the untouched
  *   Telegram payload through as `event.raw` (verified in `@chat-adapter/telegram`
  *   4.35), so the message a reader replied to is readable here exactly as it is
@@ -58,7 +58,7 @@ const TRANSLATION_TAB = 'translations' as const
  * **Part one alone, then every remaining part at once.** The article used to be
  * translated strictly in sequence, which made a five-part piece five of
  * `deepseek-v4-flash`'s 9s–283s waits end to end. Only the *first* of those is
- * load-bearing: it resolves the reader's language from Ava's notes, and every
+ * load-bearing: it resolves the reader's language from Newy's notes, and every
  * later part is pinned to what it decided so a long article cannot switch
  * language halfway through (see `translateChunk`). Once that answer exists there
  * is nothing left for the parts to tell each other, so they all go out together
@@ -192,7 +192,7 @@ function settled<T>(promise: Promise<T>): Promise<Settled<T>> {
  * **The argument means something different here than it does to `/summarize`,**
  * where it names the target language. That divergence is deliberate and it is
  * the reason these two commands cannot share one argument parser: `/translate`
- * has a language already (the reader's, from Ava's notes) and no other use for
+ * has a language already (the reader's, from Newy's notes) and no other use for
  * free text, while `/summarize` has a fixed default language and needs a way to
  * override it.
  */

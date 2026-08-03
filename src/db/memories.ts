@@ -6,7 +6,7 @@ import { memories } from './schema.js'
 import type { MemoryRow, MemoryTier } from './schema.js'
 
 /**
- * Ava's notes about the reader — the read and write side of the `memories`
+ * Newy's notes about the reader — the read and write side of the `memories`
  * table.
  *
  * This is the one part of the conversational surface that writes, and the
@@ -39,7 +39,7 @@ export interface NewMemory {
  *
  * Normalizing before hashing is what makes the collision worth having — case,
  * runs of whitespace and a trailing full stop are all ways to write the same
- * sentence twice, and each would otherwise be its own row in the block Ava reads
+ * sentence twice, and each would otherwise be its own row in the block Newy reads
  * back every turn.
  */
 export function memoryId(fact: string): string {
@@ -77,7 +77,7 @@ export function shortTermCutoff(now = Date.now()): number {
  * the reader mentioned it, which is exactly the fact that should be promoted,
  * not renewed.
  *
- * Returns whether a row was actually written, so the tool can tell Ava she
+ * Returns whether a row was actually written, so the tool can tell Newy she
  * already knew this and stop her recording it a third way.
  */
 export async function rememberFact(entry: NewMemory): Promise<{ memory: Memory; stored: boolean }> {
@@ -131,7 +131,7 @@ export async function memoriesForPrompt(
  *
  * A separate entry point rather than a `limits` argument on the one above,
  * because the two callers are answering different questions with the same rows:
- * Ava needs everything she knows about the person, the ranker needs enough to
+ * Newy needs everything she knows about the person, the ranker needs enough to
  * recognise which stories land near their life. Naming both makes the caps
  * tunable against each other in `memoryConfig` instead of at a call site.
  */

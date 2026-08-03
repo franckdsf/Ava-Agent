@@ -35,7 +35,7 @@ import { articleBody } from '../../services/article.js'
  * afternoon would be rejected by its own tools. An unknown slug now returns an
  * empty result, which is the same answer as a beat with nothing in it.
  *
- * What replaces the listed options is Ava's own instructions, which render the
+ * What replaces the listed options is Newy's own instructions, which render the
  * live beat list every turn — so the model is told the valid slugs without this
  * schema having to be rebuilt.
  */

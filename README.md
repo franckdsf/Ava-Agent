@@ -3,6 +3,18 @@
 A personal Telegram orchestrator that curates RSS news through category-expert
 sub-agents, on a schedule.
 
+## Names
+
+**Ava is the system, not an agent.** It is the repo, the database, the container,
+the `AVA_*` environment — everything that outlives any one agent. Agents living
+inside it have their own names, and **Newy** is the first: the conversational
+agent behind the Chat tab, and the one whose face the bot wears.
+
+The distinction matters because the system is built to hold more than one of
+them, sharing Ava's memory and Ava's tables. Anything named `ava` in a path, a
+variable or a volume is the system; a name in a prompt or a tab is an agent. See
+[ADR-0022](docs/decisions/0022-ava-is-the-system-agents-have-names.md).
+
 ## Architecture
 
 ```
@@ -77,7 +89,7 @@ null. Nothing is derived at boot any more, so a beat added while the process is
 running is picked up by the next digest with no restart
 ([ADR-0019](docs/decisions/0019-beats-as-reader-owned-data.md)). What makes each
 curator expert on its beat is its rubric, passed in the ranker's prompt, plus a
-per-beat feedback history and Ava's notes about the reader.
+per-beat feedback history and Newy's notes about the reader.
 
 A story carried by two beats' feeds is stored once and scored by both, and is
 delivered by whichever scored it higher. The others keep their score and a
@@ -192,7 +204,7 @@ Telegram delivery — one message per article, into the **News** tab. Items are
 marked delivered as they land, so a failure partway through a batch doesn't
 re-send what already arrived.
 
-Ava, the conversational half, answers in the **Chat** tab and only there; a
+Newy, the conversational half, answers in the **Chat** tab and only there; a
 message typed in another tab is answered in Chat instead. Her tools are read-only
 over the news tables. See
 [ADR-0009](docs/decisions/0009-telegram-topics-as-tabs.md) and
@@ -218,7 +230,7 @@ glossed only on the terms worth watching:
 > (foundation models) d'observation de la Terre, pré-entraînés (pretrained) sur
 > environ 10 téraoctets de données satellitaires multimodales.
 
-Your language is not configured anywhere — it is read from what Ava has noted
+Your language is not configured anywhere — it is read from what Newy has noted
 about you. What *is* configured is how good your English already is:
 `translation.readerLevel` in [`src/config/translation.ts`](src/config/translation.ts)
 is a CEFR level, and it is what stops the glosses landing on words you have known

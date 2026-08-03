@@ -72,7 +72,7 @@ export type Source =
  *
  * The article is the case the commands exist for. The quoted text is the last
  * resort and a real one: an article whose body cannot be had still has a digest
- * summarizing it, and a reply Ava wrote is worth working on too.
+ * summarizing it, and a reply Newy wrote is worth working on too.
  *
  * Returns undefined when the reader swiped nothing, or swiped something with no
  * text in it at all — the caller turns that into a usage message rather than

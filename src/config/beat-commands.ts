@@ -2,14 +2,14 @@
  * The beat-management commands — the reader's hands on their own beats.
  *
  * These are the first commands that **write**. Every other one on this surface
- * reads: `/summarize` and the translation commands touch nothing, and Ava's news
+ * reads: `/summarize` and the translation commands touch nothing, and Newy's news
  * tools are read-only by construction. These write `beats` and `beat_feeds`,
  * which is what the restated
  * [invariant 8](../../AGENTS.md#invariants) permits — configuration the *next*
  * run reads, never anything a run produced
  * ([ADR-0019](../../docs/decisions/0019-beats-as-reader-owned-data.md)).
  *
- * Commands rather than tools on Ava, for the reason `/summarize` is one: the
+ * Commands rather than tools on Newy, for the reason `/summarize` is one: the
  * adapter routes anything starting with `/` away from the agent entirely, and a
  * slash command carries the swipe on `event.raw`. There is a second reason here
  * — archiving a beat should happen because the reader asked for it in those

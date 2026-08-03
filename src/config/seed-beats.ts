@@ -4,9 +4,9 @@
  * **This is a seed, not configuration.** It was `CATEGORIES`, and editing that
  * array was how you added a beat. Beats live in the `beats` table now
  * ([ADR-0019](../../docs/decisions/0019-beats-as-reader-owned-data.md)) because
- * the reader adds them by talking to Ava — so `seedBeats()` applies this list
+ * the reader adds them by talking to Newy — so `seedBeats()` applies this list
  * once, to an empty table, and never again. Changing a rubric here does **not**
- * reach a beat that already exists; say it to Ava instead, or edit the row.
+ * reach a beat that already exists; say it to Newy instead, or edit the row.
  *
  * It exists at all so a fresh clone, a fresh container, and a wiped development
  * database all come up with something to read rather than an empty bot that

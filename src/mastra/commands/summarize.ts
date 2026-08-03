@@ -13,7 +13,7 @@ import {
  * `/summarize [language]` — the swiped article explained at length.
  *
  * See [ADR-0018](../../../docs/decisions/0018-summarize-command.md). It is a
- * command rather than a tool on Ava for the two reasons the translation commands
+ * command rather than a tool on Newy for the two reasons the translation commands
  * are ([ADR-0017](../../../docs/decisions/0017-translation-commands.md)): a
  * slash command never reaches the agent, and the swipe survives on `event.raw`
  * so the message a reader replied to is readable here exactly as it is on the
@@ -37,7 +37,7 @@ import {
  * here on the same reasoning.
  *
  * The cost, stated plainly: this message is pushed with `postMessage` rather
- * than produced through Ava's channel, so it never enters the Chat thread's
+ * than produced through Newy's channel, so it never enters the Chat thread's
  * memory and she does not know she "said" it. A reader who follows up with
  * "what did you mean by the second point?" is asking about something she cannot
  * see. That is already true of every other command reply, and the fix — routing

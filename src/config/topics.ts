@@ -15,7 +15,7 @@
  *
  * Order here is only the order they are *created*. It is not the order Telegram
  * shows them: the client sorts tabs by most recent message, so News floats up at
- * 08:00/13:00/19:00 and Chat floats up whenever Ava answers. Verified against
+ * 08:00/13:00/19:00 and Chat floats up whenever Newy answers. Verified against
  * the live chat 2026-07-28 — Chat, created first, sat below News until a reply
  * landed in it. Nothing in this file can pin a tab to a position, and no Bot API
  * method reorders them, so don't rearrange these entries expecting it to.
@@ -50,7 +50,7 @@ export interface TopicDefinition {
 }
 
 export const TOPICS = {
-  /** Conversational surface. Ava answers here. */
+  /** Conversational surface. Newy answers here. */
   chat: {
     slug: 'chat',
     emoji: '💬',
@@ -89,7 +89,7 @@ export const TOPICS = {
    * thousand characters over several messages, and dropping that into the middle
    * of a conversation buries whatever was being discussed. Same reasoning that
    * put digests in News: one tab, one kind of traffic
-   * ([invariant 9](../../AGENTS.md#invariants)). Ava still never answers here —
+   * ([invariant 9](../../AGENTS.md#invariants)). Newy still never answers here —
    * a message typed in this tab is moved to Chat like one typed in News.
    */
   translations: {
@@ -116,7 +116,7 @@ export const TOPIC_LIST: readonly (TopicDefinition & { slug: TopicSlug })[] =
  * What the tab is actually called on Telegram.
  *
  * Kept out of `title` because the two are read by different audiences: this is
- * the only thing Telegram sees, while `title` is what Ava's instructions and the
+ * the only thing Telegram sees, while `title` is what Newy's instructions and the
  * `/start` welcome interpolate — and `the "💬 Chat" tab` reads worse in a prompt
  * than `the "Chat" tab`.
  */
@@ -131,7 +131,7 @@ export function topicTabName(topic: TopicDefinition): string {
  * happily accepts `news`, `chat` and `translations` — `/follow the news` really
  * can produce one. Without a namespace that beat would share a primary key with
  * a system tab, and the first one to resolve would hand the other its thread id:
- * digests into the Translations tab, or Ava answering in a beat's tab. The
+ * digests into the Translations tab, or Newy answering in a beat's tab. The
  * prefix cannot itself collide, because `slugPattern` forbids a colon.
  */
 export const BEAT_TOPIC_PREFIX = 'beat:'

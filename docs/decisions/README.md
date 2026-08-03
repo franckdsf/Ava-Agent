@@ -39,6 +39,12 @@ something looks the way it does.
 | [0019](0019-beats-as-reader-owned-data.md) | Beats are rows the reader owns, and a story is scored per beat but sent once | Accepted |
 | [0020](0020-feed-discovery-from-a-subject.md) | `/follow <subject>` — the model proposes sites, the code finds the feeds | Accepted |
 | [0021](0021-a-tab-per-beat.md) | A tab per beat, created on first delivery | Accepted |
+| [0022](0022-ava-is-the-system-agents-have-names.md) | Ava is the system, and agents have their own names | Accepted |
+
+**Reading 0001–0021:** they predate [0022](0022-ava-is-the-system-agents-have-names.md)
+and call the conversational agent *Ava*. That agent is now **Newy**; *Ava* is the
+system it lives in. The ADRs are frozen per the rule above and keep the old name,
+filenames included.
 
 ## Template
 

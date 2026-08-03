@@ -4,7 +4,7 @@ import { memoryConfig } from '../../config/memory.js'
 import { forgetMemory, rememberFact, searchMemories } from '../../db/memories.js'
 
 /**
- * Ava's notes about the reader — the only tools on the conversational surface
+ * Newy's notes about the reader — the only tools on the conversational surface
  * that write.
  *
  * They write to `memories` and nothing else. The news tables stay read-only from
@@ -13,7 +13,7 @@ import { forgetMemory, rememberFact, searchMemories } from '../../db/memories.js
  * something delivered. See
  * [ADR-0014](../../../docs/decisions/0014-two-tier-memory-for-ava.md).
  *
- * Everything Ava currently knows is already in her instructions, rebuilt each
+ * Everything Newy currently knows is already in her instructions, rebuilt each
  * turn — so `recall-memories` is not how she reads her notes. It is how she
  * reaches *past* the prompt caps, and how she gets the ids that `forget-memory`
  * needs, since the injected block deliberately carries no ids.

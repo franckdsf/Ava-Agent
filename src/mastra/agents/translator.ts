@@ -9,7 +9,7 @@ import { memoriesForPrompt } from '../../db/memories.js'
  * The translator behind `/translearn` and `/translate`.
  *
  * It is the fourth model call in the system and the second one a human triggers
- * directly — Ava is the other. It sits on the conversational surface and reads
+ * directly — Newy is the other. It sits on the conversational surface and reads
  * nothing but the text it is handed, so
  * [invariant 8](../../../AGENTS.md#invariants) is untouched: no tools, no
  * database, no way to reach a run. See
@@ -235,7 +235,7 @@ const translationSchema = z.object({
 export type Translation = z.infer<typeof translationSchema>
 
 /**
- * Ava's notes, rendered for the one question this agent asks of them: what
+ * Newy's notes, rendered for the one question this agent asks of them: what
  * language does this person read in?
  *
  * The whole block rather than a language field, because there is no language

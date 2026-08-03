@@ -1,5 +1,5 @@
 /**
- * What Ava remembers about the reader, and how much of it she is shown.
+ * What Newy remembers about the reader, and how much of it she is shown.
  *
  * Separate from `pipeline.ts` on purpose: that file is the news pipeline's knob
  * drawer, and none of these numbers affect ingest, ranking or delivery. They
@@ -7,7 +7,7 @@
  */
 export const memoryConfig = {
   /**
-   * How long a short-term memory stays in Ava's instructions, measured from when
+   * How long a short-term memory stays in Newy's instructions, measured from when
    * it was recorded.
    *
    * It is now also when the row becomes *deletable*: the weekly review promotes
@@ -40,7 +40,7 @@ export const memoryConfig = {
    * per run (six runs a day) against a batch of a hundred items, so it is noise
    * next to the items themselves. It is lower because of *signal*: the ranker is
    * scoring against a rubric, and every extra irrelevant fact is one more thing
-   * competing with it. Ava needs the whole person; the ranker needs the shape of
+   * competing with it. Newy needs the whole person; the ranker needs the shape of
    * their interests.
    */
   curationLongTermLimit: 40,
