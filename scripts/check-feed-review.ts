@@ -15,7 +15,7 @@
  *
  * Reads the live database to report what a run *today* would do. Writes nothing.
  */
-delete process.env.TELEGRAM_BOT_TOKEN
+delete process.env.NEWY_TELEGRAM_BOT_TOKEN
 
 import { feedReview } from '../src/config/feed-review.js'
 import { pipeline } from '../src/config/pipeline.js'
@@ -180,7 +180,7 @@ for (const live of await activeBeats()) {
   const verdict = verdictForBeat(live, await liveFeedsWithTrials(live.slug), await feedPerformance(live.slug, since))
   console.log(
     `   ${live.slug}: ` +
-      (verdict.skip ? `skipped — ${verdict.skip}` : `would archive ${verdict.archive.map(a => a.feed.source).join(', ') || 'nothing'}`),
+    (verdict.skip ? `skipped — ${verdict.skip}` : `would archive ${verdict.archive.map(a => a.feed.source).join(', ') || 'nothing'}`),
   )
 }
 

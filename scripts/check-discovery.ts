@@ -11,7 +11,7 @@
  * anything, or sending a message.
  *
  * **The token is deleted before anything is imported.** Constructing Newy with
- * `TELEGRAM_BOT_TOKEN` present builds a second polling adapter, and it would eat
+ * `NEWY_TELEGRAM_BOT_TOKEN` present builds a second polling adapter, and it would eat
  * the live bot's updates ([invariant 7](../AGENTS.md#invariants)). This never
  * imports her at all — a bare `Mastra` holding only the two scout agents is
  * enough to resolve `mastra.getAgent`.
@@ -22,7 +22,7 @@
  * stored string in this system is, and only the text shown to a human follows
  * the reader's language.
  */
-delete process.env.TELEGRAM_BOT_TOKEN
+delete process.env.NEWY_TELEGRAM_BOT_TOKEN
 
 import { Mastra } from '@mastra/core'
 import { createTelegramAdapter } from '@chat-adapter/telegram'
@@ -63,7 +63,7 @@ for (const result of results) {
   console.log(
     result.feed
       ? `   OK   ${result.homepage}\n          [${result.via}] ${result.feed.url}\n` +
-        `          ${result.feed.entries} entries · ${result.feed.hasBodies ? 'full bodies' : 'headlines'}`
+      `          ${result.feed.entries} entries · ${result.feed.hasBodies ? 'full bodies' : 'headlines'}`
       : `   miss ${result.homepage}  (${result.problem})`,
   )
 }
