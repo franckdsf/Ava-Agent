@@ -1,7 +1,8 @@
 import type { Mastra } from '@mastra/core'
 import { TRANSLATIONS, type TranslationCommand, translation } from '../../config/translation.js'
 import { capText, chunkText } from '../../services/article.js'
-import { escapeMarkdown, sendToTelegram } from '../../services/telegram.js'
+import { escapeMarkdown } from '../../services/telegram.js'
+import { newyTelegram } from '../../services/newy-telegram.js'
 import { type Translation, translateChunk } from '../agents/translator.js'
 import {
   articleHeading,
@@ -98,7 +99,7 @@ export async function runTranslation(
 ): Promise<void> {
   const source = await resolveSource(event)
   if (!source) {
-    await sendToTelegram(nothingToTranslate(command), 'chat')
+    await newyTelegram.sendToTelegram(nothingToTranslate(command), 'chat')
     return
   }
 
@@ -108,11 +109,11 @@ export async function runTranslation(
   // already refuses — but the empty article has to go somewhere, and the usage
   // message is the honest place.
   if (!opening) {
-    await sendToTelegram(nothingToTranslate(command), 'chat')
+    await newyTelegram.sendToTelegram(nothingToTranslate(command), 'chat')
     return
   }
 
-  await sendToTelegram(starting(source, parts.length), TRANSLATION_TAB)
+  await newyTelegram.sendToTelegram(starting(source, parts.length), TRANSLATION_TAB)
 
   const translate = (text: string, index: number, language?: string) =>
     translateChunk(mastra, {
@@ -123,7 +124,7 @@ export async function runTranslation(
     })
 
   const deliver = (result: Translation, index: number) =>
-    sendToTelegram(
+    newyTelegram.sendToTelegram(
       renderTranslation(source, result.paragraphs, { index, total: parts.length }),
       TRANSLATION_TAB,
     )
@@ -132,7 +133,7 @@ export async function runTranslation(
     mastra.getLogger()?.error('Translation failed', { command, part: index, error })
     // With the partial output, not in Chat: "the rest is missing" only means
     // something next to the parts that did arrive.
-    await sendToTelegram(failed(sent, parts.length), TRANSLATION_TAB)
+    await newyTelegram.sendToTelegram(failed(sent, parts.length), TRANSLATION_TAB)
   }
 
   let first: Translation

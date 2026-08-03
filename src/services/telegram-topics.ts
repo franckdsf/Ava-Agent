@@ -1,17 +1,16 @@
 import {
   beatTabName,
   beatTopicSlug,
-  TOPIC_LIST,
   topicTabName,
   type TabSlug,
-  type TopicSlug,
 } from '../config/topics.js'
-import { botProfile, profileOverflows } from '../config/bot-profile.js'
+import { profileOverflows, type BotProfile } from '../config/bot-profile.js'
+import type { BotDefinition } from '../config/bots.js'
 import { telegramEnv } from '../config/env.js'
 import { forgetTopic, rememberTopic, renameTopic, topicIds } from '../db/topics.js'
 
 /**
- * Forum topics in the private chat — the tabs.
+ * Forum topics in a bot's chat — the tabs.
  *
  * `@chat-adapter/telegram` 4.35 routes *messages* to a topic (it folds
  * `messageThreadId` into its thread id and writes `message_thread_id` on every
@@ -23,6 +22,13 @@ import { forgetTopic, rememberTopic, renameTopic, topicIds } from '../db/topics.
  * BotFather. That toggle is not reachable from the API, so this module never
  * assumes it is on: `resolveTopics()` degrades to flat delivery instead of
  * failing, because a digest arriving in the wrong place beats no digest.
+ *
+ * **Every function here takes the bot it acts on.** They used to read
+ * `telegramEnv()` from module scope, which was correct while there was one token
+ * and one chat; a second agent means a second of each
+ * ([ADR-0023](../../docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md)).
+ * Nothing is memoized at module level for the same reason — the caller's
+ * transport owns the caching, and it is per bot.
  */
 
 interface BotApiResponse<T> {
@@ -36,9 +42,13 @@ interface BotApiResponse<T> {
  * the HTTP status alone silently yields `undefined` and the failure surfaces
  * somewhere unrelated. Always read `ok`.
  */
-async function callBotApi<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+async function callBotApi<T>(
+  bot: BotDefinition<string>,
+  method: string,
+  params: Record<string, unknown> = {},
+): Promise<T> {
   const response = await fetch(
-    `https://api.telegram.org/bot${telegramEnv().TELEGRAM_BOT_TOKEN}/${method}`,
+    `https://api.telegram.org/bot${telegramEnv(bot).TELEGRAM_BOT_TOKEN}/${method}`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -51,7 +61,8 @@ async function callBotApi<T>(method: string, params: Record<string, unknown> = {
 }
 
 /**
- * Publishes the command menu — the list Telegram shows when a reader types `/`.
+ * Publishes one bot's command menu — the list Telegram shows when a reader types
+ * `/`.
  *
  * Straight to the Bot API for the reason topic lifecycle is: the adapter wraps
  * no `setMyCommands`. It is not the same thing as *handling* a command, which
@@ -62,11 +73,16 @@ async function callBotApi<T>(method: string, params: Record<string, unknown> = {
  * the source of truth is the config. Telegram caps `description` at 256
  * characters and rejects the whole call if any entry is longer or if a command
  * name is not lowercase — so a bad entry costs the *entire* menu, not one row.
+ *
+ * No `scope` is passed. It is the one profile method that takes one, but each
+ * bot has its own token and its own chat, so the default scope already means
+ * "this agent's commands" ([ADR-0023](../../docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md)).
  */
 export async function publishCommands(
+  bot: BotDefinition<string>,
   commands: readonly { command: string; description: string }[],
 ): Promise<void> {
-  await callBotApi('setMyCommands', {
+  await callBotApi(bot, 'setMyCommands', {
     // Telegram wants them without the leading slash.
     commands: commands.map(entry => ({
       command: entry.command.replace(/^\//, ''),
@@ -76,11 +92,11 @@ export async function publishCommands(
 }
 
 /**
- * One field of the bot's public profile: what config wants, and what Telegram
+ * One field of a bot's public profile: what config wants, and what Telegram
  * currently has. `method` is what would push it.
  */
 export interface ProfileField {
-  field: keyof typeof botProfile
+  field: keyof BotProfile
   method: 'setMyName' | 'setMyShortDescription' | 'setMyDescription'
   /** The Bot API's parameter name, which is not the config key for two of three. */
   param: 'name' | 'short_description' | 'description'
@@ -103,7 +119,7 @@ const PROFILE_FIELDS: readonly Omit<ProfileField, 'want' | 'have'>[] = [
 ]
 
 /**
- * Reads the live profile and reports which fields config disagrees with.
+ * Reads a bot's live profile and reports which fields config disagrees with.
  *
  * Read-only — three GETs, no writes — so it is safe against the live bot at any
  * time, which is what lets `pnpm telegram:check` show pending changes without
@@ -112,16 +128,17 @@ const PROFILE_FIELDS: readonly Omit<ProfileField, 'want' | 'have'>[] = [
  * Telegram returns an empty string for a field that was never set, so a fresh
  * bot reports all three as drifted and a fully-provisioned one reports none.
  */
-export async function profileDrift(): Promise<ProfileField[]> {
+export async function profileDrift(bot: BotDefinition<string>): Promise<ProfileField[]> {
   const drifted: ProfileField[] = []
 
   for (const entry of PROFILE_FIELDS) {
     const current = await callBotApi<Record<string, string>>(
+      bot,
       // `getMyName` from `setMyName`, and so on for all three.
       entry.method.replace(/^set/, 'get'),
     )
     const have = current[entry.param] ?? ''
-    const want = botProfile[entry.field]
+    const want = bot.profile[entry.field]
     if (have !== want) drifted.push({ ...entry, want, have })
   }
 
@@ -129,7 +146,8 @@ export async function profileDrift(): Promise<ProfileField[]> {
 }
 
 /**
- * Brings the bot's name and descriptions in line with `src/config/bot-profile.ts`.
+ * Brings a bot's name and descriptions in line with its entry in
+ * `src/config/bots.ts`.
  *
  * Called at boot beside `publishCommands`, so a container brought up against a
  * fresh bot token provisions its own identity — the point being that the only
@@ -139,22 +157,23 @@ export async function profileDrift(): Promise<ProfileField[]> {
  * right shape for the menu and the wrong one here: `setMyName` is flood-limited
  * hard enough that a restart loop would exhaust it, and the failure would be a
  * bot that cannot rename itself for the rest of the day. Diffing costs three GETs
- * and makes the steady state zero writes.
+ * and makes the steady state zero writes. With two bots there are now two such
+ * budgets to exhaust.
  *
  * Returns what it changed, so the caller can log a real provisioning event rather
  * than "profile published" on every boot. An over-long field is skipped with the
  * others still pushed — Telegram rejects each call separately here, so unlike the
  * command menu one bad field costs only itself.
  */
-export async function publishProfile(): Promise<ProfileField[]> {
-  const overflows = profileOverflows()
+export async function publishProfile(bot: BotDefinition<string>): Promise<ProfileField[]> {
+  const overflows = profileOverflows(bot.profile)
   if (overflows.length > 0) {
-    throw new Error(`Bot profile is not sendable: ${overflows.join('; ')}`)
+    throw new Error(`Bot profile for ${bot.id} is not sendable: ${overflows.join('; ')}`)
   }
 
-  const drifted = await profileDrift()
+  const drifted = await profileDrift(bot)
   for (const entry of drifted) {
-    await callBotApi(entry.method, { [entry.param]: entry.want })
+    await callBotApi(bot, entry.method, { [entry.param]: entry.want })
   }
   return drifted
 }
@@ -174,7 +193,7 @@ interface ChatInfo {
 export type TopicRoute = 'private-threaded-mode' | 'supergroup-forum' | 'unavailable'
 
 /**
- * Whether the target chat can hold topics at all.
+ * Whether a bot's target chat can hold topics at all.
  *
  * Two *different* Telegram features share one wire format, and which flag
  * matters depends entirely on the chat type:
@@ -187,15 +206,18 @@ export type TopicRoute = 'private-threaded-mode' | 'supergroup-forum' | 'unavail
  *
  * Checking only the private-chat flag silently disables tabs in a group, which
  * is the fallback for anyone who can't reach the BotFather toggle.
+ *
+ * Note that the private-chat answer is a property of the *bot*, so it is decided
+ * per token: enabling Threaded Mode on one bot says nothing about the other.
  */
-export async function topicRoute(): Promise<TopicRoute> {
-  const chat = await callBotApi<ChatInfo>('getChat', {
-    chat_id: telegramEnv().TELEGRAM_CHAT_ID,
+export async function topicRoute(bot: BotDefinition<string>): Promise<TopicRoute> {
+  const chat = await callBotApi<ChatInfo>(bot, 'getChat', {
+    chat_id: telegramEnv(bot).TELEGRAM_CHAT_ID,
   })
   if (chat.type === 'supergroup' || chat.type === 'group') {
     return chat.is_forum === true ? 'supergroup-forum' : 'unavailable'
   }
-  const me = await callBotApi<BotIdentity>('getMe')
+  const me = await callBotApi<BotIdentity>(bot, 'getMe')
   return me.has_topics_enabled === true ? 'private-threaded-mode' : 'unavailable'
 }
 
@@ -205,8 +227,8 @@ interface ForumTopic {
 }
 
 /**
- * Ensures every topic in `TOPICS` exists and is named what config says, and
- * returns the thread ids by slug.
+ * Ensures every topic in this bot's set exists and is named what config says,
+ * and returns the thread ids by slug.
  *
  * Returns an empty map when topics are unavailable — Threaded Mode off, or an
  * older Bot API. Callers treat that as "send flat".
@@ -215,16 +237,19 @@ interface ForumTopic {
  * twice makes two identically-named tabs. The persisted id is therefore the
  * authority, and a topic is only created when no row exists for it.
  */
-export async function resolveTopics(): Promise<Partial<Record<TopicSlug, number>>> {
-  const chatId = telegramEnv().TELEGRAM_CHAT_ID
+export async function resolveTopics<Slug extends string>(
+  bot: BotDefinition<Slug>,
+): Promise<Partial<Record<Slug, number>>> {
+  const chatId = telegramEnv(bot).TELEGRAM_CHAT_ID
 
-  if ((await topicRoute()) === 'unavailable') return {}
+  if ((await topicRoute(bot)) === 'unavailable') return {}
 
-  const known = await topicIds(chatId)
-  const resolved: Record<string, number> = {}
+  const known = await topicIds(bot.id, chatId)
+  const resolved: Partial<Record<Slug, number>> = {}
 
-  for (const topic of TOPIC_LIST) {
+  for (const topic of bot.topics) {
     resolved[topic.slug] = await ensureTopic(
+      bot,
       chatId,
       topic.slug,
       topicTabName(topic),
@@ -250,6 +275,7 @@ export async function resolveTopics(): Promise<Partial<Record<TopicSlug, number>
  * reason this table exists.
  */
 async function ensureTopic(
+  bot: BotDefinition<string>,
   chatId: string,
   slug: TabSlug,
   name: string,
@@ -258,22 +284,22 @@ async function ensureTopic(
 ): Promise<number> {
   if (existing !== undefined) {
     if (existing.name !== name) {
-      await callBotApi('editForumTopic', {
+      await callBotApi(bot, 'editForumTopic', {
         chat_id: chatId,
         message_thread_id: existing.messageThreadId,
         name,
       })
-      await renameTopic(chatId, slug, name)
+      await renameTopic(bot.id, chatId, slug, name)
     }
     return existing.messageThreadId
   }
 
-  const created = await callBotApi<ForumTopic>('createForumTopic', {
+  const created = await callBotApi<ForumTopic>(bot, 'createForumTopic', {
     chat_id: chatId,
     name,
     ...(iconCustomEmojiId ? { icon_custom_emoji_id: iconCustomEmojiId } : {}),
   })
-  await rememberTopic(chatId, slug, created.message_thread_id, name)
+  await rememberTopic(bot.id, chatId, slug, created.message_thread_id, name)
   return created.message_thread_id
 }
 
@@ -285,7 +311,7 @@ export interface BeatTab {
 }
 
 /**
- * Ensures one beat's tab exists, and returns its thread id.
+ * Ensures one beat's tab exists in Newy's chat, and returns its thread id.
  *
  * Called on the delivery path rather than at `/follow`, so a tab appears the
  * moment a beat first wins an article and never before
@@ -294,17 +320,24 @@ export interface BeatTab {
  * costs no tab at all — which matters because `/follow` is cheap to type and a
  * dead tab cannot be tidied away from here.
  *
+ * Takes the bot like everything else here, but beats belong to Newy: no other
+ * agent has them, and Joob's searches deliberately share one tab rather than
+ * getting one each ([ADR-0024](../../docs/decisions/0024-joob-a-job-pipeline-beside-the-news-one.md)).
+ *
  * Throws like `resolveTopics` does. The caller decides what a failure means; for
  * delivery it means falling back to News, which is why this is not swallowed
  * here — a beat silently losing its tab forever is worse than one loud error.
  */
-export async function resolveBeatTopic(beat: BeatTab): Promise<number | undefined> {
-  const chatId = telegramEnv().TELEGRAM_CHAT_ID
-  if ((await topicRoute()) === 'unavailable') return undefined
+export async function resolveBeatTopic(
+  bot: BotDefinition<string>,
+  beat: BeatTab,
+): Promise<number | undefined> {
+  const chatId = telegramEnv(bot).TELEGRAM_CHAT_ID
+  if ((await topicRoute(bot)) === 'unavailable') return undefined
 
   const slug = beatTopicSlug(beat.slug)
-  const known = await topicIds(chatId)
-  return ensureTopic(chatId, slug, beatTabName(beat), null, known[slug])
+  const known = await topicIds(bot.id, chatId)
+  return ensureTopic(bot, chatId, slug, beatTabName(beat), null, known[slug])
 }
 
 /**
@@ -343,13 +376,17 @@ export type BeatTabToggle =
  * making one just to close it would leave an empty tab that only the pause
  * produced.
  */
-export async function setBeatTopicOpen(beat: BeatTab, open: boolean): Promise<BeatTabToggle> {
-  const chatId = telegramEnv().TELEGRAM_CHAT_ID
-  const existing = (await topicIds(chatId))[beatTopicSlug(beat.slug)]
+export async function setBeatTopicOpen(
+  bot: BotDefinition<string>,
+  beat: BeatTab,
+  open: boolean,
+): Promise<BeatTabToggle> {
+  const chatId = telegramEnv(bot).TELEGRAM_CHAT_ID
+  const existing = (await topicIds(bot.id, chatId))[beatTopicSlug(beat.slug)]
   if (existing === undefined) return 'no-tab'
 
   try {
-    await callBotApi(open ? 'reopenForumTopic' : 'closeForumTopic', {
+    await callBotApi(bot, open ? 'reopenForumTopic' : 'closeForumTopic', {
       chat_id: chatId,
       message_thread_id: existing.messageThreadId,
     })
@@ -372,6 +409,9 @@ export async function setBeatTopicOpen(beat: BeatTab, open: boolean): Promise<Be
  * self-healing on the *next* run is deliberate — recreating a tab mid-digest
  * would scatter one batch across two tabs.
  */
-export async function invalidateTopic(slug: TabSlug): Promise<void> {
-  await forgetTopic(telegramEnv().TELEGRAM_CHAT_ID, slug)
+export async function invalidateTopic(
+  bot: BotDefinition<string>,
+  slug: TabSlug,
+): Promise<void> {
+  await forgetTopic(bot.id, telegramEnv(bot).TELEGRAM_CHAT_ID, slug)
 }

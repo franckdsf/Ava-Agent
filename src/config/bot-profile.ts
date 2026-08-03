@@ -1,5 +1,5 @@
 /**
- * What the bot looks like before anyone talks to it — its name, and the two
+ * What a bot looks like before anyone talks to it — its name, and the two
  * descriptions Telegram shows in different places.
  *
  * Config rather than a BotFather chore, for the reason the command menu is
@@ -7,9 +7,17 @@
  * looking like the running one without a human retyping three fields into a
  * chat with @BotFather. Everything here is pushed at boot by `publishProfile()`.
  *
+ * **This is now per bot, and that is the whole reason there are two bots.** Of
+ * the four profile methods only `setMyCommands` takes a `scope`; `setMyName`,
+ * `setMyDescription` and `setMyShortDescription` take `language_code` and
+ * nothing else. One token therefore means one name for every agent behind it —
+ * which is what made a second token the answer rather than a shared bot
+ * ([ADR-0023](../../docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md)).
+ *
  * **What this still cannot set: Threaded Mode.** That toggle has no API and is
  * the one prerequisite a container cannot provision for itself — without it the
- * tabs silently degrade to one flat stream. `pnpm telegram:check` reports it.
+ * tabs silently degrade to one flat stream. `pnpm telegram:check` reports it,
+ * and there are now two bots to forget it on.
  *
  * The three fields have different audiences and are not interchangeable:
  *
@@ -25,37 +33,41 @@
  * what has drifted. In the steady state a boot costs three GETs and no writes.
  */
 
-export const botProfile = {
+export interface BotProfile {
   /**
    * The bot's display name.
    *
-   * Kept here even though it changes about never, because leaving one field to
-   * BotFather makes the whole set unreliable — "the profile is in config" is a
+   * Kept in config even though it changes about never, because leaving one field
+   * to BotFather makes the whole set unreliable — "the profile is in config" is a
    * property worth having intact. The emoji is part of the name, not decoration
    * added at render time, which is why this is a plain string and not the
    * `emoji`/`title` split `src/config/topics.ts` uses for tabs.
    */
-  name: 'Newy 🪶',
-
+  name: string
   /**
    * Profile page and share previews. One sentence, written for someone who has
    * not used it yet — so it names what it does, not what it is built from.
    */
-  shortDescription:
-    'Your personal news assistant — curated digests, plus a chat that remembers ' +
-    'what matters to you.',
-
+  shortDescription: string
   /**
    * The empty-chat screen, above Start.
    *
    * Longer than the short description on purpose: this one is read at the moment
-   * a reader is deciding what to type, so it covers the four things they can
-   * actually do — the digests arriving on their own, asking about what arrived,
-   * being remembered between conversations, and asking for a diagram.
+   * a reader is deciding what to type, so it covers what they can actually do.
    *
    * Plain text, no markdown: Telegram renders this field literally, so backticks
    * and asterisks would arrive as backticks and asterisks.
    */
+  description: string
+}
+
+export const newyProfile: BotProfile = {
+  name: 'Newy 📰',
+
+  shortDescription:
+    'Your personal news assistant — curated digests, plus a chat that remembers ' +
+    'what matters to you.',
+
   description:
     'Newy tracks your beats in the background — ranking, summarizing and ' +
     'delivering the news that matters to you, no digging required. Ask her ' +
@@ -64,7 +76,23 @@ export const botProfile = {
     'tell her about yourself over time, so answers get more personal the longer ' +
     'you talk. She can also sketch a quick diagram when a concept has moving ' +
     'parts worth seeing.',
-} as const
+}
+
+export const joobProfile: BotProfile = {
+  name: 'Joob 💼',
+
+  shortDescription:
+    'Your job scout — postings read against your CV, with what fits and what ' +
+    "doesn't spelled out.",
+
+  description:
+    "Joob watches the job boards so you don't have to. Every couple of days it " +
+    'reads your CV, scores what has been posted against it, and sends only the ' +
+    'roles worth your time — each one with the reasons it fits and the places it ' +
+    'falls short. Ask about anything it has found, or tell it what you are ' +
+    'looking for and it will remember. It shares what it knows about you with ' +
+    'Newy, so telling either one something teaches both.',
+}
 
 /**
  * Telegram's caps on each field, from the API reference.
@@ -88,19 +116,23 @@ export const PROFILE_LIMITS = {
 } as const
 
 /**
- * Which fields are too long for Telegram to accept, if any.
+ * Which fields of a profile are too long for Telegram to accept, if any.
  *
  * Exported so `pnpm telegram:check` can report it without a boot, and so the
  * check is one implementation rather than a copy that drifts from the one that
  * runs. Returns a list rather than throwing: the caller decides whether an
  * over-long name is worth failing over, and at boot it is not — a bot with a
- * stale description still delivers news.
+ * stale description still delivers.
+ *
+ * Takes the profile as an argument rather than reading one, because there are
+ * two of them now and a check that silently examined only the first would be
+ * worse than no check.
  */
-export function profileOverflows(): string[] {
+export function profileOverflows(profile: BotProfile): string[] {
   return Object.entries(PROFILE_LIMITS)
-    .filter(([field, max]) => botProfile[field as keyof typeof PROFILE_LIMITS].length > max)
+    .filter(([field, max]) => profile[field as keyof typeof PROFILE_LIMITS].length > max)
     .map(([field, max]) => {
-      const length = botProfile[field as keyof typeof PROFILE_LIMITS].length
+      const length = profile[field as keyof typeof PROFILE_LIMITS].length
       return `${field} is ${length} characters, over Telegram's ${max}`
     })
 }

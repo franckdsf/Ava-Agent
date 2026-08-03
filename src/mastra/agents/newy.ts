@@ -2,10 +2,12 @@ import { createTelegramAdapter } from '@chat-adapter/telegram'
 import { Agent } from '@mastra/core/agent'
 import type { AgentChannels } from '@mastra/core/channels'
 import { Memory } from '@mastra/memory'
+import { NEWY_BOT } from '../../config/bots.js'
 import { env, telegramChannelEnv } from '../../config/env.js'
+import { NEWY_TOPICS } from '../../config/newy-topics.js'
 import { pipeline } from '../../config/pipeline.js'
-import { TOPICS } from '../../config/topics.js'
-import { routeToChatTab, withQuotedMessage } from '../channels.js'
+import { NEWY_SURFACE, withQuotedMessage } from '../channels.js'
+import { routeToChatTab } from '../chat-surface.js'
 import { newsTools } from '../tools/news.js'
 import { imageTools } from '../tools/image.js'
 import { memoryTools } from '../tools/memory.js'
@@ -15,11 +17,13 @@ import { memoryInstructions } from './memory.js'
 /**
  * Newy — the conversational half. This is the agent behind the "Chat" tab.
  *
- * It owns the *only* inbound path in the process. `src/services/telegram.ts`
+ * It owns the only inbound path *for Newy's token*. `src/services/telegram.ts`
  * stays outbound-only and never initializes a `ChatInstance`; the adapter
- * registered here is the one that polls. Two pollers would consume each other's
- * updates, so if a second adapter is ever registered anywhere, exactly one of
- * them must have `mode: 'polling'`.
+ * registered here is the one that polls this bot. Another agent polling its own
+ * token is fine and is what Joob does — two adapters sharing *one* token share a
+ * `getUpdates` offset and consume each other's updates, which is the whole of
+ * [invariant 7](../../../AGENTS.md#invariants)
+ * ([ADR-0023](../../../docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md)).
  *
  * The handlers in `channels.ts` scope her to the Chat tab and pick up the
  * slash commands the adapter would otherwise swallow — see
@@ -40,7 +44,7 @@ export const newyId = 'newy'
  * throws on construction. Newy stays usable in Studio either way; only the
  * Telegram surface disappears.
  */
-const channel = telegramChannelEnv()
+const channel = telegramChannelEnv(NEWY_BOT)
 
 /**
  * Newy's own channels, assigned right after she is constructed.
@@ -58,7 +62,7 @@ let newyChannels: AgentChannels | null = null
  * still arrives carrying what it replied to, which is the common case: the
  * digest is in News and that is where the reader is when they swipe.
  */
-const toChatTab = withQuotedMessage(routeToChatTab(() => newyChannels))
+const toChatTab = withQuotedMessage(routeToChatTab(NEWY_SURFACE, () => newyChannels))
 
 export const newy = new Agent({
   id: newyId,
@@ -198,9 +202,9 @@ earlier turn.
 **Every beat has its own tab, named after it.** A beat that has never sent
 anything has no tab yet; one appears the first time it wins an article. Pausing a
 beat closes its tab without deleting anything in it, and resuming reopens it. The
-"${TOPICS.news.title}" tab is a leftover: it holds digests from before beats had
+"${NEWY_TOPICS.news.title}" tab is a leftover: it holds digests from before beats had
 tabs, and now receives something only when a beat's tab could not be made. If the
-reader asks why an article turned up in "${TOPICS.news.title}", that is what it
+reader asks why an article turned up in "${NEWY_TOPICS.news.title}", that is what it
 means — say so plainly rather than guessing at another reason.
 
 One story can be scored by several beats and is sent by exactly one: whichever
@@ -208,14 +212,14 @@ scored it highest among those clearing their own bar. The others keep their scor
 and a one-line reason, so "why didn't you send me that?" has a real answer —
 "why-not-sent" is the tool for it.
 
-You are talking to them in the "${TOPICS.chat.title}" tab, and only there —
+You are talking to them in the "${NEWY_TOPICS.chat.title}" tab, and only there —
 anything they type in another tab is answered here instead, so if a question
 arrives with no context it may have been asked elsewhere. Digests are delivered
 by the scheduled pipeline, not by you — never claim to have just sent one, and
 never offer to send one now.
 
-You write in no other tab: not "${TOPICS.news.title}", not
-"${TOPICS.translations.title}" — where the translation commands put their output
+You write in no other tab: not "${NEWY_TOPICS.news.title}", not
+"${NEWY_TOPICS.translations.title}" — where the translation commands put their output
 — and not in any beat's tab. Those are all push-only, filled by the pipeline and
 the commands rather than by you.
 
@@ -224,7 +228,7 @@ system, not by you: you cannot run one, and asking you to translate an article
 is not the same thing. The reader swipes to reply on an article and sends the
 command on its own — "/translearn" puts the English behind almost every word,
 "/translate" only behind the terms worth watching. Both answer in the
-"${TOPICS.translations.title}" tab, and a long article arrives as several
+"${NEWY_TOPICS.translations.title}" tab, and a long article arrives as several
 messages over some minutes. Explain that when they ask; never claim to have
 started one, and never say it has failed, because you cannot see it. If they
 simply ask you to translate something short in conversation, do it yourself in

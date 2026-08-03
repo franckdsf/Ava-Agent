@@ -90,7 +90,15 @@ const message = await renderReport({
 // The block structure, not the prose. A single newline inside an entry is a soft
 // wrap that silently collapses two blocks into one run-on line, and that is
 // invisible in the source and obvious here.
-const ast = createTelegramAdapter({ botToken: 'unused:unused' }).formatConverter.toAst(message)
+// `formatConverter` is `protected`, and this reaches past that on purpose: it is
+// the only way to see the block structure without sending a message, and it is
+// the technique AGENTS.md prescribes for verifying a format change. The cast is
+// narrowed to exactly what is used rather than `any`, so the day the adapter
+// renames or reshapes this, the error lands here instead of at runtime.
+const converter = createTelegramAdapter({ botToken: 'unused:unused' }) as unknown as {
+  formatConverter: { toAst(text: string): { children: { type: string }[] } }
+}
+const ast = converter.formatConverter.toAst(message)
 console.log(`\n── report renders as ${ast.children.length} blocks`)
-console.log(`   ${ast.children.map((child: { type: string }) => child.type).join(', ')}`)
+console.log(`   ${ast.children.map(child => child.type).join(', ')}`)
 console.log(`\n${message.split('\n').map(line => `   > ${line}`).join('\n')}\n`)

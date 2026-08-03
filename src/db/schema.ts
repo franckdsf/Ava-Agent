@@ -343,11 +343,373 @@ export const memories = sqliteTable(
 )
 
 /**
- * Telegram forum topics provisioned in the private chat — the "tabs".
+ * One kind of role the reader wants Joob to look for.
  *
- * Keyed by `(chatId, slug)` rather than slug alone because a topic id is only
- * meaningful inside one chat: point `TELEGRAM_CHAT_ID` at a different chat and
- * the old rows must not be reused as if they were valid there.
+ * The job-side counterpart to `beats`, and shaped by the same decision: this is
+ * reader-owned data written from a conversation, not a config array
+ * ([ADR-0019](../../docs/decisions/0019-beats-as-reader-owned-data.md),
+ * [ADR-0024](../../docs/decisions/0024-joob-a-job-pipeline-beside-the-news-one.md)).
+ *
+ * **The columns split in two, and the split is the point.** Everything above
+ * `notes` is a *deterministic filter* applied in SQL before any model sees a
+ * posting — the ranker moves ±10 points on identical input, and at ~40 postings
+ * a cycle a threshold cut at that noise level drops good jobs at random. Filter
+ * on what can be checked, and spend the model only on what survives. `notes` is
+ * the opposite: everything a filter cannot express ("would rather not manage
+ * people") goes there and reaches the scoring prompt as prose.
+ *
+ * **Unlike a beat, a search does not get its own tab.** Beats are different
+ * subjects; searches are slices of one field, and a strip of near-identical tabs
+ * is worse than one good one. `label` is what names the winning search in a
+ * message footer — the slot a beat's subtopic occupies in a digest.
+ *
+ * `request` keeps what the reader actually typed. The row is model-parsed, so
+ * the original is the only thing that survives a parser that improves later, and
+ * it is what a re-parse would read.
+ *
+ * Soft-deleted with `archivedAt` like a beat, so a search switched off keeps the
+ * postings it won and can be switched back on.
+ */
+export const jobSearches = sqliteTable(
+  'job_searches',
+  {
+    slug: text('slug').primaryKey(),
+    /** Names this search in the footer of every posting it wins. */
+    label: text('label').notNull(),
+    /** Verbatim, in the reader's own language. See above. */
+    request: text('request').notNull(),
+
+    // --- Deterministic filters, applied before the model ---
+    /** Free-form place names as the reader gave them. Empty means anywhere. */
+    locations: text('locations', { mode: 'json' }).$type<string[]>().notNull(),
+    remote: text('remote', { enum: ['required', 'preferred', 'onsite', 'any'] }).notNull(),
+    /** Lowercase bands — `junior`, `mid`, `senior`, `staff`, `principal`. */
+    seniority: text('seniority', { mode: 'json' }).$type<string[]>().notNull(),
+    contractTypes: text('contract_types', { mode: 'json' }).$type<string[]>().notNull(),
+    /** Terms a posting must mention. Kept short: every entry narrows hard. */
+    mustHave: text('must_have', { mode: 'json' }).$type<string[]>().notNull(),
+    /** Terms that reject a posting outright, whatever else it says. */
+    dealbreakers: text('dealbreakers', { mode: 'json' }).$type<string[]>().notNull(),
+    /** Annual, in `currency`. Null means unstated — most postings omit pay anyway. */
+    minCompensation: integer('min_compensation'),
+    currency: text('currency'),
+
+    // --- Everything a filter cannot express ---
+    notes: text('notes'),
+    /** 0–100. Null means the configured default, so retuning it moves every search. */
+    fitThreshold: integer('fit_threshold'),
+
+    /**
+     * The tighter target the advisor proposed, when this one was too loose.
+     *
+     * **Stored because the reader can only act on what someone can still see.**
+     * A slash command answers through the transport and never enters the agent's
+     * memory, so "apply your example" reached a Joob that had never seen the
+     * example and invented a generic one. Parking it on the row is what makes
+     * that sentence work: the tool reads it back, and the advice a model gave
+     * about *this* search lives with the search.
+     *
+     * Cleared on every write to the row — a re-parsed or edited target makes the
+     * old advice stale, and stale advice presented as current is worse than none.
+     */
+    suggestion: text('suggestion', { mode: 'json' }).$type<TargetSuggestion>(),
+    suggestedAt: integer('suggested_at'),
+
+    createdAt: integer('created_at').notNull(),
+    archivedAt: integer('archived_at'),
+  },
+  table => [index('idx_job_searches_active').on(table.archivedAt)],
+)
+
+export type JobSearch = typeof jobSearches.$inferSelect
+export type NewJobSearch = typeof jobSearches.$inferInsert
+export type RemotePreference = JobSearch['remote']
+
+/**
+ * What the advisor said about a loose target.
+ *
+ * `criteria` is the *same* `/target` line put through the *same* parser the
+ * reader would hit by pasting it, rather than a second structured answer from the
+ * advisor. That is the whole reason it can be applied by a tool: pasting the
+ * command and asking Joob to apply it produce the same row, so the two routes can
+ * never drift. Null when that parse failed — the command text is still worth
+ * keeping, because a reader can always paste it themselves.
+ */
+export interface TargetSuggestion {
+  /** One sentence on what the current target lets through. The reader's language. */
+  diagnosis: string
+  /** The complete `/target …` line, verbatim as it was shown. */
+  command: string
+  criteria: SuggestedCriteria | null
+}
+
+/** Every field of a search except its slug, which an applied suggestion never changes. */
+export interface SuggestedCriteria {
+  label: string
+  locations: string[]
+  remote: RemotePreference
+  seniority: string[]
+  contractTypes: string[]
+  mustHave: string[]
+  dealbreakers: string[]
+  minCompensation: number | null
+  currency: string | null
+  notes: string
+}
+
+/**
+ * Where Joob looks. The job-side counterpart to `beat_feeds`.
+ *
+ * `kind` is the discriminator that lets one table hold sources that are fetched
+ * completely differently — an RSS feed, a JSON endpoint, and later a
+ * search-native model or a metered scraper
+ * ([ADR-0024](../../docs/decisions/0024-joob-a-job-pipeline-beside-the-news-one.md)).
+ * `adapter` names which normalizer turns the payload into `jobs` rows, because a
+ * URL alone cannot say that: two `api` sources have nothing in common but the
+ * word JSON.
+ *
+ * **Conditional-GET state lives here rather than in `feed_state`.** That table
+ * is keyed by URL globally and is the news pipeline's, and while sharing it
+ * would work for an RSS job board it would put two pipelines' bookkeeping in one
+ * row — the exact coupling that made a shared feed return 304 to the second beat
+ * before ADR-0019. A job source's health is a property of the job source.
+ */
+export const jobSources = sqliteTable(
+  'job_sources',
+  {
+    /** Stable slug — `remotive`, `weworkremotely-programming`. */
+    id: text('id').primaryKey(),
+    kind: text('kind', { enum: ['rss', 'api', 'sonar', 'apify'] }).notNull(),
+    url: text('url').notNull(),
+    /** Attribution shown under a posting. */
+    label: text('label').notNull(),
+    /** Which normalizer reads this source's payload. Null for `rss`, which is generic. */
+    adapter: text('adapter'),
+    addedAt: integer('added_at').notNull(),
+    archivedAt: integer('archived_at'),
+
+    // Conditional GET and health, so a source that quietly dies is visible.
+    etag: text('etag'),
+    lastModified: text('last_modified'),
+    lastFetchedAt: integer('last_fetched_at'),
+    lastStatus: text('last_status'),
+    lastError: text('last_error'),
+    /** Postings returned by the last successful fetch. Zero for a while means a dead source. */
+    lastCount: integer('last_count'),
+  },
+  table => [index('idx_job_sources_active').on(table.archivedAt)],
+)
+
+/**
+ * One job posting.
+ *
+ * **The id carries the month, and that is the whole dedupe design.** It is a
+ * hash of normalized company, title, location **and `YYYY-MM`** — taken from the
+ * posting's own date, falling back to first-seen only when a source ships none.
+ * Link hashing, which is how `articles` dedupes, fails outright here: the same
+ * role appears on five boards under five URLs, and hashing links multiplies it
+ * by five instead of merging it. The month is what makes a genuine repost months
+ * later a *new* job rather than a silent collision with the old one.
+ *
+ * `identity` is the same hash **without** the month. It is what
+ * `job_deliveries` keys on, and it is the only thing that can recognise "this is
+ * the posting you already saw" across a month boundary or a pruning.
+ *
+ * Delivery is a column here, not on `job_matches`, for the reason it is on
+ * `articles`: a posting is scored by every search that could want it and sent by
+ * exactly one, so "which search sent this" has a single answer.
+ */
+export const jobs = sqliteTable(
+  'jobs',
+  {
+    id: text('id').primaryKey(),
+    /** Month-less identity. See above — this is what prevents a re-send. */
+    identity: text('identity').notNull(),
+    /** The source this posting was first seen in. Others may carry it too. */
+    sourceId: text('source_id').notNull(),
+
+    company: text('company').notNull(),
+    title: text('title').notNull(),
+    location: text('location'),
+    remote: text('remote', { enum: ['remote', 'hybrid', 'onsite', 'unknown'] }).notNull(),
+    url: text('url').notNull(),
+    /** Plain text, stripped at ingest. What the scorer and the writer read. */
+    description: text('description'),
+    /** Verbatim, because pay is stated in a dozen incompatible ways or not at all. */
+    salaryText: text('salary_text'),
+    contractType: text('contract_type'),
+    /**
+     * The **source's** tags, kept as an audit trail and never filtered on.
+     *
+     * Measured worthless: Remotive returned a graphic-design role tagged
+     * `golang`, `php`, `rust` and `unity`; RemoteOK returned a construction
+     * estimator tagged `golang`, `infosec` and `engineer`. Boards let employers
+     * tag freely and agencies tag exhaustively. Kept only so a future argument
+     * about a specific posting can be settled against what its board actually
+     * said.
+     */
+    tags: text('tags', { mode: 'json' }).$type<string[]>().notNull(),
+    /**
+     * Tags derived from this posting's own words at ingest — the ones that are
+     * actually filtered on.
+     *
+     * Namespaced by kind: `discipline:frontend`, `tech:typescript`,
+     * `level:senior`, `flag:non-technical`. This is what lets the filter reject
+     * most of a run's intake before any model sees it, which is the difference
+     * between a scoring bill proportional to what is plausible and one
+     * proportional to what the boards happened to publish. See
+     * `src/services/job-tags.ts` for why disciplines read the title and
+     * technologies read the body.
+     */
+    derivedTags: text('derived_tags', { mode: 'json' }).$type<string[]>().notNull(),
+
+    /** The source's own date. Null when it ships none — see the id note above. */
+    postedAt: integer('posted_at'),
+    discoveredAt: integer('discovered_at').notNull(),
+
+    deliveredAt: integer('delivered_at'),
+    deliveredSearch: text('delivered_search'),
+  },
+  table => [
+    index('idx_jobs_undelivered').on(table.deliveredAt, table.discoveredAt),
+    index('idx_jobs_identity').on(table.identity),
+  ],
+)
+
+/**
+ * One row per (posting, search): what that search made of that posting.
+ *
+ * The job-side `article_beats`, and it exists for the same reason — a posting
+ * can be wanted by more than one search and must be stored once and sent once.
+ * The scoring columns fill in when the batch scorer runs; the row exists from
+ * the moment a posting clears a search's deterministic filters.
+ *
+ * `mismatches` is what makes a verdict answerable rather than a number. The
+ * scorer names the axes a posting falls short on — seniority, location, stack,
+ * pay — for winners and near-misses alike, so "why did you send me this?" and
+ * "why didn't you?" have the same kind of answer.
+ */
+export const jobMatches = sqliteTable(
+  'job_matches',
+  {
+    jobId: text('job_id').notNull(),
+    searchSlug: text('search_slug').notNull(),
+
+    /** 0–100. Null until the scorer has seen it. */
+    fit: integer('fit'),
+    /** At most 20 words, concrete. Written for winners and near-misses alike. */
+    reason: text('reason'),
+    mismatches: text('mismatches', { mode: 'json' }).$type<string[]>(),
+    scoredAt: integer('scored_at'),
+  },
+  table => [
+    primaryKey({ columns: [table.jobId, table.searchSlug] }),
+    index('idx_job_matches_unscored').on(table.searchSlug, table.scoredAt),
+    index('idx_job_matches_fit').on(table.searchSlug, table.fit),
+  ],
+)
+
+/**
+ * Every posting actually delivered. **Never pruned.**
+ *
+ * This is what prevents a re-send, and it exists because the rule that protects
+ * the news pipeline does not hold here. There, an ingest window well below
+ * retention means a pruned article is refused on age before it can be
+ * re-ingested. Here, a source that ships **no posting date** makes age fall back
+ * to first-seen — so a posting pruned at 60 days and crawled again the next day
+ * reads as zero days old, passes the window, takes a fresh `YYYY-MM` in its key,
+ * and lands as a new row with a null `deliveredAt`. No tuning of the two windows
+ * prevents that. This table does, by construction.
+ *
+ * Affordable for the reason `feedback` is: it grows only when something actually
+ * reached the reader, which is a handful a week at ~100 bytes.
+ *
+ * Keyed on the **month-less** identity, so a genuine repost past
+ * `redeliveryGuardDays` is allowed through — that is the behaviour the reader
+ * asked for. `deliveredAt` is overwritten on re-delivery rather than appended,
+ * because the only question this table answers is "how long ago was this seen".
+ *
+ * Title, company and URL are copied at delivery so a row outlives the `jobs` row
+ * it came from — the same denormalization argument `feedback` makes.
+ */
+export const jobDeliveries = sqliteTable('job_deliveries', {
+  identity: text('identity').primaryKey(),
+  company: text('company').notNull(),
+  title: text('title').notNull(),
+  url: text('url').notNull(),
+  searchSlug: text('search_slug').notNull(),
+  deliveredAt: integer('delivered_at').notNull(),
+})
+
+/**
+ * One job run, and the reason the schedule can fire daily.
+ *
+ * **`startedAt` is what makes the cadence every-two-days**, not the cron. A
+ * day-of-month step fires on the 1st, 3rd … 31st and then the 1st again, so
+ * seven month boundaries a year give two consecutive runs; and a missed schedule
+ * firing on boot already put two runs in flight at once in this repo's history.
+ * A stored timestamp makes the cadence a property of the data rather than of the
+ * cron string or of process uptime.
+ *
+ * The counters are the other half: the news pipeline reports a run into the void
+ * and nothing can answer "was last Tuesday quiet or broken?". `note` carries the
+ * one-line reason a run did nothing — a portfolio that would not fetch, no
+ * active searches — which is the difference between those two.
+ */
+export const jobRuns = sqliteTable(
+  'job_runs',
+  {
+    id: text('id').primaryKey(),
+    startedAt: integer('started_at').notNull(),
+    /** Null while in flight. A row that never finishes is a crashed run. */
+    finishedAt: integer('finished_at'),
+    fetched: integer('fetched').notNull().default(0),
+    stored: integer('stored').notNull().default(0),
+    /** Postings that survived the deterministic filters and reached the model. */
+    considered: integer('considered').notNull().default(0),
+    scored: integer('scored').notNull().default(0),
+    delivered: integer('delivered').notNull().default(0),
+    note: text('note'),
+  },
+  table => [index('idx_job_runs_started').on(table.startedAt)],
+)
+
+export type JobRun = typeof jobRuns.$inferSelect
+
+export type JobSource = typeof jobSources.$inferSelect
+export type NewJobSource = typeof jobSources.$inferInsert
+export type JobSourceKind = JobSource['kind']
+export type Job = typeof jobs.$inferSelect
+export type NewJob = typeof jobs.$inferInsert
+export type JobRemote = Job['remote']
+export type JobMatchRow = typeof jobMatches.$inferSelect
+export type JobDeliveryRow = typeof jobDeliveries.$inferSelect
+
+/**
+ * Telegram forum topics provisioned in a bot's chat — the "tabs".
+ *
+ * Keyed by `(botId, chatId, slug)`. The chat id is there because a topic id is
+ * only meaningful inside one chat: point a bot at a different chat and the old
+ * rows must not be reused as if they were valid there.
+ *
+ * **The bot id is there because a chat id does not identify a conversation.**
+ * That is the part worth reading twice. In a *private* chat Telegram's
+ * `chat.id` **is the user's id**, and user ids are global rather than per-bot —
+ * so Newy and Joob, talking to the same person, both see chat `8401775038`.
+ * Their conversations are distinct in the client and share nothing else, but on
+ * this table they collided: two rows keyed `('8401775038', 'chat', …)` holding
+ * two different thread ids.
+ *
+ * The failure was not a mixup, it was destructive. The second bot resolves its
+ * Chat tab, finds the first bot's row, adopts a thread id that does not exist in
+ * its own conversation, fails to send, and `invalidateTopic` then deletes the
+ * *other* bot's row — which that bot recreates, and `createForumTopic` is not
+ * idempotent, so a duplicate tab appears. Adding the column was the fix
+ * ([ADR-0023](../../docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md)).
+ *
+ * Note this is only true of private chats. Two supergroups are two ids, so the
+ * old key was correct for that route and merely incomplete — which is exactly
+ * why it looked right.
  *
  * `messageThreadId` is Telegram's, not ours — we can create a topic but never
  * choose its id, so this table is a cache of what Telegram assigned. A row going
@@ -356,6 +718,8 @@ export const memories = sqliteTable(
 export const telegramTopics = sqliteTable(
   'telegram_topics',
   {
+    /** Which bot owns this tab — `newy`, `joob`. See the note above. */
+    botId: text('bot_id').notNull(),
     chatId: text('chat_id').notNull(),
     slug: text('slug').notNull(),
     messageThreadId: integer('message_thread_id').notNull(),
@@ -371,7 +735,7 @@ export const telegramTopics = sqliteTable(
     name: text('name'),
     createdAt: integer('created_at').notNull(),
   },
-  table => [primaryKey({ columns: [table.chatId, table.slug] })],
+  table => [primaryKey({ columns: [table.botId, table.chatId, table.slug] })],
 )
 
 export type TelegramTopicRow = typeof telegramTopics.$inferSelect

@@ -26,10 +26,12 @@ import {
   type Beat,
 } from '../../db/beats.js'
 import { nameBeat } from '../agents/scout.js'
+import { NEWY_BOT } from '../../config/bots.js'
 import { db, migrate } from '../../db/client.js'
 import { articleBeats, articles } from '../../db/schema.js'
 import { checkFeed, normalizeFeedUrl, sourceLabel } from '../../services/feed-check.js'
-import { escapeMarkdown, sendToTelegram } from '../../services/telegram.js'
+import { escapeMarkdown } from '../../services/telegram.js'
+import { newyTelegram } from '../../services/newy-telegram.js'
 import { setBeatTopicOpen } from '../../services/telegram-topics.js'
 import { quotedSource } from '../../services/quoted-article.js'
 import type { SlashCommandEvent } from './article-context.js'
@@ -78,10 +80,10 @@ export async function runBeatCommand(
   command: BeatCommand,
 ): Promise<void> {
   try {
-    await sendToTelegram(await beatCommandReply(event, command, mastra), BEAT_TAB)
+    await newyTelegram.sendToTelegram(await beatCommandReply(event, command, mastra), BEAT_TAB)
   } catch (error) {
     mastra.getLogger()?.error('Beat command failed', { command, error })
-    await sendToTelegram(
+    await newyTelegram.sendToTelegram(
       `${escapeMarkdown(command)} failed and nothing was changed. Try again in a moment.`,
       BEAT_TAB,
     )
@@ -410,7 +412,7 @@ async function setPaused(
   // purpose: the database write above *is* the command, and a Telegram failure
   // must not report a pause that did happen as a failure. Only a genuine error
   // reaches the catch — 'no-tab' and 'unsupported' are ordinary outcomes.
-  const tab = await setBeatTopicOpen(beat, !paused).catch(error => {
+  const tab = await setBeatTopicOpen(NEWY_BOT, beat, !paused).catch(error => {
     mastra.getLogger()?.error('Could not follow the beat with its tab', {
       slug: beat.slug,
       paused,

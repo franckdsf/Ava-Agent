@@ -103,6 +103,43 @@ const coreSchema = z.object({
   AVA_MODEL_BEAT_SCOUT: gatewayModelId.default('openrouter/perplexity/sonar'),
 
   /**
+   * `/target`: turns a sentence about the work the reader wants into the filters
+   * a job search is made of.
+   *
+   * Cheap and schema-constrained, exactly like the beat namer, and for the same
+   * reasons: it runs once per search ever created, over one line of input, and
+   * needs no web search. It is also the same *kind* of risk — a model writing
+   * configuration — with one important difference in its favour. A bad rubric is
+   * hidden by the ranker's ±10 noise floor; a bad filter is deterministic, and
+   * `/target` echoes every field back, so the reader sees a wrong parse and can
+   * say it again.
+   */
+  AVA_MODEL_JOB_TARGETER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
+
+  /**
+   * The every-two-days run: scores a whole batch of postings against the CV.
+   *
+   * **The largest single prompt in this repo.** It carries the reader's CV in
+   * full — measured at ~20k tokens — plus every posting that survived the
+   * deterministic filters, once per run. Deliberately *not* sharing
+   * `AVA_MODEL_RSS_RANKER`: that one sees hundreds of headlines a day against a
+   * ~200-token rubric, this one runs once every two days against a document a
+   * hundred times larger, and a model chosen for one is chosen against the wrong
+   * cost for the other. They share a default value and nothing else.
+   *
+   * Must support schema-constrained output — the step reads `.object`.
+   */
+  AVA_MODEL_JOB_SCORER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
+  /**
+   * Writes the brief for each posting that cleared the bar.
+   *
+   * A handful of calls per run over one posting each, and the only job-side
+   * output a human actually reads — so it is tuned like `AVA_MODEL_SUMMARIZER`
+   * rather than like the scorer. It never sees the CV.
+   */
+  AVA_MODEL_JOB_WRITER: gatewayModelId.default('openrouter/google/gemini-3.1-flash-lite'),
+
+  /**
    * Durable state: Mastra memory/workflows/scores plus the app's own tables.
    * `file:` for local dev, `libsql://…` (Turso) in production so the container
    * stays stateless and needs no volume.
@@ -129,10 +166,18 @@ const telegramSchema = z.object({
   TELEGRAM_CHAT_ID: z.string().min(1),
 })
 
-function parse<T extends z.ZodType>(schema: T, scope: string): z.infer<T> {
-  const result = schema.safeParse(process.env)
+function parse<T extends z.ZodType>(
+  schema: T,
+  scope: string,
+  source: Record<string, unknown> = process.env,
+  /** Prefixed back onto each reported key, so the message names the real variable. */
+  keyPrefix = '',
+): z.infer<T> {
+  const result = schema.safeParse(source)
   if (!result.success) {
-    const issues = result.error.issues.map(i => `  - ${i.path.join('.')}: ${i.message}`).join('\n')
+    const issues = result.error.issues
+      .map(i => `  - ${keyPrefix}${i.path.join('.')}: ${i.message}`)
+      .join('\n')
     throw new Error(`Invalid ${scope} environment:\n${issues}\n\nSee .env.example.`)
   }
   return result.data
@@ -140,28 +185,61 @@ function parse<T extends z.ZodType>(schema: T, scope: string): z.infer<T> {
 
 export const env = parse(coreSchema, 'core')
 
-let telegramCache: z.infer<typeof telegramSchema> | undefined
-
-/** Validated on first use so the news pipeline can run without Telegram configured. */
-export function telegramEnv(): z.infer<typeof telegramSchema> {
-  telegramCache ??= parse(telegramSchema, 'Telegram')
-  return telegramCache
+/**
+ * Just enough of a bot to find its variables.
+ *
+ * Structural rather than an import of `BotDefinition`, so this module stays free
+ * of config dependencies — every `BotDefinition` satisfies it, and nothing here
+ * needs to know what a tab is.
+ */
+export interface BotEnvTarget {
+  id: string
+  envPrefix: string
 }
 
-export function allowedTelegramUserIds(): string[] {
-  return splitUserIds(telegramEnv().TELEGRAM_ALLOWED_USER_IDS)
+/** This bot's three Telegram variables, read under its own prefix. */
+function telegramVars(prefix: string): Record<string, unknown> {
+  return {
+    TELEGRAM_BOT_TOKEN: process.env[`${prefix}TELEGRAM_BOT_TOKEN`],
+    TELEGRAM_ALLOWED_USER_IDS: process.env[`${prefix}TELEGRAM_ALLOWED_USER_IDS`],
+    TELEGRAM_CHAT_ID: process.env[`${prefix}TELEGRAM_CHAT_ID`],
+  }
+}
+
+const telegramCache = new Map<string, z.infer<typeof telegramSchema>>()
+
+/**
+ * Validated on first use so the news pipeline can run without Telegram
+ * configured, and cached per bot rather than once for the process.
+ */
+export function telegramEnv(bot: BotEnvTarget): z.infer<typeof telegramSchema> {
+  const cached = telegramCache.get(bot.id)
+  if (cached) return cached
+
+  const parsed = parse(
+    telegramSchema,
+    `${bot.id} Telegram`,
+    telegramVars(bot.envPrefix),
+    bot.envPrefix,
+  )
+  telegramCache.set(bot.id, parsed)
+  return parsed
+}
+
+export function allowedTelegramUserIds(bot: BotEnvTarget): string[] {
+  return splitUserIds(telegramEnv(bot).TELEGRAM_ALLOWED_USER_IDS)
 }
 
 /**
- * The digest chat, or undefined when unset.
+ * This bot's chat, or undefined when unset.
  *
  * The inbound tab router runs on every message and only needs to know whether a
- * thread belongs to *this* chat; `telegramEnv()` would throw for a bot that has
- * a token and an allowlist but no chat id, taking the conversation down over a
- * value it can degrade without.
+ * thread belongs to *its* bot's chat; `telegramEnv()` would throw for a bot that
+ * has a token and an allowlist but no chat id, taking the conversation down over
+ * a value it can degrade without.
  */
-export function telegramChatId(): string | undefined {
-  return process.env.TELEGRAM_CHAT_ID || undefined
+export function telegramChatId(bot: BotEnvTarget): string | undefined {
+  return process.env[`${bot.envPrefix}TELEGRAM_CHAT_ID`] || undefined
 }
 
 function splitUserIds(raw: string): string[] {
@@ -172,28 +250,34 @@ function splitUserIds(raw: string): string[] {
 }
 
 /**
- * Telegram config for the *inbound* channel, or undefined when Telegram isn't
- * configured.
+ * Telegram config for one bot's *inbound* channel, or undefined when that bot
+ * isn't configured.
  *
  * Deliberately does not throw when Telegram is absent, unlike `telegramEnv()`.
  * The agent that registers the channel is imported by the Mastra instance
  * itself, so throwing here would take the whole app — and Studio — down
  * whenever Telegram is unconfigured, which is the exact split this file exists
- * to preserve.
+ * to preserve. It also means one bot can be configured and the other not,
+ * which is the normal state while a second one is being brought up.
  *
  * It *does* throw when a token is present without an allowlist. The adapter
  * treats a missing allowlist as "everyone", so that combination is the one
  * misconfiguration that silently opens the bot to anyone who finds it.
  */
-export function telegramChannelEnv(): { botToken: string; allowedUserIds: string[] } | undefined {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN
+export function telegramChannelEnv(
+  bot: BotEnvTarget,
+): { botToken: string; allowedUserIds: string[] } | undefined {
+  const botToken = process.env[`${bot.envPrefix}TELEGRAM_BOT_TOKEN`]
   if (!botToken) return undefined
 
-  const allowedUserIds = splitUserIds(process.env.TELEGRAM_ALLOWED_USER_IDS ?? '')
+  const allowedUserIds = splitUserIds(
+    process.env[`${bot.envPrefix}TELEGRAM_ALLOWED_USER_IDS`] ?? '',
+  )
   if (allowedUserIds.length === 0) {
     throw new Error(
-      'TELEGRAM_BOT_TOKEN is set but TELEGRAM_ALLOWED_USER_IDS is empty — the adapter would ' +
-      'accept messages from anyone who finds the bot. See .env.example.',
+      `${bot.envPrefix}TELEGRAM_BOT_TOKEN is set but ${bot.envPrefix}TELEGRAM_ALLOWED_USER_IDS ` +
+      'is empty — the adapter would accept messages from anyone who finds the bot. ' +
+      'See .env.example.',
     )
   }
   return { botToken, allowedUserIds }

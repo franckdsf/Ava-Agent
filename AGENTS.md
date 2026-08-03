@@ -15,6 +15,9 @@ database, the container, the `AVA_*` environment, the volume — everything that
 outlives any one agent. **Newy** is the conversational agent behind the Chat tab,
 formerly called Ava, renamed 2026-08-03
 ([ADR-0022](docs/decisions/0022-ava-is-the-system-agents-have-names.md)).
+**Joob** is the second agent: job postings rather than news, its own bot token
+and its own chat ([ADR-0023](docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md),
+[ADR-0024](docs/decisions/0024-joob-a-job-pipeline-beside-the-news-one.md)).
 
 The rule for reading this repo, and for naming anything new in it:
 
@@ -22,7 +25,12 @@ The rule for reading this repo, and for naming anything new in it:
   system** — `ava.db`, `ava-data`, `ava-storage`, `AVA_MODEL_*`, `ava-agent`.
   Leave it alone. Renaming any of it is a migration, not a rename.
 - **A capitalised name in a prompt, a tab, a bot profile or an agent id is an
-  agent** — today that is only `Newy`.
+  agent** — `Newy` and `Joob`. A bot token, a chat id and a tab set belong to
+  one agent, so their env vars are prefixed with its name — `NEWY_TELEGRAM_*`,
+  `JOOB_TELEGRAM_*`. **Including the first agent's:** Newy's were bare
+  `TELEGRAM_*` while she was the only bot and were renamed 2026-08-03, because a
+  bare name reads as "the default bot" the moment an explicit `JOOB_` sits
+  beside it.
 - **A knob shared by every conversational agent keeps its role name**, not an
   agent's. `AVA_MODEL_ORCHESTRATOR` is the model a reader talks to, whichever
   agent is doing the talking; retuning it is a decision about the surface, and
@@ -66,7 +74,9 @@ The full list is in the [README](README.md#commands). These three carry obligati
 | `pnpm feeds:check` | Run after adding or changing a feed. It reads `beat_feeds`, so it needs `.env` now — it used to need nothing. |
 | `pnpm discovery:check "<subject>"` | Dry-runs `/follow` end to end — names the beat, searches, verifies every feed, renders the report — writing and sending nothing. Run before believing any change to the namer, the scout, or feed resolution. |
 | `pnpm review:check` | **Required** after touching `verdictForBeat` or `src/config/feed-review.ts`. It is the only exercise the weekly feed review gets: a guard with no case here is a guard that silently stops applying, and the failure is a beat quietly losing good sources. Also prints what a run *today* would do to the live beats. |
-| `pnpm telegram:check` | Run before debugging a missing tab. Reports whether BotFather's Threaded Mode is on — the one prerequisite no code can set — plus any profile field the next boot would push. Read-only, safe against a running bot. |
+| `pnpm jobs:check` | Run after touching a job source, an adapter, or `job-identity.ts`. Fetches every seeded board for real, prints per-source field coverage, and runs the identity function over everything so the cross-board dedupe is a measured number rather than an assumption. Writes nothing, calls no model. |
+| `pnpm portfolio:check` | Run before believing anything about job scoring, and after any change to the portfolio endpoint. It is the one input to that scoring living outside this repo, and a wrong endpoint **never errors** — a protection wall answers 200 with an HTML login page, an empty deploy answers 200 with nothing. Prints the size, the estimated per-run token cost, the headings and the first lines. Read-only. |
+| `pnpm telegram:check [bot]` | Run before debugging a missing tab. Reports whether BotFather's Threaded Mode is on — the one prerequisite no code can set — plus any profile field the next boot would push. Read-only, safe against a running bot. Covers **every** bot with no argument, because Threaded Mode is per token and a check that silently skipped one would be worse than none; name a bot (`newy`) to narrow it. |
 
 ## Invariants
 
@@ -109,12 +119,17 @@ changing any of them.
    score and their reason, which is what makes "why didn't you send me that?"
    answerable. ([0019](docs/decisions/0019-beats-as-reader-owned-data.md))
 6. **Single replica.** Two would double-send digests and double-poll Telegram.
-7. **Exactly one adapter polls.** Newy's adapter (`mode: 'polling'`) owns the only
-   inbound path; `src/services/telegram.ts` is outbound-only and never
-   initializes a `ChatInstance`. Two pollers consume each other's updates.
-   Never use `mode: 'auto'` — it falls back to *webhook* when it can't verify
-   `getWebhookInfo`, which silently breaks invariant 1.
-   ([0009](docs/decisions/0009-telegram-topics-as-tabs.md))
+7. **Exactly one adapter polls per bot token.** The mechanism is what matters:
+   two adapters on *one* token share a `getUpdates` offset and consume each
+   other's updates. Two tokens are two independent queues, which is what lets
+   Newy and Joob both poll from one process — the rule used to read "exactly one
+   adapter polls", which named the mechanism correctly and generalised wrongly.
+   `src/services/telegram.ts` is outbound-only for **every** bot and never
+   initializes a `ChatInstance`; no outbound instance may carry a `mode`. Never
+   use `mode: 'auto'` — it falls back to *webhook* when it can't verify
+   `getWebhookInfo`, which silently breaks invariant 1 for whichever bot it
+   happens to.
+   ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0023](docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md))
 8. **The conversational surface may write what the next run reads, and never
    what a run produced.** This used to read "read-only over the pipeline" with
    `memories` as its one exception; that wording could not survive the reader
@@ -141,7 +156,12 @@ changing any of them.
    `curateAll`. A reader-triggered run is governed by invariant 2's own
    distinction — a person typing, not a cron fire nobody watches.
    ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0014](docs/decisions/0014-two-tier-memory-for-ava.md), [0016](docs/decisions/0016-reader-notes-in-the-ranker.md), [0019](docs/decisions/0019-beats-as-reader-owned-data.md))
-9. **One tab, one kind of traffic.** Newy answers in Chat and nowhere else —
+9. **One bot, one agent, one chat — and inside a chat, one tab, one kind of
+   traffic.** The outer half is new: an agent owns a token, a chat and a tab set,
+   so "which tab does this belong in?" is only ever asked within one bot's chat
+   and no message crosses between them
+   ([0023](docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md)). The
+   inner half is unchanged. Newy answers in Chat and nowhere else —
    messages typed in any other tab are *moved* there, not answered in place.
    Translations go to Translations. **A digest goes to its own beat's tab**, and
    News is now only the fallback for a beat tab that could not be made — a
@@ -215,6 +235,13 @@ doesn't wrap without adding a second Telegram library.
   the new entry's `when` against every other entry after every `db:generate`**
   and bump it above the maximum if it is lower. `0012` was fixed this way — it is
   the one legitimate reason to hand-edit `_journal.json`.
+- **Copying a live libsql database means copying `-wal` and `-shm` too — this
+  bit again on 2026-08-03, exactly as described below.** With `pnpm dev` running,
+  `.data/ava.db` was stamped 16:51 while `ava.db-wal` held **3.4 MB** of writes
+  from 17:19 — a `/target` and an entire workflow run. A copy of the `.db` alone
+  produced `activeSearches()` → `[]` and a script that failed on `undefined`,
+  which reads as a code bug and is not one. Copy all three files, then check a
+  row count you know.
 - **Copying a live libsql database means copying `-wal` and `-shm` too.** The
   main `.db` file only holds what has been checkpointed: on 2026-07-29 `ava.db`
   was 4.3 MB from 14:17 while `ava.db-wal` held 5 MB of writes from 15:32, so a
@@ -678,12 +705,478 @@ doesn't wrap without adding a second Telegram library.
   against the live bot 2026-07-30, including the writes — probe them with
   `language_code: 'eo'`, which exercises the real method against a locale nothing
   will ever request and leaves the default profile untouched.
+- **A private chat's `chat_id` is the user's id, so two bots see the same one.**
+  Telegram user ids are global, not per-bot, and for a private chat `chat.id`
+  *is* that user id — so `NEWY_TELEGRAM_CHAT_ID` and `JOOB_TELEGRAM_CHAT_ID`
+  hold the **same value** (`8401775038` here), which is also the reader's entry
+  in both allowlists. The conversations are still distinct in the client because
+  the token differs; nothing else distinguishes them. This was asserted the wrong
+  way round in the first draft of ADR-0023 and in `.env.example`, both of which
+  said the two chat ids must differ.
+  Two consequences, and the second one bites:
+  - `telegram_topics` is keyed `(botId, chatId, slug)`. Keyed on chat and slug
+    alone — which is correct for supergroups, where two groups are two ids —
+    both bots write `('8401775038', 'chat', …)`. The second bot then adopts the
+    first's thread id, fails to send into a thread that isn't in its
+    conversation, and `invalidateTopic` deletes the *other* bot's row; that bot
+    recreates it, `createForumTopic` is not idempotent, and a duplicate tab
+    appears. Never query that table without a bot id.
+  - `TELEGRAM_CHAT_ID` is still not redundant with the allowlist, despite
+    holding a value that appears in it. The allowlist says who may *talk*; the
+    chat id says where a cron fire — which has no message to reply to — should
+    *send*. They diverge the moment there are two allowed users, and on the
+    supergroup route the chat id is a `-100…` group that is nobody's user id.
 - **`.history/` must stay gitignored.** An IDE extension snapshots `.env`
   verbatim into it.
 
 ## Where work stopped
 
-*Last updated: 2026-07-30.*
+*Last updated: 2026-08-03.*
+
+**Step 1 of Joob has landed: the surface is per-bot — 2026-08-03.** Nothing
+job-related is in the tree yet; this is the refactor that makes a second bot
+possible, with Newy unchanged from the reader's side.
+
+`src/config/bots.ts` is the registry — id, env prefix, tab set, profile — and it
+is what the transport is now constructed against. `src/config/topics.ts` kept the
+shared vocabulary and Newy's three tabs moved to `newy-topics.ts` with their
+slugs untouched. `src/services/telegram.ts` became
+`createTelegramTransport(bot)`, holding the adapter and both tab caches as
+instance state instead of module singletons; `src/services/newy-telegram.ts`
+exports the one Newy instance the news pipeline sends through. Every function in
+`telegram-topics.ts` takes the bot it acts on. `telegramEnv()` and friends read
+under a per-bot prefix and cache per bot.
+
+Two things worth knowing before touching it:
+
+- **`newyTelegram.sendToTelegram(...)` at a call site is the ownership marker.**
+  The free `sendArticle(...)` said nothing about which chat it meant while there
+  was one bot; a job-side caller reaching for Newy's transport is now visible in
+  review rather than at runtime.
+- **`TopicSlug` is gone as a global union.** Each bot carries its own slug union
+  through `BotDefinition<Slug>`, so `sendToTelegram(text, 'jobs')` is a type
+  error in Newy's chat. That generic plumbing is the cost ADR-0023 records; the
+  alternative was widening slugs to `string` and losing the system-tab/beat-tab
+  distinction `BEAT_TOPIC_PREFIX` exists to protect.
+
+Verified: `pnpm typecheck` clean, and `pnpm telegram:check` run against the live
+bot — chat `8401775038` private with Threaded Mode on, profile up to date, all
+three tabs resolved (`💬 Chat` #106015, `📰 News` #103659, `📜 Translations`
+#104044). That exercises the per-bot env resolution, `callBotApi`, `profileDrift`,
+`topicRoute` and the topic list through their new signatures.
+
+**Not yet exercised: the outbound transport and the inbound router.** Nothing has
+been *sent* through `createTelegramTransport`, and no message has been routed
+since `routeToChatTab` started reading `telegramChatId(NEWY_BOT)`. Both need
+`pnpm dev` and a real message. `scripts/` is outside `tsconfig`'s `include`, so
+none of it typechecks in CI — `check-telegram.ts` was checked by hand, and
+`check-discovery.ts` has a pre-existing `formatConverter` visibility error that
+only shows up that way.
+
+**Joob itself is decided and not built — 2026-08-03.** Two ADRs, no code.
+[ADR-0023](docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md) settles
+the surface question ADR-0022 deliberately left open: **a second bot token and a
+second chat**, not two agents behind one bot. The deciding detail is that
+`setMyName`, `setMyDescription` and `setMyShortDescription` take `language_code`
+and nothing else — only `setMyCommands` is scopeable — so one token means one
+name for both agents, and the chat title above everything Joob ever sent would
+read `Newy 🪶`. Invariants 7 and 9 are restated above.
+[ADR-0024](docs/decisions/0024-joob-a-job-pipeline-beside-the-news-one.md) is the
+pipeline: its own tables, everything below them shared.
+
+The intended order, each piece landable on its own:
+
+1. ~~**`src/config/bots.ts` and per-bot topics.**~~ Landed — see above.
+2. ~~**Joob talking.**~~ Landed, unprovisioned — see below.
+3. ~~**`/target`, `/targets` and `/untarget`.**~~ Landed — see below.
+4. ~~**The portfolio fetch and `pnpm portfolio:check`.**~~ Landed, unconfigured.
+5. ~~**Schema, sources and ingest.**~~ Landed — see below.
+6. ~~**Scoring and delivery.**~~ Landed — see below.
+7. **A live run against the real bot.** Nothing has been *sent* by either bot
+   since the transport refactor.
+
+**The job pipeline runs end to end — verified step by step against a copy,
+2026-08-03.** `findJobs` (`src/mastra/workflows/find-jobs.ts`), the scorer and
+writer agents, and `job_runs` (`0016`). One real pass over the live boards and the
+real CV:
+
+```
+fetched 457 → 438 inside the 30d window → 384 stored (dedupe)
+240 pending → filter keeps 40 → scorer returns 40 valid, 0 unanswered
+fit: 2 at 85+, 2 at 70–84, 6 at 50–69, 19 at 20–49, 11 under 20
+threshold 70 → 4 winners → 2 written and delivered → 2 ledger rows
+```
+
+The verdicts read as real judgements against the CV, not keyword matching:
+*"Small product team, full-stack, AI-driven, matches product engineer role"* at
+85, with `domain: pet health, not AI or B2C` as its mismatch; Coinbase scored 65
+on `company type: large company, not small human-scale team`.
+
+**The scorer took 467 seconds, and that is accepted.** One call, 135,680
+characters ≈ 34k tokens, of which the CV is 20k, on `deepseek-v4-flash` — the
+model this file documents as having *a latency range, not a latency*. **Duration
+is not the risk**: the run is unattended, nothing waits on it, and a slow
+scheduled job is simply a slow scheduled job (decided 2026-08-03). Do not "fix"
+this by switching models for speed.
+
+What *is* the risk is that it is **one call whose failure costs the whole
+batch**, which is why it retries and why a failure leaves postings unscored
+rather than scored at zero.
+
+**The first real run did nothing, and the step-level dry run had not caught it.**
+`findJobs` fetched 457, stored 383, then reported `considered 0, scored 0` and
+finished in **three seconds** — indistinguishable from a healthy pipeline with
+nothing to say. `listUnscored` reads *through* `job_matches`, and the workflow
+never linked anything into it: `scoreSearch` carried a comment claiming it did
+and no call. The dry-run script had called `linkToSearch` by hand, so every piece
+worked and the assembly did not.
+
+`linkPendingToSearch` is the fix, called at the top of `scoreSearch`. Two things
+it must keep doing: link at **scoring** time rather than at ingest, so a search
+created today starts against everything already stored (the `/addfeed` backfill
+argument), and stay idempotent, so running it every cycle is one cheap insert
+that mostly does nothing. Verified on a copy: 0 unscored before, 383 linked, 240
+after the cap, 0 on a second call.
+
+**The CV prioritises the batch; it must never filter it — added 2026-08-03.**
+When 235 postings survive the filter and only 60 can be scored, the 60 used to be
+the *newest*. `rankByCvOverlap` orders them by how many of the reader's own
+technologies a posting names, taking recency as the tie-break. Measured against
+the live table with a real loose target: **mean CV overlap in the scored batch
+0.57 → 2.80, and 48 of the 60 slots changed hands.** What recency was spending
+them on: `Lead Product Designer (Crypto Exchange)`, `Country Director, India`,
+`Business Money Engineering` — all zero overlap.
+
+**Why prioritise rather than filter, and why the targeter still never sees the
+CV.** A posting that misses the cap is scored on a later run and costs days; a
+posting wrongly *filtered* is gone and the reader never learns it existed. So the
+CV is allowed to decide what gets looked at first and never what gets thrown
+away. The same asymmetry is why `/target` does not feed the CV to the parser:
+those fields are hard filters, and inferring `mustHave: [React]` from a CV would
+silently discard a Rust founding-engineer role the reader asked for. The one
+place the CV may shape a search is the **advisor**, which suggests a tighter
+`/target` line for the reader to paste — inference under their eye rather than
+under the filter.
+
+**Known caveat, and the reason to re-measure before trusting the order:**
+overlap is a raw count, so an agency listing that names twenty technologies
+scores high on it. Lemon.io's *Senior Graphic Designer* ranks sixth. Normalising
+by the posting's own tag count would penalise that and has **not** been measured.
+
+**A loose target is reported, not corrected.** `constraintCount` ignores `remote`
+(set on nearly every target, and only two of its values reject anything) and
+counts the six that actually filter. Under `jobCommands.minConstraints` the
+advisor fires — one extra call carrying the CV, only on the rare loose target,
+never blocking the save. Measured trigger: the real
+`/target founding engineer, worldwide` scored **0**.
+
+**Joob can refine a search, and deliberately cannot create or archive one.**
+`list-targets` and `update-target` write `job_searches` only — configuration a
+future run reads, which invariant 8 permits. This departs from the beat commands'
+"no model call at all" rule on purpose: `/target` already answers with a full
+summary, and the natural next sentence is *"actually, Paris only"*. Making the
+reader retype the whole search to change one field is what stops them correcting
+a bad parse — and a bad `mustHave` is the expensive kind. Two guards keep it
+safe: creation and archiving stay with the commands, and every write returns the
+whole row so the prompt can echo it in the same turn. Verified: a
+locations-only update left `remote` and `mustHave` untouched, an unknown slug was
+refused, and an archived search cannot be edited back to life.
+
+**The lesson is about the test, not the bug.** Verifying steps by calling their
+functions in the right order proves the functions; it cannot prove the workflow
+calls them. Anything only the assembled workflow does — the link, the gate, the
+state hand-off — has to be checked against a real run's `job_runs` row.
+
+Three more things were found by running that reading could not have caught:
+
+- **A workflow still cannot be driven from a plain script.** `run.start()` hung
+  for the full ten-minute timeout, exactly as the gotcha below says. Worse, the
+  script had imported `src/mastra/index.ts`, which constructs both agents' polling
+  adapters — so the orphaned process **kept polling both bots** until it was
+  killed by PID. Step-level scripts must import the agent module directly
+  (`agents/job-scorer.js`), never the Mastra instance.
+- **`generate()` throws on a schema mismatch rather than returning a null
+  `object`.** The writer's first live response came back truncated mid-string —
+  `{"summary":"…This role is fully` — and the `?? fallback` pattern used
+  everywhere else in this repo does **not** catch it. It would have taken down the
+  whole delivery step and lost every other posting in the batch.
+- **Mastra retries requests, not malformed answers.** `modelSettings.maxRetries`
+  covers a failed HTTP call and `structuredOutput.errorStrategy: 'fallback'`
+  substitutes a value *without asking again* — so neither re-prompts a model that
+  returned truncated JSON, which is the one thing worth doing about it, since the
+  truncation is stochastic. `withRetry` in `agents/job-scorer.ts` is the explicit
+  loop; `jobPipeline.modelAttempts` is 2. Proven by capping the writer at 40
+  output tokens: attempt 1 truncated, attempt 2 truncated, returned null and the
+  caller degraded to the scorer's own reason — and at the normal budget it
+  succeeded on the first attempt.
+- **`.default([])` on a schema field is the wrong answer to a truncated
+  response, and was tried first.** It does stop the throw, and that is the
+  problem: a reply that lost two thirds of its content silently becomes a valid
+  one and nothing reports it. A strict schema is what *tells you* to retry. (It
+  also makes zod's input type optional while the output type stays required, and
+  `response.object` is typed from the input side, so every caller ends up
+  normalizing fields the schema already promised.) Both job schemas are strict.
+
+**`findJobs`'s `stateSchema` gives every field a default, unlike `curateAll`'s.**
+That is what makes `initialState` optional on every entry point instead of only
+in Studio — the papercut documented against `curateAll` below.
+
+**The cadence is in the data, not the cron.** The schedule fires daily at
+`jobPipeline.runHour`; `ingest` compares `job_runs.startedAt` against
+`intervalHours` (44) and returns an empty list if it is too soon. `startedAt`
+rather than `finishedAt`, because a run that crashed halfway still spent the
+cycle's fetches and model calls. `{ force: true }` skips the gate for Studio and
+for a reader-triggered run.
+
+**Job ingest ships — measured against the live boards, 2026-08-03.** Four tables
+(`0015`): `job_sources`, `jobs`, `job_matches`, `job_deliveries`. Seeded with
+Remotive and Arbeitnow (`api`) and two We Work Remotely feeds (`rss`).
+`pnpm jobs:check` fetches all four for real and writes nothing.
+
+**Measured, 283 postings fetched → 263 distinct ids → 260 distinct identities.**
+The dedupe is doing real work, and the numbers say something the design did not
+predict:
+
+- **Every merge was *within* a source, not across them.** Remotive lists one role
+  once per region — `Staff Software Engineer, Product` at LawnStarter appeared
+  **six times** for Brazil/Uruguay/Mexico — and normalizing a remote posting's
+  location to `remote` collapses all six. WWR re-posts the same Coinbase and
+  Datadog roles two or three times. Cross-board merging is what the key was
+  designed for and is **not yet demonstrated**, because these three boards barely
+  overlap: Remotive is remote-global, Arbeitnow is German on-site, WWR is
+  remote-tech.
+- **260 identities under 263 ids** — three roles span two months, which is the
+  month key doing exactly what it is for.
+- **`undated` is zero.** All three sources ship a posting date, so the date-less
+  hole that `job_deliveries` exists to close **does not occur in the current
+  source set**. The ledger is still correct to have — the next source may not
+  ship dates, and pruning is what makes the hole — but today it is belt to a
+  brace that is already holding. Don't read the merge numbers as proof of it.
+
+**Field coverage:** Remotive dated 100% / located 100% / salary 77%; Arbeitnow
+dated 100% / located 95% / **salary 0%**; both described 100%.
+
+**Volume is not signal, and this is the coverage cost ADR-0024 recorded.** Of the
+283, Arbeitnow's 175 are German-market and mostly not technical — the first three
+are a private-banking adviser and two accountants. Remotive's free endpoint
+returns **31 postings in total** (`total-job-count: 31`), of which 10 are
+Software Development. WWR is the only one of the three whose whole output is
+remote tech. Expect the deterministic filters to discard most of this, and do not
+read a quiet week as a broken pipeline without checking `jobs:check` first.
+
+Four things about the adapters that were found by probing, not by reading docs:
+
+- **Remotive's `tags` are unusable as a filter.** One agency's graphic-design
+  posting carried 40 tags — `.Net`, `golang`, `php`, `rust`, `unity` — covering
+  every stack the agency has ever staffed. Tags are stored and never filtered on;
+  `mustHave` reads the title and description instead.
+- **Remotive's legal notice asks for attribution, a link back, and at most four
+  calls a day.** A two-day cadence with the source label under every posting
+  satisfies all three. Worth re-reading before adding a second Remotive endpoint.
+- **We Work Remotely puts the company in the *title*** — `Cloudflare: Principal
+  Partner Solutions Engineer` — and it appears nowhere else. Splitting on the
+  first colon is what recovers it.
+- **`<region>` is a custom field and must be declared**, exactly like
+  `content:encoded` on the news side. Without it every WWR posting is
+  location-less and rss-parser says nothing.
+
+**Sources re-cut and a deterministic tag filter added — measured 2026-08-03.**
+Nine sources now: Himalayas, Jobicy, Remote OK and Remotive (`api`), and five We
+Work Remotely feeds (`rss`). **Arbeitnow was dropped**, not left for the filters:
+175 postings, 62% of all volume, opening with a private-banking adviser and two
+accountants, and close to zero relevance. A source whose output is almost
+entirely noise still costs a fetch, a parse and a tagging pass every run.
+
+**Measured on live intake: 437 fetched → 377 after dedupe → 49 reach the model
+for a senior-frontend search. 87% of the scoring bill removed, with no model
+involved in removing it.** Rejections, largest first: 211 never mention the
+must-haves, 39 are manager roles, 28 mention a dealbreaker, 28 are not software.
+
+**Cross-board dedupe is now demonstrated**, which it was not on the first cut:
+`Product Engineer @ SuperPlane` arrived from both Remote OK and We Work Remotely
+and merged into one row. 47 ids were carried by more than one posting, against 11
+before.
+
+**Never filter on a source's own tags.** Measured on two boards independently:
+Remotive tagged a *graphic design* role `golang`, `php`, `rust`, `unity`; Remote
+OK tagged a construction **estimator** `golang`, `infosec`, `dev`, `engineer`,
+`technical`. Boards let employers tag freely and agencies tag exhaustively.
+`jobs.tags` keeps the source's as an audit trail and nothing reads it;
+`jobs.derivedTags` is what the filter uses, produced by `src/services/job-tags.ts`
+from a hand-curated vocabulary in `src/config/job-taxonomy.ts`.
+
+**Disciplines and seniority read the title; technologies read the body.** That
+split is the accuracy of the whole stage. A backend advert saying "you'll work
+alongside our React team" is not a frontend job, and matching disciplines
+body-wide tags it as one — turning a filter meant to *save* model calls into one
+that spends them on the wrong postings.
+
+Three things about it that are honest limitations rather than bugs:
+
+- **Agency listings defeat body-wide technology matching, and the obvious fix was
+  measured and rejected.** Lemon.io's *Senior Graphic Designer* survives a
+  `TypeScript or React` filter because the advert body lists every stack the
+  agency staffs — 20 `tech:` tags on one design role. It is correctly tagged
+  `discipline:design`, and the filter has no discipline rule to reject it with.
+  Adding a `disciplines` column to `job_searches` looked like the obvious next
+  improvement and **is not worth it**: run against the live 377, that rule drops
+  **exactly one posting of the 49** that reach the model, and nothing else.
+  `discipline:engineering` is a catch-all matching almost every tech title, so it
+  waves nearly everything through, and `mustHave` has already rejected 211
+  upstream. A column, a migration, a prompt change and a filter rule to save 2%
+  of one prompt. Don't re-propose it without re-measuring.
+- **26% of postings come back `flag:untagged`.** They are deliberately *kept* —
+  "we could not read this" and "this is not for you" must not be the same answer
+  — so they cost model calls unless a must-have rejects them anyway.
+- **The filter is a cost control, not a correctness gate.** Every ambiguity
+  resolves to keep, because a wrongly rejected posting is invisible and costs the
+  reader a job, while a wrongly kept one costs a fraction of a model call and is
+  caught by the score.
+
+**What the filter is actually for, since it is easy to mis-read:** scoring is
+**one batch call for the whole run**, not one call per posting. So 377 → 49 does
+not save 328 calls — it is what makes a single call *possible*. At 377 postings
+the prompt would run to roughly 450k characters before the CV is added, and would
+not fit. That is also why shaving the last posting off the batch is worthless,
+and why the next real saving would have to come from cutting a *source*, not from
+refining a rule.
+
+**`0015` was regenerated rather than amended with an ALTER.** It had not been
+applied anywhere — the live database is at `0013`, and `0014`/`0015` are both
+pending — so its file, its snapshot and its journal entry were removed and one
+clean migration generated in their place. That is only safe *because* nothing had
+run it; check `__drizzle_migrations` before doing it again.
+
+Verified: `pnpm typecheck` clean, `0015` applied to a populated copy of the live
+database with the five existing `telegram_topics` rows intact, 9 sources seeded
+and 0 on a second call, an insert deduping to 0 on re-insert, and `derivedTags`
+round-tripping through the JSON column.
+
+**The CV fetch ships — guards proven against a local server, 2026-08-03.**
+`src/services/portfolio.ts` is one function with every guard in it, and it
+throws a `PortfolioError` naming which one rejected the response rather than
+returning something partial. Nothing is cached and nothing is distilled; see the
+head of `src/config/portfolio.ts` for why both were considered and dropped.
+
+`PORTFOLIO_FEED_URL` and `PORTFOLIO_FEED_TOKEN` are unset, so this is inert.
+
+The guard that matters is **content-type, not body sniffing**. A Vercel
+deployment-protection wall answers `200` with `text/html`, which is
+indistinguishable from a CV to anything that only checks the status — and it
+would be scored as one. All seven paths were exercised against a throwaway HTTP
+server: valid markdown, an HTML wall at 200, a 401, a near-empty 200, a body over
+`maxChars`, a refused connection, and no URL configured. The bearer header was
+confirmed on the wire.
+
+**Over-long is truncated, not refused**, and the result carries a `truncated`
+flag. Refusing would mean no jobs at all from a document that is merely long,
+which is the worse failure of the two.
+
+**The target commands ship — dry-run against a copy, 2026-08-03.** `/target`
+takes free text and puts a model between the reader and the row, the shape
+`/follow` uses; `/targets` and `/untarget` are deterministic. All three answer in
+Joob's Chat, write `job_searches` and nothing else, and start no run.
+
+`job_searches` (`0014`) splits deliberately: everything above `notes` is a filter
+applied in SQL *before* any model sees a posting, because the ranker moves ±10
+points on identical input and a threshold cut at that noise level would drop good
+jobs at random. `notes` carries everything a filter can't express and reaches the
+scoring prompt as prose. `request` keeps what the reader typed verbatim, so a
+better parser can re-read it later.
+
+**The echo in the reply is a safety mechanism, not a courtesy.** A model wrote
+this configuration and these are hard filters — a wrong `mustHave` throws
+postings away before anything reads them and the reader never learns what they
+missed. Showing every field means a bad parse is visible, and `saveSearch`
+upserts on slug, so saying it again more precisely replaces the row.
+
+Dry-run on `/target senior frontend à Paris ou en remote en Europe, TypeScript et
+React, pas de SSII, minimum 75k euros` (4.2s, deepseek): slug
+`senior-frontend-paris-europe`, label kept in French, `Paris`/`Europe`, senior,
+TypeScript + React, 75000 EUR, and **contract correctly left empty** rather than
+guessed at. Every reply rendered as clean blocks with no run-on lines.
+
+**Two over-readings worth re-measuring before trusting the parser**, both
+surfaced by the echo doing its job:
+
+- `remote: preferred` for "Paris **or** remote". "Or" is acceptance of both, not
+  a preference, so `any` is the better answer — the prompt already says *do not
+  read a preference into silence* and it was read anyway. Harmless today, since
+  only `required` and `onsite` exclude anything.
+- `dealbreakers` gained `consulting`, which the reader did not say — it is an
+  expansion of `SSII`, and arguably necessary since that acronym appears in no
+  English posting. But dealbreakers are hard filters, and this is the model
+  adding a term.
+
+Neither was tuned: one observation is not evidence, and the ±10 discipline in
+this file applies to a parsing prompt as much as a ranking one. Re-run the same
+request three times before changing that prompt.
+
+**Joob exists and talks, and has no token yet — 2026-08-03.** `agents/joob.ts`,
+`joob-channels.ts`, `config/joob-topics.ts`, `services/joob-telegram.ts`, and a
+`JOOB_BOT` entry in the registry. Two tabs (`💬 Chat`, `💼 Jobs`), memory tools
+only, `AVA_MODEL_ORCHESTRATOR` shared with Newy per ADR-0022.
+
+`routeToChatTab` moved to `src/mastra/chat-surface.ts` and takes a `ChatSurface`
+— bot, transport, chat-tab slug — so both agents share one implementation.
+**`withQuotedMessage` did not move**: it resolves a swipe into a stored
+*article*, which Joob has none of, and the job-shaped version resolves a
+different table by a different key. Newy's commands stay in `channels.ts` and
+Joob's are in `joob-channels.ts`; a single registrar taking a bot would be one
+long conditional on which bot it was handed.
+
+**Joob's prompt says outright that the search is not running**, and so does its
+`/start`. A welcome describing the finished product would be the first thing the
+reader saw and the first thing to be wrong.
+
+Verified offline, nothing sent: profile within all three caps (7/64, 92/120,
+418/512), `/start` renders as **9 distinct blocks** through
+`formatConverter.toAst` with no run-on lines, and `pnpm telegram:check` reports
+`joob` as *not configured — JOOB_TELEGRAM_BOT_TOKEN is unset, skipped* while
+Newy still resolves all three tabs. That block check earned its keep immediately:
+it caught a `.toLowerCase()` on the command menu rendering `What I do` as
+`what i do`.
+
+**To provision it:** a second @BotFather bot, its own Threaded Mode toggle, and
+the three `JOOB_TELEGRAM_*` variables. `JOOB_TELEGRAM_CHAT_ID` takes the **same
+value** as Newy's — see the private-chat gotcha above.
+
+**Two corrections landed on the way, both found by questioning the design rather
+than by running anything.** Recorded because the wrong versions were written
+down first and are the more plausible-looking of the two:
+
+- **`telegram_topics` gained `bot_id` (`0013`).** The key was `(chatId, slug)`,
+  which separates two supergroups and separates nothing on a private chat. See
+  the gotcha above for the destructive failure that would have followed.
+  Generated migration hand-edited: drizzle emitted
+  `SELECT "bot_id" … FROM telegram_topics`, selecting the new column from the old
+  table. Applied to a populated copy before being trusted — 5 rows in, 5 out, all
+  backfilled `newy`, thread ids preserved.
+- **Newy's env vars gained the `NEWY_` prefix.** Left bare at first on the
+  argument that renaming costs an edit per deployment; there is one deployment
+  and `docker-compose.yml` uses `env_file`, so the real cost was two files.
+
+Three things in ADR-0024 are worth knowing before reading its schema, because
+each is a place where copying the news pipeline produces a bug rather than a
+feature:
+
+- **A job's id carries `YYYY-MM`**, from the posting's own date. That is what
+  makes a repost months later a new job instead of a silent collision.
+- **`job_deliveries` is permanent and is what actually prevents a re-send.** The
+  ingest-window-below-retention rule does *not* hold here: a source shipping no
+  posting date makes age fall back to first-seen, so a pruned job re-crawled the
+  next day reads as zero days old, takes a fresh month key, and re-delivers. No
+  tuning of the two windows prevents it. `redeliveryGuardDays` must exceed
+  `retentionDays` — 75 against 60.
+- **The schedule is daily and the step gates on elapsed time.** `0 8 */2 * *`
+  fires on the 1st, 3rd … 31st and then the 1st, so seven month boundaries a year
+  give consecutive runs — and a missed schedule firing on boot already put two
+  runs in flight at once here once before.
+
+`pnpm portfolio:check` does not exist yet and should land with step 3: the CV is
+fetched from `PORTFOLIO_FEED_URL` per run with no cache and no distillation, so
+a wrong endpoint or an empty deploy is the kind of failure that produces baffling
+matches rather than an error.
 
 **The container provisions the bot, and `docker compose --build` works for the
 first time — 2026-07-30.** Two separate things, found together because verifying

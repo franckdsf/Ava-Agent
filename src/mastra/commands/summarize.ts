@@ -1,6 +1,7 @@
 import type { Mastra } from '@mastra/core'
 import { summary } from '../../config/summary.js'
-import { escapeMarkdown, sendToTelegram } from '../../services/telegram.js'
+import { escapeMarkdown } from '../../services/telegram.js'
+import { newyTelegram } from '../../services/newy-telegram.js'
 import { summarizeArticle } from '../agents/summarizer.js'
 import {
   articleHeading,
@@ -59,27 +60,27 @@ export function isSummaryCommand(command: string): command is typeof summary.com
 export async function runSummary(mastra: Mastra, event: SlashCommandEvent): Promise<void> {
   const requested = event.text.trim()
   if (requested && !summary.languageArgument.test(requested)) {
-    await sendToTelegram(notALanguage(requested), SUMMARY_TAB)
+    await newyTelegram.sendToTelegram(notALanguage(requested), SUMMARY_TAB)
     return
   }
 
   const source = await quotedArticleSource(event.raw, summary.maxSourceChars)
   if (!source) {
-    await sendToTelegram(nothingToSummarize(), SUMMARY_TAB)
+    await newyTelegram.sendToTelegram(nothingToSummarize(), SUMMARY_TAB)
     return
   }
 
-  await sendToTelegram(starting(source, requested), SUMMARY_TAB)
+  await newyTelegram.sendToTelegram(starting(source, requested), SUMMARY_TAB)
 
   try {
     const result = await summarizeArticle(mastra, {
       text: source.text,
       language: requested || summary.defaultLanguage,
     })
-    await sendToTelegram(renderSummary(source, result.paragraphs, result.language), SUMMARY_TAB)
+    await newyTelegram.sendToTelegram(renderSummary(source, result.paragraphs, result.language), SUMMARY_TAB)
   } catch (error) {
     mastra.getLogger()?.error('Summary failed', { language: requested || null, error })
-    await sendToTelegram(failed(), SUMMARY_TAB)
+    await newyTelegram.sendToTelegram(failed(), SUMMARY_TAB)
   }
 }
 

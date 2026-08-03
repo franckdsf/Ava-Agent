@@ -1,21 +1,18 @@
 import type { Mastra } from '@mastra/core'
 import type { AgentChannels, ChannelHandler } from '@mastra/core/channels'
 import { BEAT_COMMANDS } from '../config/beat-commands.js'
-import { env, telegramChatId } from '../config/env.js'
+import { NEWY_BOT } from '../config/bots.js'
+import { env } from '../config/env.js'
 import { activeBeats } from '../db/beats.js'
+import { NEWY_TOPICS, type NewyTopicSlug } from '../config/newy-topics.js'
+import type { ChatSurface } from './chat-surface.js'
 import { pipeline } from '../config/pipeline.js'
 import { summary } from '../config/summary.js'
-import { TOPICS } from '../config/topics.js'
 import { TRANSLATIONS } from '../config/translation.js'
 import type { Article } from '../db/types.js'
 import { quotedSource } from '../services/quoted-article.js'
-import {
-  chatIdFromThreadId,
-  ensureTopics,
-  escapeMarkdown,
-  sendToTelegram,
-  topicThreadId,
-} from '../services/telegram.js'
+import { newyTelegram } from '../services/newy-telegram.js'
+import { escapeMarkdown } from '../services/telegram.js'
 import type { QuotedMessage } from '../services/telegram-reply.js'
 import { publishCommands, publishProfile } from '../services/telegram-topics.js'
 import { isBeatCommand, runBeatCommand } from './commands/beats.js'
@@ -45,31 +42,16 @@ import { isTranslationCommand, runTranslation } from './commands/translate.js'
  */
 
 /**
- * Sends every inbound message to the Chat tab, wherever it was typed.
+ * Newy's Telegram surface, for the routing shared with every other agent.
  *
- * Swapping the thread rather than refusing to answer elsewhere keeps one
- * conversation: the Mastra thread is keyed on the thread id we pass, so memory
- * stays on the Chat tab instead of forking per tab the reader wanders into.
- *
- * Degrades to the default handler — answer in place — for anything it can't
- * redirect: another chat, an unconfigured chat id, or topics unavailable (the
- * Chat tab resolves to the flat chat, which is where the message already is).
+ * The routing itself moved to `chat-surface.ts` when Joob needed the identical
+ * behaviour in its own chat; what stays here is everything specific to Newy —
+ * the article swipe, her commands, and her `/start`.
  */
-export function routeToChatTab(
-  channels: () => AgentChannels | null | undefined,
-): ChannelHandler {
-  return async (thread, message, defaultHandler) => {
-    const target = await chatTabFor(thread.id)
-    if (!target || target === thread.id) return defaultHandler(thread, message)
-
-    const sdk = channels()?.sdk
-    if (!sdk) return defaultHandler(thread, message)
-
-    // `sdk.thread()` is the documented way to get a Thread outside an inbound
-    // event. It rebuilds everything the default handler reads off it — DM flag,
-    // channel id, state — from the id alone.
-    return defaultHandler(sdk.thread(target), message)
-  }
+export const NEWY_SURFACE: ChatSurface<NewyTopicSlug> = {
+  bot: NEWY_BOT,
+  transport: newyTelegram,
+  chatTab: 'chat',
 }
 
 /** The message type a channel handler is handed, without importing the Chat SDK. */
@@ -182,13 +164,6 @@ function noteBlocks(lines: NoteLine[]): InboundMessage['formatted']['children'] 
   return blocks
 }
 
-/** The Chat tab's thread id, or undefined when this thread isn't ours to move. */
-async function chatTabFor(threadId: string): Promise<string | undefined> {
-  const chatId = telegramChatId()
-  if (!chatId || chatIdFromThreadId(threadId) !== chatId) return undefined
-  return topicThreadId('chat')
-}
-
 /**
  * Registers the slash commands, once the Chat SDK instance exists.
  *
@@ -215,7 +190,7 @@ export async function registerChatCommands(
   // invisible to the reader, which is the bug this whole handler exists to fix.
   // Every branch below therefore ends in a message, including the failures.
   sdk.onSlashCommand(async event => {
-    await ensureTopics()
+    await newyTelegram.ensureTopics()
 
     if (isTranslationCommand(event.command)) {
       // Answers in the Translations tab, wherever it was typed — a translated
@@ -243,7 +218,7 @@ export async function registerChatCommands(
       return
     }
 
-    await sendToTelegram(
+    await newyTelegram.sendToTelegram(
       event.command === '/start' ? await welcome() : unknown(event.command),
       'chat',
     )
@@ -252,7 +227,7 @@ export async function registerChatCommands(
   // The menu Telegram offers when the reader types `/`. Fire-and-forget and
   // deliberately after the handler is registered: a failure here costs the menu,
   // never the commands themselves, and a command that is typed still runs.
-  void publishCommands(commandMenu()).catch(error => {
+  void publishCommands(NEWY_BOT, commandMenu()).catch(error => {
     mastra.getLogger()?.error('Failed to publish the Telegram command menu', error)
   })
 
@@ -261,7 +236,7 @@ export async function registerChatCommands(
   // same reason for being here at all: a container brought up against a fresh
   // token should provision itself, leaving BotFather's Threaded Mode as the only
   // manual step. Unlike the menu this diffs first, so it is normally silent.
-  void publishProfile()
+  void publishProfile(NEWY_BOT)
     .then(changed => {
       if (changed.length > 0) {
         mastra.getLogger()?.info(
@@ -348,12 +323,12 @@ export async function welcome(): Promise<string> {
 
   return [
     `## Hi, I'm Newy 😊`,
-    `I'm here to help you keep up with the topics you care about. Use the ${TOPICS.chat.title} tab to talk with me directly — every other tab is one I push to and don't answer in, so what you're reading stays tidy.`,
+    `I'm here to help you keep up with the topics you care about. Use the ${NEWY_TOPICS.chat.title} tab to talk with me directly — every other tab is one I push to and don't answer in, so what you're reading stays tidy.`,
     `What I do:`,
-    `- **${TOPICS.chat.title}** — chat with me about anything, ask for details, or follow up on an article 📰.\n` +
+    `- **${NEWY_TOPICS.chat.title}** — chat with me about anything, ask for details, or follow up on an article 📰.\n` +
     `- I keep our conversation in one place so your context stays intact.`,
     `- **One tab per beat** — each subject you follow gets its own 📅, and its digests go there and nowhere else.`,
-    `- **${TOPICS.translations.title}** — where ${Object.keys(TRANSLATIONS).join(' and ')} put an article once you've asked for it 📜.`,
+    `- **${NEWY_TOPICS.translations.title}** — where ${Object.keys(TRANSLATIONS).join(' and ')} put an article once you've asked for it 📜.`,
     `Beats:`,
     beats,
     `A beat's tab appears the first time it has something to send you, so a brand new one is quiet until then. \`/pause\` closes a tab without deleting anything in it, and \`/resume\` opens it again.`,
@@ -362,8 +337,8 @@ export async function welcome(): Promise<string> {
     commandList(),
     `The reading commands work on a swipe: reply to any article and send \`${summary.command}\`, \`/why\` or a translation on its own. The beat commands don't need one — they take a slug, and \`/beats\` lists them.`,
     `\`/why\` is the one worth knowing about: every beat scores every article it sees and writes down what it made of it, so you can swipe something and ask why it arrived — or swipe one I skipped and see what it scored.`,
-    `${Object.keys(TRANSLATIONS).map(command => `\`${command}\``).join(' and ')} answer in your own language, with the English kept in view, in the ${TOPICS.translations.title} tab — a long article arrives as several messages over a few minutes.`,
-    `\`${summary.command}\` answers here in ${TOPICS.chat.title}, as one message: the article explained properly rather than compressed. It writes in ${summary.defaultLanguage} unless you name a language after it — \`${summary.command} fr\`, \`${summary.command} ru\`, or the language's own name.`,
+    `${Object.keys(TRANSLATIONS).map(command => `\`${command}\``).join(' and ')} answer in your own language, with the English kept in view, in the ${NEWY_TOPICS.translations.title} tab — a long article arrives as several messages over a few minutes.`,
+    `\`${summary.command}\` answers here in ${NEWY_TOPICS.chat.title}, as one message: the article explained properly rather than compressed. It writes in ${summary.defaultLanguage} unless you name a language after it — \`${summary.command} fr\`, \`${summary.command} ru\`, or the language's own name.`,
     `If you want something specific, just ask — search the archive, show me a recent article, or tell me what interests you 😉.`,
   ].join('\n\n')
 }

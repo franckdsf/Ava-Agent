@@ -21,7 +21,8 @@ import type { Article, ArticleRanking, BeatLink, DiscoveredArticle, PendingArtic
 import { articleBody, fetchOgImage, looksLikeSiteChrome } from '../../services/article.js'
 import { clusterItems, dedupeByCluster } from '../../services/cluster.js'
 import { dedupeFeeds, fetchFeeds } from '../../services/rss.js'
-import { escapeMarkdown, sendArticle } from '../../services/telegram.js'
+import { escapeMarkdown } from '../../services/telegram.js'
+import { newyTelegram } from '../../services/newy-telegram.js'
 import { articleWriterId, rankerId } from '../agents/curator.js'
 
 /**
@@ -551,7 +552,7 @@ const deliverBeat = createStep({
         // Into this beat's own tab. `beat` is the whole row, which is what the
         // transport needs to create the tab the first time this beat wins
         // anything ([ADR-0021](../../../docs/decisions/0021-a-tab-per-beat.md)).
-        await sendArticle(message.text, message.imageUrl, beat)
+        await newyTelegram.sendArticle(message.text, message.imageUrl, beat)
         await markDelivered([message.articleId], beat.slug, 'digest')
         sent += 1
       } catch (err) {

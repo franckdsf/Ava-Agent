@@ -12,7 +12,8 @@ import {
 } from '../../db/beats.js'
 import { sourceLabel } from '../../services/feed-check.js'
 import { discoverFeeds, type SiteDiscovery } from '../../services/feed-discovery.js'
-import { escapeMarkdown, sendToTelegram } from '../../services/telegram.js'
+import { escapeMarkdown } from '../../services/telegram.js'
+import { newyTelegram } from '../../services/newy-telegram.js'
 import { proposeSites } from '../agents/scout.js'
 
 /**
@@ -242,7 +243,7 @@ const report = createStep({
   outputSchema: attached.extend({ reported: z.boolean() }),
   execute: async ({ inputData, mastra }) => {
     try {
-      await sendToTelegram(await renderReport(inputData), 'chat')
+      await newyTelegram.sendToTelegram(await renderReport(inputData), 'chat')
       return { ...inputData, reported: true }
     } catch (error) {
       // The feeds are attached either way. A failed send must not fail the run

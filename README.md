@@ -172,7 +172,8 @@ it the tabs degrade to one flat stream:
 @BotFather → /mybots → <your bot> → Bot Settings → Threads Settings → Threaded Mode
 ```
 
-`pnpm telegram:check` reports whether it is on, which tabs exist, and any profile
+`pnpm telegram:check` reports, for every configured bot, whether it is on, which
+tabs exist, and any profile
 field the next boot would push. It is read-only — safe against a running bot.
 
 To run stateless instead, point `AVA_DATA_DB_URL` at a Turso database and drop

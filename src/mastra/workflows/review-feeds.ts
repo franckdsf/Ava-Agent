@@ -20,7 +20,8 @@ import {
   type Beat,
   type RetriableFeed,
 } from '../../db/beats.js'
-import { escapeMarkdown, sendToTelegram } from '../../services/telegram.js'
+import { escapeMarkdown } from '../../services/telegram.js'
+import { newyTelegram } from '../../services/newy-telegram.js'
 
 /**
  * The weekly feed review — drop what earns nothing, re-test it a month later,
@@ -305,7 +306,7 @@ const report = createStep({
     if (quiet) return { ...inputData, reported: false }
 
     try {
-      await sendToTelegram(renderFeedReview(inputData), 'chat')
+      await newyTelegram.sendToTelegram(renderFeedReview(inputData), 'chat')
       return { ...inputData, reported: true }
     } catch (error) {
       mastra.getLogger()?.error('Could not report the feed review', error)

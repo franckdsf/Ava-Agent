@@ -15,6 +15,8 @@
     "dev": "mastra dev",
     "discovery:check": "tsx --env-file=.env scripts/check-discovery.ts",
     "feeds:check": "tsx --env-file=.env scripts/check-feeds.ts",
+    "jobs:check": "tsx --env-file=.env scripts/check-job-sources.ts",
+    "portfolio:check": "tsx --env-file=.env scripts/check-portfolio.ts",
     "review:check": "tsx --env-file=.env scripts/check-feed-review.ts",
     "start": "node .mastra/output/index.mjs",
     "telegram:check": "tsx --env-file=.env scripts/check-telegram.ts",

@@ -1,14 +1,20 @@
 import { Mastra } from '@mastra/core'
 import { seedBeats } from '../db/beats.js'
+import { seedJobSources } from '../db/jobs.js'
 import { newy, newyId } from './agents/newy.js'
+import { joob, joobId } from './agents/joob.js'
 import { curatorAgents } from './agents/curator.js'
 import { memoryReviewer, memoryReviewerId } from './agents/memory.js'
+import { jobAgents } from './agents/job-scorer.js'
+import { jobTargeterAgents } from './agents/job-targeter.js'
 import { scoutAgents } from './agents/scout.js'
 import { summarizer, summarizerId } from './agents/summarizer.js'
 import { translator, translatorId } from './agents/translator.js'
 import { registerChatCommands } from './channels.js'
+import { registerJoobCommands } from './joob-channels.js'
 import { storage } from './storage.js'
 import { curateAll } from './workflows/curate-all.js'
+import { findJobs } from './workflows/find-jobs.js'
 import { discoverFeedsWorkflow } from './workflows/discover-feeds.js'
 import { pruneArticles } from './workflows/prune-articles.js'
 import { reviewFeedsWorkflow } from './workflows/review-feeds.js'
@@ -32,7 +38,10 @@ export const mastra = new Mastra({
   agents: {
     ...curatorAgents,
     ...scoutAgents,
+    ...jobTargeterAgents,
+    ...jobAgents,
     [newyId]: newy,
+    [joobId]: joob,
     [memoryReviewerId]: memoryReviewer,
     [translatorId]: translator,
     [summarizerId]: summarizer,
@@ -43,6 +52,7 @@ export const mastra = new Mastra({
   // amended [invariant 8](../../AGENTS.md#invariants).
   workflows: {
     curateAll,
+    findJobs,
     discoverFeeds: discoverFeedsWorkflow,
     pruneArticles,
     reviewFeeds: reviewFeedsWorkflow,
@@ -68,6 +78,17 @@ void seedBeats()
     mastra.getLogger()?.error('Failed to seed starter beats', error)
   })
 
+// Same disposition, for Joob's boards. Also a no-op after the first boot: the
+// table is the authority once it holds anything, so editing
+// `src/config/seed-job-sources.ts` does not reach a source that already exists.
+void seedJobSources()
+  .then(created => {
+    if (created > 0) mastra.getLogger()?.info(`Seeded ${created} job sources`)
+  })
+  .catch(error => {
+    mastra.getLogger()?.error('Failed to seed job sources', error)
+  })
+
 // Slash commands can only be registered on the live Chat SDK instance, which
 // exists only once `AgentChannels.initialize()` has resolved. Registering the
 // agent above already started that, so this awaits it rather than racing it.
@@ -75,4 +96,12 @@ void seedBeats()
 // fails to come up must not take the scheduled pipeline down with it.
 void registerChatCommands(mastra, newy.getChannels()).catch(error => {
   mastra.getLogger()?.error('Failed to register Telegram commands', error)
+})
+
+// Joob's, against its own token. `getChannels()` is null while
+// `JOOB_TELEGRAM_BOT_TOKEN` is unset and the registrar returns immediately, so
+// this costs nothing until the bot is provisioned. Independent of Newy's on
+// purpose: one bot failing to come up must not take the other's surface with it.
+void registerJoobCommands(mastra, joob.getChannels()).catch(error => {
+  mastra.getLogger()?.error("Failed to register Joob's Telegram commands", error)
 })
