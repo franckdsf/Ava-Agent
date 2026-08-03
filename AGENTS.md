@@ -788,19 +788,6 @@ stale) and the boundary, which is inclusive: at exactly the bar it fires. Live,
 against the real database: news 6.1h stale against 168h, jobs 7.6h against 72h,
 both correctly left alone. `pnpm typecheck` clean.
 
-**Not yet exercised: the fire itself.** No boot has been observed *starting* a
-run — the decision path is measured, the `mastra.schedules.run()` half is not, and
-its failure mode is silent (an event published before the orchestration worker
-subscribes is dropped, and the trigger row still says `published`). The waiting
-loop that prevents it is the one thing here that needs a real boot to prove.
-The safe way to test it, since it must not deliver real messages twice: point
-`AVA_DATA_DB_URL` at a *copy* of the database with `feed_state.last_fetched_at`
-backdated ten days **and every beat archived**, so `curateAll` fires, finds no
-active beats, and finishes in a second having called no model and sent nothing.
-The proof is a run row and a `mastra_schedule_triggers` row appearing for
-`wf_curate-all__digest-*`. Requires the live bot to be stopped first — two
-adapters on one token consume each other's updates (invariant 7).
-
 **Step 1 of Joob has landed: the surface is per-bot — 2026-08-03.** Nothing
 job-related is in the tree yet; this is the refactor that makes a second bot
 possible, with Newy unchanged from the reader's side.
