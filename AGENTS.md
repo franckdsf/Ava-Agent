@@ -1120,8 +1120,10 @@ les aviez foncés."*
 environment first — that is deliberate and worth copying, since importing the
 agent with a token present constructs a *second* polling adapter and it would
 eat the live bot's updates (invariant 7). What a `remember` card looks like in
-Telegram with `toolDisplay: 'cards'` has therefore never been observed, and four
-memory cards on a first message may well be too much chatter.
+Telegram with `toolDisplay: 'cards'` was therefore never observed, and four
+memory cards on a first message may well have been too much chatter — moot since
+2026-08-03, when `toolDisplay` went to `'hidden'`. The calls still happen and
+still write; only the cards are gone.
 
 **The weekly review closes that loop — verified 2026-07-28.** `review-memories`
 (`src/mastra/workflows/review-memories.ts`) is the eighth schedule: Monday 05:00,
@@ -1164,8 +1166,10 @@ Two independent causes, both since fixed and verified:
 - **Nothing streamed.** ~25s of silence with a typing indicator that expires
   after 5. `streaming: true` on the adapter entry, plus `toolDisplay: 'cards'`
   kept on deliberately — seeing `searchNews` return `{"articles": []}` in the
-  chat is how the search bug was noticed at all. Turn it to `'hidden'` when it
-  stops earning the noise.
+  chat is how the search bug was noticed at all. **Turned to `'hidden'`
+  2026-08-03**, the tools having settled: it hides the display, not the call, so
+  turning it back to `'cards'` for a session is the way to debug a reply that
+  looks like it used the wrong tool.
 
 **Verified end to end for search, offline only for streaming.** The FTS5 work was
 checked against the live database and through a real agent turn. `streaming:

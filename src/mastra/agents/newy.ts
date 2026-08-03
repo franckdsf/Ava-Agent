@@ -103,13 +103,18 @@ export const newy = new Agent({
              */
             streaming: true,
             /**
-             * Tool calls render as cards — the default, kept deliberately
-             * while the conversational surface is still being calibrated:
-             * seeing `searchNews` return `{"articles": []}` in the chat is
-             * how the search bug was spotted at all. Switch to `'hidden'`
-             * once it stops earning its noise.
+             * Tool calls stay out of the chat. `'cards'` is the default and
+             * was kept deliberately while the conversational surface was being
+             * calibrated — seeing `searchNews` return `{"articles": []}` in the
+             * chat is how the search bug was spotted at all — but that was a
+             * debugging affordance shown to a reader, and it stopped earning
+             * its noise once the tools settled.
+             *
+             * It hides the display, not the call: the model still searches and
+             * reads, and its answer is unchanged. Turn it back to `'cards'` for
+             * a session when a reply looks like it answered from the wrong tool.
              */
-            toolDisplay: 'cards',
+            toolDisplay: 'hidden',
           },
         },
         // Every inbound path answers in the Chat tab, never where it was
