@@ -108,6 +108,7 @@ pnpm feeds:check
 | `pnpm dev` | Mastra Studio — run agents and workflows, read traces |
 | `pnpm build` | Bundle to `.mastra/output` |
 | `pnpm feeds:check` | Confirm every subscribed feed is reachable and parses |
+| `pnpm catchup:check` | Show what a boot would do about a pipeline that has gone quiet |
 | `pnpm db:generate` | Emit a migration after editing `src/db/schema.ts` |
 | `pnpm db:studio` | Browse the database |
 | `pnpm typecheck` | `tsc --noEmit` |
@@ -120,6 +121,30 @@ docker compose up -d --build
 
 State lives in the `ava-data` volume, so back it up — it holds your dedupe
 history and the feedback that trains the rankers.
+
+### Coming back after a long absence
+
+Schedules survive a restart, which means a machine that was off for a fortnight
+comes back and simply waits for the next digest hour. So a boot **checks how long
+each pipeline has been quiet** and fires the ones that have stopped, unless their
+next scheduled fire is within half an hour:
+
+| Pipeline | Normal cadence | Fires on boot after |
+| --- | --- | --- |
+| News (`curate-all`) | three digests a day | **7 days** without an ingest |
+| Jobs (`find-jobs`) | a run every two days | **3 days** without a run |
+
+Two bars rather than one, because a week of silence is twenty missed digests but
+only three missed job runs. Three days for jobs rather than two so the bar sits
+just above what a *healthy* jobs pipeline can drift to on its own (~68h), which is
+what keeps an ordinary restart from costing a scoring run. The cadence itself is
+untouched either way — the 08:00 digest still happens.
+
+Both numbers are in [`src/config/catchup.ts`](src/config/catchup.ts), the
+reasoning is in [ADR-0025](docs/decisions/0025-a-boot-catch-up-for-a-stale-pipeline.md),
+and `pnpm catchup:check` prints what a boot right now would decide. The one thing
+worth knowing: restarting the container while a pipeline is past its bar now costs
+a real run, models included.
 
 ### Moving an existing database into the volume
 

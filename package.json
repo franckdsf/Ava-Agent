@@ -10,6 +10,7 @@
   "packageManager": "pnpm@11.0.3",
   "scripts": {
     "build": "mastra build",
+    "catchup:check": "tsx --env-file=.env scripts/check-catchup.ts",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "dev": "mastra dev",

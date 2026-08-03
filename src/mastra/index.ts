@@ -10,6 +10,7 @@ import { jobTargeterAgents } from './agents/job-targeter.js'
 import { scoutAgents } from './agents/scout.js'
 import { summarizer, summarizerId } from './agents/summarizer.js'
 import { translator, translatorId } from './agents/translator.js'
+import { catchUpOnBoot } from './boot-catchup.js'
 import { registerChatCommands } from './channels.js'
 import { registerJoobCommands } from './joob-channels.js'
 import { storage } from './storage.js'
@@ -104,4 +105,20 @@ void registerChatCommands(mastra, newy.getChannels()).catch(error => {
 // purpose: one bot failing to come up must not take the other's surface with it.
 void registerJoobCommands(mastra, joob.getChannels()).catch(error => {
   mastra.getLogger()?.error("Failed to register Joob's Telegram commands", error)
+})
+
+// Fires whichever pipeline is past its own staleness bar — a week for news,
+// three days for jobs — unless its next scheduled fire is minutes away. The two
+// numbers differ because the cadences do: three digests a day against a run
+// every two. Schedules survive a restart, which means
+// nothing else in the process ever reads the gap a downtime leaves: the machine
+// comes back knowing only when the next digest is due
+// ([ADR-0025](../../docs/decisions/0025-a-boot-catch-up-for-a-stale-pipeline.md)).
+//
+// Fire-and-forget for the same reason as everything above it, and it waits
+// internally for the orchestration worker — this module is evaluated before the
+// server starts one, and a `workflow.start` published into a pubsub nobody has
+// subscribed to yet is dropped without a word.
+void catchUpOnBoot(mastra).catch(error => {
+  mastra.getLogger()?.error('Boot catch-up failed', error)
 })

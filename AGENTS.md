@@ -76,6 +76,7 @@ The full list is in the [README](README.md#commands). These three carry obligati
 | `pnpm review:check` | **Required** after touching `verdictForBeat` or `src/config/feed-review.ts`. It is the only exercise the weekly feed review gets: a guard with no case here is a guard that silently stops applying, and the failure is a beat quietly losing good sources. Also prints what a run *today* would do to the live beats. |
 | `pnpm jobs:check` | Run after touching a job source, an adapter, or `job-identity.ts`. Fetches every seeded board for real, prints per-source field coverage, and runs the identity function over everything so the cross-board dedupe is a measured number rather than an assumption. Writes nothing, calls no model. |
 | `pnpm portfolio:check` | Run before believing anything about job scoring, and after any change to the portfolio endpoint. It is the one input to that scoring living outside this repo, and a wrong endpoint **never errors** — a protection wall answers 200 with an HTML login page, an empty deploy answers 200 with nothing. Prints the size, the estimated per-run token cost, the headings and the first lines. Read-only. |
+| `pnpm catchup:check` | **Required** after touching `decideCatchup`, `src/config/catchup.ts`, `pipeline.digestHours` or `jobPipeline.intervalHours` — the last two because the staleness bars are set against those cadences and nothing enforces the relationship. The boot catch-up runs once, unattended, on a path that is invisible when it decides right and expensive when it decides wrong. Every guard needs a case here. Also prints what a boot *right now* would do to both live pipelines. Read-only; fires nothing. |
 | `pnpm telegram:check [bot]` | Run before debugging a missing tab. Reports whether BotFather's Threaded Mode is on — the one prerequisite no code can set — plus any profile field the next boot would push. Read-only, safe against a running bot. Covers **every** bot with no argument, because Threaded Mode is per token and a check that silently skipped one would be worse than none; name a bot (`newy`) to narrow it. |
 
 ## Invariants
@@ -532,6 +533,29 @@ doesn't wrap without adding a second Telegram library.
   test the *workflow* from Studio. `mastra.listWorkflows()` and
   `workflow.getScheduleConfigs()` do work in a script, which is enough to prove
   registration and fire times.
+- **A schedule row is keyed by the workflow's own id, not the key it is
+  registered under — and it can be read from a script.** `curateAll` is
+  registered in `index.ts` under `curateAll` and declares
+  `createWorkflow({ id: 'curate-all' })`; the persisted rows are
+  `wf_curate-all__digest-0800` and friends, whose `target.workflowId` is
+  `curate-all`. Every lookup — `mastra.schedules.list({ workflowId })`,
+  `mastra.schedules.run(id)` — takes the kebab-case one, and the registry key
+  silently matches nothing: no error, an empty list, and a caller that concludes
+  there are no schedules. Read `workflow.id` rather than spelling either by hand.
+  Unlike *running* a workflow, *reading* the rows needs no server —
+  `storage.getStore('schedules')` then `listSchedules({ workflowId })` works in a
+  plain script, which is how `pnpm catchup:check` reports real fire times without
+  booting the bots. Verified 2026-08-04 against a copy of the live database.
+- **Firing a schedule publishes an event; a *different* worker runs it.** The
+  scheduler's tick only claims a due row and publishes `workflow.start` — the
+  orchestration worker consumes it. Both are started by the server's
+  `startWorkers()`, which happens *after* `src/mastra/index.ts` is evaluated, so
+  anything firing a run at module load must wait for
+  `mastra.getWorker('orchestration')?.isRunning`. Publishing into a pubsub nobody
+  has subscribed to yet is dropped with no error, and the trigger row still says
+  `published` — a silent failure that looks exactly like success. `catchUpOnBoot`
+  waits for that worker for this reason
+  ([ADR-0025](docs/decisions/0025-a-boot-catch-up-for-a-stale-pipeline.md)).
 - **Clustering is empirically tuned.** Before changing
   `clusterSimilarityThreshold` or the token filter, re-run ingest and inspect the
   actual merges. ([0007](docs/decisions/0007-lexical-clustering-instead-of-embeddings.md))
@@ -731,7 +755,51 @@ doesn't wrap without adding a second Telegram library.
 
 ## Where work stopped
 
-*Last updated: 2026-08-03.*
+*Last updated: 2026-08-04.*
+
+**A boot now catches up a pipeline that has gone quiet — 2026-08-04.**
+`src/mastra/boot-catchup.ts`, `src/config/catchup.ts`, `pnpm catchup:check`, and
+[ADR-0025](docs/decisions/0025-a-boot-catch-up-for-a-stale-pipeline.md). Past its
+bar, a pipeline's soonest schedule is fired through `mastra.schedules.run()` —
+unless that fire is under thirty minutes away, or the schedule is paused.
+
+**The bar is per pipeline and the two numbers are not interchangeable:** seven
+days for news (three digests a day, so twenty missed fires) and **three** for jobs
+(a daily fire gated to every other one, so seven days would be three missed
+cycles). One bar for both was the first draft and inverted the intent — it made
+the slower pipeline, whose silence is hardest to notice, wait the longest for
+help.
+
+**The jobs bar is arithmetic against `jobPipeline.intervalHours`, not a
+preference.** A 44h gate against a daily fire runs every *other* fire: 48h apart
+on the usual rhythm, and up to `intervalHours + 24` = **68h** after a run that
+started off the 08:00 rhythm — which is exactly what a catch-up run produces, so
+the pipeline puts itself there. Two days (48h) falls *inside* that, which made an
+ordinary restart cost a scoring call; 72h clears the ceiling by four hours. Raise
+`intervalHours` past 48 and the ceiling climbs back through 72 with no error
+anywhere — `pnpm catchup:check` carries the case that goes red, verified by
+raising the gate to 50 and watching it fail.
+
+`decideCatchup` is pure, takes `staleAfterDays` as an argument so both bars go
+through one function, and has sixteen cases over it, all passing — including the
+two that cost money when wrong (an overdue schedule the tick has not claimed yet
+reads as imminent and is left alone; a paused schedule stays paused at 30 days
+stale) and the boundary, which is inclusive: at exactly the bar it fires. Live,
+against the real database: news 6.1h stale against 168h, jobs 7.6h against 72h,
+both correctly left alone. `pnpm typecheck` clean.
+
+**Not yet exercised: the fire itself.** No boot has been observed *starting* a
+run — the decision path is measured, the `mastra.schedules.run()` half is not, and
+its failure mode is silent (an event published before the orchestration worker
+subscribes is dropped, and the trigger row still says `published`). The waiting
+loop that prevents it is the one thing here that needs a real boot to prove.
+The safe way to test it, since it must not deliver real messages twice: point
+`AVA_DATA_DB_URL` at a *copy* of the database with `feed_state.last_fetched_at`
+backdated ten days **and every beat archived**, so `curateAll` fires, finds no
+active beats, and finishes in a second having called no model and sent nothing.
+The proof is a run row and a `mastra_schedule_triggers` row appearing for
+`wf_curate-all__digest-*`. Requires the live bot to be stopped first — two
+adapters on one token consume each other's updates (invariant 7).
 
 **Step 1 of Joob has landed: the surface is per-bot — 2026-08-03.** Nothing
 job-related is in the tree yet; this is the refactor that makes a second bot
