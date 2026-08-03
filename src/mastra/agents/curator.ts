@@ -130,6 +130,15 @@ Style:
 - Optimize for understanding, not maximum compression.
 - Avoid hype and marketing language.
 - Do not invent details.
+
+Language:
+- Write "lede" and "points" in English. Always, and whatever language you would
+  otherwise reach for.
+- An article written in another language is still summarized in English. So is a
+  beat whose title or rubric is not in English.
+- A summary arriving in any other language is a broken message, not a translated
+  one. The reader asks for a translation with a command of their own, and that
+  command does not go through you.
 `.trim(),
 })
 
