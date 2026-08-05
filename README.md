@@ -109,6 +109,7 @@ pnpm feeds:check
 | `pnpm build` | Bundle to `.mastra/output` |
 | `pnpm feeds:check` | Confirm every subscribed feed is reachable and parses |
 | `pnpm catchup:check` | Show what a boot would do about a pipeline that has gone quiet |
+| `pnpm sonar:check "<slug or text>"` | Dry-run the `sonar` job source — companies, careers pages, what survives the filter. Calls a model |
 | `pnpm db:generate` | Emit a migration after editing `src/db/schema.ts` |
 | `pnpm db:studio` | Browse the database |
 | `pnpm typecheck` | `tsc --noEmit` |

@@ -18,8 +18,16 @@ import { deriveTags } from '../src/services/job-tags.js'
 
 const now = Date.now()
 
-/** The seeds as rows, with no fetch state, which is what a first run sees. */
-const sources: JobSource[] = SEED_JOB_SOURCES.map(seed => ({
+/**
+ * The seeds as rows, with no fetch state, which is what a first run sees.
+ *
+ * **`sonar` is excluded, and that is what keeps this script's promise.** It is a
+ * source like any other to the pipeline, but fetching it means a model call and a
+ * page fetch per lead — and this script's whole contract is that it is safe to
+ * run at any time and calls no model. `pnpm sonar:check` exercises that source
+ * instead, deliberately as a separate command with a separate cost.
+ */
+const sources: JobSource[] = SEED_JOB_SOURCES.filter(seed => seed.kind !== 'sonar').map(seed => ({
   id: seed.id,
   kind: seed.kind,
   url: seed.url,

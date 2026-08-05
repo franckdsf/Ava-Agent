@@ -19,6 +19,7 @@
     "jobs:check": "tsx --env-file=.env scripts/check-job-sources.ts",
     "portfolio:check": "tsx --env-file=.env scripts/check-portfolio.ts",
     "review:check": "tsx --env-file=.env scripts/check-feed-review.ts",
+    "sonar:check": "tsx --env-file=.env scripts/check-sonar.ts",
     "start": "node .mastra/output/index.mjs",
     "telegram:check": "tsx --env-file=.env scripts/check-telegram.ts",
     "typecheck": "tsc --noEmit"

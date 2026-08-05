@@ -20,10 +20,11 @@ import type { NewJobSource } from '../db/schema.js'
  * and actively block scrapers. A direct integration would break within weeks and
  * would fail *silently*, which is worse than the coverage gap
  * ([ADR-0024](../../docs/decisions/0024-joob-a-job-pipeline-beside-the-news-one.md)).
- * The `sonar` and `apify` kinds exist for reaching past this set; neither is
- * wired yet, and `apify` is metered, so it needs a cap before it is.
+ * `sonar` is how this set is reached past, and it is wired — see the row at the
+ * bottom. `apify` remains a discriminator with no actor behind it; it is metered,
+ * so it needs a cap before it is turned on.
  *
- * Everything here is free and needs no key. That is not a coincidence — it is
+ * Every board here is free and needs no key. That is not a coincidence — it is
  * the constraint that picked them. Three of the five ask for attribution and a
  * link back to the posting's own URL, which every delivered message does.
  */
@@ -103,6 +104,31 @@ export const SEED_JOB_SOURCES: NewJobSource[] = [
     adapter: null,
     url: 'https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss',
     label: 'We Work Remotely',
+    addedAt: now(),
+  },
+  {
+    /**
+     * The one source that is not a board.
+     *
+     * `perplexity/sonar` is asked which companies are hiring for each active
+     * search, and `services/job-scout.ts` resolves and verifies the careers page
+     * — the model never supplies a URL that is stored. It exists to reach the
+     * employers who hire through their own site and never appear on a free remote
+     * board, which is the coverage gap ADR-0024 records as this pipeline's cost.
+     *
+     * **`url` is documentation, not an endpoint.** Nothing fetches it. Every
+     * other row's URL is what gets requested; this one's query is built per
+     * search at run time, so the field holds the model id that does the searching
+     * instead of a lie about where the postings come from.
+     *
+     * It is a row so it can be switched off like any other source: archive it and
+     * the scheduled model call stops, with no code change and no redeploy.
+     */
+    id: 'sonar',
+    kind: 'sonar',
+    adapter: null,
+    url: 'openrouter/perplexity/sonar',
+    label: 'Sonar',
     addedAt: now(),
   },
 ]

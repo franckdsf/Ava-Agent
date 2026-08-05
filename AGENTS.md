@@ -75,6 +75,7 @@ The full list is in the [README](README.md#commands). These three carry obligati
 | `pnpm discovery:check "<subject>"` | Dry-runs `/follow` end to end — names the beat, searches, verifies every feed, renders the report — writing and sending nothing. Run before believing any change to the namer, the scout, or feed resolution. |
 | `pnpm review:check` | **Required** after touching `verdictForBeat` or `src/config/feed-review.ts`. It is the only exercise the weekly feed review gets: a guard with no case here is a guard that silently stops applying, and the failure is a beat quietly losing good sources. Also prints what a run *today* would do to the live beats. |
 | `pnpm jobs:check` | Run after touching a job source, an adapter, or `job-identity.ts`. Fetches every seeded board for real, prints per-source field coverage, and runs the identity function over everything so the cross-board dedupe is a measured number rather than an assumption. Writes nothing, calls no model. |
+| `pnpm sonar:check "<slug or free text>"` | Run after touching the job scout's prompt, careers-page resolution or `jobScout`. Dry-runs the `sonar` source end to end — proposes companies, resolves and verifies every careers page, builds the rows ingest would store and runs the real filter over them — writing and sending nothing. **It calls a model, unlike `jobs:check`**, which is why it is a separate command. Read the FILTER block first: a lead survives only if its careers page carries the reader's must-haves in real text, so a low survival rate means the design is failing, not that the week is quiet. Run it **three times** — company sets vary run to run, and the ±10 discipline applies. Free text touches no database; a slug-shaped argument opens one and applies migrations. |
 | `pnpm portfolio:check` | Run before believing anything about job scoring, and after any change to the portfolio endpoint. It is the one input to that scoring living outside this repo, and a wrong endpoint **never errors** — a protection wall answers 200 with an HTML login page, an empty deploy answers 200 with nothing. Prints the size, the estimated per-run token cost, the headings and the first lines. Read-only. |
 | `pnpm catchup:check` | **Required** after touching `decideCatchup`, `src/config/catchup.ts`, `pipeline.digestHours` or `jobPipeline.intervalHours` — the last two because the staleness bars are set against those cadences and nothing enforces the relationship. The boot catch-up runs once, unattended, on a path that is invisible when it decides right and expensive when it decides wrong. Every guard needs a case here. Also prints what a boot *right now* would do to both live pipelines. Read-only; fires nothing. |
 | `pnpm telegram:check [bot]` | Run before debugging a missing tab. Reports whether BotFather's Threaded Mode is on — the one prerequisite no code can set — plus any profile field the next boot would push. Read-only, safe against a running bot. Covers **every** bot with no argument, because Threaded Mode is per token and a check that silently skipped one would be worse than none; name a bot (`newy`) to narrow it. |
@@ -87,17 +88,39 @@ changing any of them.
 1. **No inbound ports.** Telegram is long-polled; models are called outbound.
    Nothing may require a public URL, tunnel, or webhook.
    ([0001](docs/decisions/0001-mastra-in-a-container-with-no-inbound-ports.md), [0002](docs/decisions/0002-telegram-via-chat-sdk-adapter-in-polling-mode.md))
-2. **On a schedule, only ranking, composing and the weekly memory review call a
-   model.** Ingest, dedupe, cluster and delivery are deterministic. The rule is
-   not "no models on a schedule" — it is that a scheduled model call must be a
-   *classifier over a fixed row set*: fixed control flow, a set handed to it, and
-   the answer validated against that set on the way back. A scheduled job that
-   lets an LLM choose its own control flow produces surprise bills and duplicate
-   messages. Inbound, human-triggered calls are a separate category and are
-   governed by invariant 8 instead — Newy, the translator behind `/translearn` /
-   `/translate`, and the summarizer behind `/summarize`. The distinction is who
-   decides to spend: a cron fire nobody watches, or a person typing.
-   ([0015](docs/decisions/0015-weekly-memory-review.md), [0017](docs/decisions/0017-translation-commands.md), [0018](docs/decisions/0018-summarize-command.md))
+2. **A scheduled model call must have control flow it cannot choose, and no
+   authority over what gets stored.** The rule is not "no models on a schedule",
+   and it is deliberately a *shape* rather than a list — the list version of this
+   invariant said "only ranking, composing and the weekly memory review", and it
+   had been false since the weekly feed review's top-up started calling the
+   `sonar` scout on a cron. A list goes stale silently; a shape does not. Two
+   shapes qualify, and nothing else does:
+
+   - **A classifier over a fixed row set** — fixed control flow, a set handed to
+     it, and the answer validated against that set on the way back. The news
+     ranker, the digest writer, the weekly memory reviewer, the job scorer and
+     the job writer. Every one of them discards an id it was not given.
+   - **A search whose every answer is verified before it is stored** — a bounded
+     loop over rows, a model that proposes, and *code* that establishes whether
+     what it proposed is real. The feed scout behind the weekly top-up
+     ([0020](docs/decisions/0020-feed-discovery-from-a-subject.md)) and the job
+     scout behind the `sonar` source
+     ([0026](docs/decisions/0026-sonar-as-a-job-source.md)). Neither may write a
+     URL it was handed: `checkFeed()` decides there, careers-page resolution
+     decides here, and an unverifiable proposal is dropped.
+
+   What is actually forbidden is a scheduled job that lets an LLM choose its own
+   control flow, because that is what produces surprise bills and duplicate
+   messages. **A search shape therefore needs a bound in config**, or its loop is
+   only fixed until the reader adds another row — `jobScout.maxSearchesPerRun` is
+   that bound, and it is load-bearing rather than a tuning knob.
+
+   Ingest, dedupe, cluster and delivery remain deterministic. Inbound,
+   human-triggered calls are a separate category governed by invariant 8 instead —
+   Newy, the translator behind `/translearn` / `/translate`, and the summarizer
+   behind `/summarize`. The distinction there is who decides to spend: a cron fire
+   nobody watches, or a person typing.
+   ([0015](docs/decisions/0015-weekly-memory-review.md), [0017](docs/decisions/0017-translation-commands.md), [0018](docs/decisions/0018-summarize-command.md), [0020](docs/decisions/0020-feed-discovery-from-a-subject.md), [0026](docs/decisions/0026-sonar-as-a-job-source.md))
 3. **A beat is a row, not code.** Adding a beat means inserting into `beats` and
    `beat_feeds`. Needing to touch agent or workflow code means the abstraction is
    wrong — and needing to *restart* means something is still being derived at
@@ -750,12 +773,161 @@ doesn't wrap without adding a second Telegram library.
     chat id says where a cron fire — which has no message to reply to — should
     *send*. They diverge the moment there are two allowed users, and on the
     supergroup route the chat id is a `-100…` group that is nobody's user id.
+- **A statement above an `import` does not run first, and two scripts here are
+  written as if it does.** ESM hoists every `import` above all top-level
+  statements, so `process.env.X = …` or `delete process.env.X` written at the top
+  of a script executes *after* the imported modules have already loaded and read
+  their config. Proven with a probe: a variable set on line 1 reads `undefined`
+  inside the module imported on line 3, and a deleted one reads its old value.
+  **This cost a live database write on 2026-08-05** — a verification script set
+  `AVA_DATA_DB_URL` to a copy above its imports, `env.ts` parsed the default
+  first, and migration `0018` applied to `.data/ava.db` instead of the copy. No
+  data was lost and the migration was the intended one, but it landed on
+  production by accident. `check-discovery.ts` and `check-sonar.ts` both use the
+  `delete process.env.*_TELEGRAM_BOT_TOKEN` form and it is equally ineffective;
+  invariant 7 survives there only because neither import graph reaches an agent
+  that polls — `telegram.ts` is outbound-only and builds its adapter lazily. Do
+  not add an import to those scripts without checking that. **The reliable way to
+  point a script at another database is the command line**
+  (`AVA_DATA_DB_URL=… tsx …`), not an assignment in the file. To exercise a
+  migration against a copy, verify with a *fresh connection in a separate process*
+  — a client opened before the migration ran reported the stale row count and
+  hid the problem for two steps.
 - **`.history/` must stay gitignored.** An IDE extension snapshots `.env`
   verbatim into it.
 
 ## Where work stopped
 
-*Last updated: 2026-08-04.*
+*Last updated: 2026-08-05.*
+
+**The `sonar` job source ships — measured over three live runs, 2026-08-05.**
+`src/mastra/agents/job-scout.ts`, `src/services/job-scout.ts`, `jobScout` in
+`src/config/jobs.ts`, `AVA_MODEL_JOB_SCOUT`, `pnpm sonar:check`, and
+[ADR-0026](docs/decisions/0026-sonar-as-a-job-source.md). One sonar search per
+active `/target` on the scheduled run; code resolves and verifies every careers
+page; verified leads flow through the existing filter, scorer and ledger. No
+migration — `kind: 'sonar'` has been in the enum since `0015`.
+
+**Invariant 2's enumeration had been false for weeks, and that is the more useful
+finding.** It said only ranking, composing and the weekly memory review call a
+model on a schedule. The weekly feed review's `topUp` starts `discoverFeeds`,
+which calls the `sonar` beat scout — on a cron, since ADR-0020 landed. Nothing
+failed and nobody noticed, which is the argument against enumerations in an
+invariant. It is now two *shapes* (a classifier over a fixed row set; a search
+whose every answer is verified before storage), and the search shape carries a
+condition the other does not: **the loop must be bounded in config**, or "fixed
+control flow" lasts only until the reader adds another row.
+`jobScout.maxSearchesPerRun` is that bound.
+
+**A lead is keyed on its careers URL alone, and the first two attempts were both
+wrong.** Keying it like a posting (company + title + location) fails because none
+of those is a fact about the world for a lead — the title and company are a
+model's phrasing and the location does not exist, so the same lead takes a new
+identity every run and the reader is sent it every cycle. Keying on company + URL
+was the fix and **was still wrong, caught by running it three times**: one
+employer came back as `Apify` and `Apify Technologies s.r.o.` at the identical
+resolved URL, hashing differently because `normalizeCompany` strips `technologies`
+but has no `s.r.o.`, giving `apify` and `apify s r o`. Do not extend the suffix
+list — it is unbounded and it treats a model's word choice as evidence. Verified
+after the fix: `www.`, a trailing slash and a query string collapse to one
+identity, `/about` does not collide with `/careers`, and the month still rides on
+top so `redeliveryGuardDays` is unaffected.
+
+**The careers page's own text is the lead's description, and this is what makes
+the feature work at all.** `filterJob` reads `mustHave` from title + company +
+description and *"never mentions X"* is already the largest rejection reason (211
+of 437). A lead described only by the model's one-line "why" is rejected almost
+every time — the source would have delivered nothing while every counter said it
+ran. Do **not** "fix" a low survival rate by asking the model for a richer
+description: `mustHave` is a hard filter, and a model writing "React" into a field
+a hard filter reads lets a lead pass on invented evidence.
+
+Measured across three runs of the same search, and the variance is the point:
+
+```
+resolved   5/6, 4/6, 3/6      (~120s per search, six leads)
+filter     100%, 100%, 67%    (2 of 3 runs lost nothing at all)
+recurring  only 3 of 6 companies appeared in all three runs
+```
+
+**The model is `sonar-reasoning-pro`, and that is the opposite of the beat
+scout's answer — five models × 3 runs, scoring careers pages that survive the
+filter:**
+
+```
+sonar-reasoning-pro   16/18   12 distinct companies    90s
+sonar                 11/18    6                       49s
+sonar-pro             11/18    8                       52s
+sonar-pro-search       9/18    8                       13s
+sonar-deep-research    9/18    5                      202s
+```
+
+The count understates it: reasoning-pro named Vercel, Linear, Supabase, Grafana
+Labs, Sentry and Productboard, where plain `sonar` repeated the same six small
+names every run and `sonar-pro` twice returned a *description* instead of a
+company name (`Unnamed Austrian SaaS platform company`) — which the prompt forbids
+and which still "survived" because it resolved to some page. **Survival count does
+not capture name quality; read the company lists too.** ADR-0020 chose plain
+`sonar` for the beat scout on its own measurement, and neither choice may be
+copied to the other — "name sites that publish about X" rewards a smaller model,
+"name employers hiring for this stack right now" rewards the reasoning one.
+
+Four things worth knowing before touching it:
+
+- **`yourmail.de` failed to fetch in all three runs.** That is ADR-0024's "sonar
+  can invent a company" risk, and resolution caught it every time — which is the
+  whole argument for never storing a model's URL.
+- **The prompt rule against marketplaces was obeyed 0 times in 6; the denylist is
+  what works.** `arc.dev` was proposed *and survived the filter* in every run of
+  both models before `jobScout.excludedHosts` existed — `maxPageChars` makes it
+  worse, because `mustHave` scans the whole page and a marketplace listing every
+  stack passes every stack filter. Textbook "a negative instruction is a hint,
+  never a guard". **Never add an ATS host to that list**: `greenhouse.io`,
+  `lever.co`, `ashbyhq.com`, `personio.com` are where real employers put real
+  careers pages, and a verification run resolved `archlet.jobs.personio.com`,
+  which is exactly the best case. The list is hand-maintained and will go stale.
+- **Sonar reads job boards, which narrows what this source is for.** Probed
+  against the API: it genuinely searches — 10–15 real citations, a json-schema
+  `response_format` does *not* suppress the search, and it names today's date and
+  live postings correctly. But its citations are `linkedin.com/jobs/view/…`,
+  `indeed.com`, `reactjobs.io`, `remoterocketship.com`, `workingnomads.com` and
+  **`remotive.com`, which is already one of our nine sources**. So ADR-0024's
+  framing — reaching employers who hire only through their own site — is not what
+  happens; it reads the boards this pipeline cannot ingest directly, which is
+  still real coverage (LinkedIn and Indeed are deliberately out of scraper scope)
+  and still surfaces companies the nine boards do not carry. It also explains
+  `arc.dev` exactly: LinkedIn carries a posting titled "… at Arc.dev", and the
+  model read the intermediary as the employer. Because it re-reads boards we
+  ingest, a role can in principle arrive twice — once as a posting, once as a
+  lead — and the two dedupe keys do not merge. Not yet observed.
+- **A searching model writes its footnotes into structured fields.**
+  `sonar-reasoning-pro` returned company names reading `Arc.dev[2]`,
+  `Factor Eleven[3]`, `yourMAIL GmbH[10]`. Unstripped that reaches
+  `jobs.company`, the attribution line under a delivered posting, and would have
+  reached the identity hash before the URL became the key — where `Acme[2]` and
+  `Acme[5]` are two employers. `stripCitations` in `agents/job-scout.ts` removes
+  bare `[n]` markers only; a bracketed *phrase* like `Acme (Remote)` is content
+  and is left alone.
+- **`pnpm jobs:check` deliberately skips the sonar row** and still reports
+  `undated 0`. Its documented promise is that it is safe at any time and calls no
+  model; `sonar:check` is a separate command because it breaks both halves of that.
+- **A seed does not reach a database that already has rows, and this nearly
+  shipped as dead code.** `seedJobSources()` writes only when `job_sources` is
+  *empty*, so adding a tenth entry to the seed array reached no existing
+  deployment — the source would have existed in the code and never been fetched
+  anywhere real, with no error. `drizzle/0018_seed_sonar_source.sql` is a
+  hand-written data migration (the `0011_reset_feed_state` pattern: no snapshot,
+  hand-added journal entry) that inserts the row `ON CONFLICT DO NOTHING`. Making
+  the seed upsert instead is the tempting alternative and is worse — it would
+  resurrect any archived source on every boot, forever.
+
+**Not yet done: a live scheduled run.** Everything above is `sonar:check`, which
+calls `proposeCompanies` and `resolveLeads` directly. The assembled path — ingest
+routing a `sonar` row, `recordSourceFetch` on it, leads reaching the scorer beside
+board postings — has not been exercised by a real `findJobs` run, and the lesson
+already recorded on this pipeline is that verifying steps proves the functions and
+not the assembly. Check `job_runs` and the `sonar` row's `last_status` after the
+first one.
 
 **A boot now catches up a pipeline that has gone quiet — 2026-08-04.**
 `src/mastra/boot-catchup.ts`, `src/config/catchup.ts`, `pnpm catchup:check`, and
@@ -823,10 +995,14 @@ three tabs resolved (`💬 Chat` #106015, `📰 News` #103659, `📜 Translation
 **Not yet exercised: the outbound transport and the inbound router.** Nothing has
 been *sent* through `createTelegramTransport`, and no message has been routed
 since `routeToChatTab` started reading `telegramChatId(NEWY_BOT)`. Both need
-`pnpm dev` and a real message. `scripts/` is outside `tsconfig`'s `include`, so
-none of it typechecks in CI — `check-telegram.ts` was checked by hand, and
-`check-discovery.ts` has a pre-existing `formatConverter` visibility error that
-only shows up that way.
+`pnpm dev` and a real message.
+
+> **Corrected 2026-08-05: `scripts/` *is* typechecked.** This paragraph used to
+> say it was outside `tsconfig`'s `include` and that `check-discovery.ts` carried
+> a `formatConverter` error only visible by hand. `tsconfig.json` reads
+> `"include": ["src/**/*", "scripts/**/*"]`, and `pnpm typecheck` does compile
+> every script — a stray file under `scripts/` fails CI, which is how this was
+> noticed. Do not skip `pnpm typecheck` believing a script is unchecked.
 
 **Joob itself is decided and not built — 2026-08-03.** Two ADRs, no code.
 [ADR-0023](docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md) settles

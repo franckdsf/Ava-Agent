@@ -117,6 +117,55 @@ const coreSchema = z.object({
   AVA_MODEL_JOB_TARGETER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
 
   /**
+   * The `sonar` job source: proposes companies hiring for one saved search.
+   *
+   * **The second model here that needs the open web**, and it is the job-side
+   * counterpart to `AVA_MODEL_BEAT_SCOUT` in every respect — same provider, same
+   * gateway, same key, and the same rule that nothing it returns is stored as a
+   * URL without code verifying it first.
+   *
+   * If you change this, the replacement must actually search. A plain chat model
+   * will confidently name companies from its training data, and the failures are
+   * silent ones: a company that stopped hiring two years ago resolves a careers
+   * page perfectly well.
+   *
+   * Its own variable rather than sharing the beat scout's, for the reason every
+   * other pair here is split: the two are tuned against different costs. The beat
+   * scout runs once per beat created plus once a week per under-filled beat; this
+   * one runs up to `jobScout.maxSearchesPerRun` times every job cycle.
+   *
+   * **`sonar-reasoning-pro`, and it is the opposite of the beat scout's answer.**
+   * Measured 2026-08-05, five Perplexity models × 3 runs on one search, scoring
+   * *careers pages that survive the filter* rather than companies proposed:
+   *
+   * ```
+   * sonar-reasoning-pro   16/18 survived   12 distinct   90s
+   * sonar                 11/18            6 distinct    49s
+   * sonar-pro             11/18            8 distinct    52s
+   * sonar-pro-search       9/18            8 distinct    13s
+   * sonar-deep-research    9/18            5 distinct   202s
+   * ```
+   *
+   * The count understates it. `sonar-reasoning-pro` named Vercel, Linear,
+   * Supabase, Grafana Labs, Sentry, Productboard and Doist — real product
+   * employers — where `sonar` returned the same six small names every run and
+   * `sonar-pro` twice returned a *description* instead of a company
+   * (`Unnamed Austrian SaaS platform company`), which the prompt forbids outright.
+   *
+   * Why this differs from `AVA_MODEL_BEAT_SCOUT`, where plain `sonar` won: that
+   * task is "name sites that publish about X" and a bigger model spends its extra
+   * capacity inventing plausible domains. This task is "name employers hiring for
+   * a stack, right now, in a region", which is a harder retrieval problem, and
+   * the reasoning variant is measurably better at it. Do not copy either choice
+   * to the other without re-measuring.
+   *
+   * The `</think>` truncation this repo documents for reasoning models did **not**
+   * appear across 15 runs, and a failure degrades safely anyway — `proposeCompanies`
+   * returns an empty list, so a bad response costs that run's leads and nothing else.
+   */
+  AVA_MODEL_JOB_SCOUT: gatewayModelId.default('openrouter/perplexity/sonar-reasoning-pro'),
+
+  /**
    * The every-two-days run: scores a whole batch of postings against the CV.
    *
    * **The largest single prompt in this repo.** It carries the reader's CV in

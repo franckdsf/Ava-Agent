@@ -43,6 +43,7 @@ something looks the way it does.
 | [0023](0023-a-bot-per-agent-two-tokens-two-chats.md) | A bot per agent — two tokens, two chats, one process | Accepted |
 | [0024](0024-joob-a-job-pipeline-beside-the-news-one.md) | Joob — a job pipeline beside the news one, sharing everything but the tables | Accepted |
 | [0025](0025-a-boot-catch-up-for-a-stale-pipeline.md) | A boot fires a pipeline that has stopped running, on its own cadence | Accepted |
+| [0026](0026-sonar-as-a-job-source.md) | Sonar as a job source, keyed on the page it resolves | Accepted |
 
 **Reading 0001–0021:** they predate [0022](0022-ava-is-the-system-agents-have-names.md)
 and call the conversational agent *Ava*. That agent is now **Newy**; *Ava* is the

@@ -383,6 +383,19 @@ export async function fetchJobSource(source: JobSource): Promise<JobFetchResult>
   try {
     if (source.kind === 'rss') return await fetchRssSource(source)
     if (source.kind === 'api') return await fetchApiSource(source)
+    // `sonar` is wired, but not here: it needs a model handle and the reader's
+    // active searches, which a function taking only a row cannot have. `findJobs`
+    // routes it to `fetchSonarSource` in `services/job-scout.ts`. Reaching this
+    // line with a `sonar` row means a caller iterated sources without that
+    // routing — which is a bug in the caller, not a source that does not work.
+    if (source.kind === 'sonar') {
+      return {
+        sourceId: source.id,
+        postings: [],
+        status: 'skipped',
+        error: 'sonar is fetched by findJobs, not by fetchJobSource',
+      }
+    }
     return {
       sourceId: source.id,
       postings: [],

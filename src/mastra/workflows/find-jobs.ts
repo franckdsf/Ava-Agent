@@ -22,9 +22,10 @@ import {
 } from '../../db/jobs.js'
 import type { Job, JobSearch, NewJob } from '../../db/schema.js'
 import { joobTelegram } from '../../services/joob-telegram.js'
-import { fetchJobSource } from '../../services/job-fetch.js'
+import { fetchJobSource, type RawPosting } from '../../services/job-fetch.js'
+import { fetchSonarSource } from '../../services/job-scout.js'
 import { cvTechTags, filterJobs, rankByCvOverlap } from '../../services/job-filter.js'
-import { jobId, jobIdentity } from '../../services/job-identity.js'
+import { jobId, jobIdentity, leadId, leadIdentity } from '../../services/job-identity.js'
 import { deriveTags } from '../../services/job-tags.js'
 import { fetchPortfolio, PortfolioError } from '../../services/portfolio.js'
 import { escapeMarkdown } from '../../services/telegram.js'
@@ -128,7 +129,7 @@ const ingest = createStep({
   inputSchema: runInput,
   outputSchema: z.array(searchRef),
   stateSchema: runState,
-  execute: async ({ inputData, setState }) => {
+  execute: async ({ inputData, setState, mastra }) => {
     const idle = {
       runId: '',
       skipped: true,
@@ -195,14 +196,73 @@ const ingest = createStep({
       return []
     }
 
-    // Sources, in parallel batches. One dead board must not take down the run.
     const sources = await activeJobSources()
     const postings: NewJob[] = []
     const sourceErrors: string[] = []
     let fetched = 0
 
-    for (let index = 0; index < sources.length; index += jobPipeline.sourceConcurrency) {
-      const batch = sources.slice(index, index + jobPipeline.sourceConcurrency)
+    const cutoff = Date.now() - jobPipeline.ingestWindowDays * 24 * 60 * 60 * 1000
+
+    /**
+     * One fetch result folded into the rows to insert.
+     *
+     * `identify` differs by source kind and that is the whole reason this takes a
+     * function: a board posting is keyed on company + title + location, while a
+     * sonar lead is keyed on company + careers page because its title is a
+     * model's phrasing and is not stable between runs. See `job-identity.ts`.
+     */
+    const collect = (
+      result: { sourceId: string; postings: RawPosting[] },
+      identify: (posting: RawPosting, firstSeenAt: number) => { id: string; identity: string },
+    ) => {
+      fetched += result.postings.length
+      for (const posting of result.postings) {
+        // The ingest window. A posting older than this is refused on age, which
+        // is the first of the two guards against a pruned posting returning —
+        // `job_deliveries` is the second and the one that actually holds.
+        if (posting.postedAt !== null && posting.postedAt < cutoff) continue
+
+        const firstSeenAt = Date.now()
+        postings.push({
+          ...identify(posting, firstSeenAt),
+          sourceId: result.sourceId,
+          company: posting.company,
+          title: posting.title,
+          location: posting.location,
+          remote: posting.remote,
+          url: posting.url,
+          description: posting.description,
+          salaryText: posting.salaryText,
+          contractType: posting.contractType,
+          tags: posting.tags,
+          derivedTags: deriveTags(posting),
+          postedAt: posting.postedAt,
+          discoveredAt: firstSeenAt,
+        })
+      }
+    }
+
+    const identifyPosting = (posting: RawPosting, firstSeenAt: number) => {
+      const input = {
+        company: posting.company,
+        title: posting.title,
+        location: posting.location,
+        remote: posting.remote === 'remote',
+        postedAt: posting.postedAt,
+        firstSeenAt,
+      }
+      return { id: jobId(input), identity: jobIdentity(input) }
+    }
+
+    const identifyLead = (posting: RawPosting, firstSeenAt: number) => {
+      const input = { careersUrl: posting.url, firstSeenAt }
+      return { id: leadId(input), identity: leadIdentity(input) }
+    }
+
+    // Boards, in parallel batches. One dead board must not take down the run.
+    const boards = sources.filter(source => source.kind !== 'sonar')
+    for (let index = 0; index < boards.length; index += jobPipeline.sourceConcurrency) {
+      const batch = boards.slice(index, index + jobPipeline.sourceConcurrency)
       const results = await Promise.all(batch.map(source => fetchJobSource(source)))
 
       for (const result of results) {
@@ -214,42 +274,25 @@ const ingest = createStep({
           count: result.postings.length,
         })
         if (result.error) sourceErrors.push(`${result.sourceId}: ${result.error}`)
-        fetched += result.postings.length
-
-        const cutoff = Date.now() - jobPipeline.ingestWindowDays * 24 * 60 * 60 * 1000
-        for (const posting of result.postings) {
-          // The ingest window. A posting older than this is refused on age, which
-          // is the first of the two guards against a pruned posting returning —
-          // `job_deliveries` is the second and the one that actually holds.
-          if (posting.postedAt !== null && posting.postedAt < cutoff) continue
-
-          const input = {
-            company: posting.company,
-            title: posting.title,
-            location: posting.location,
-            remote: posting.remote === 'remote',
-            postedAt: posting.postedAt,
-            firstSeenAt: Date.now(),
-          }
-          postings.push({
-            id: jobId(input),
-            identity: jobIdentity(input),
-            sourceId: result.sourceId,
-            company: posting.company,
-            title: posting.title,
-            location: posting.location,
-            remote: posting.remote,
-            url: posting.url,
-            description: posting.description,
-            salaryText: posting.salaryText,
-            contractType: posting.contractType,
-            tags: posting.tags,
-            derivedTags: deriveTags(posting),
-            postedAt: posting.postedAt,
-            discoveredAt: Date.now(),
-          })
-        }
+        collect(result, identifyPosting)
       }
+    }
+
+    // Sonar, after the boards and never inside their batch. It is a model call
+    // plus a page fetch per lead — minutes, against a board's seconds — and
+    // putting it in a `Promise.all` with three boards would hold their results
+    // behind it for no gain. It also needs what no board needs: the searches, so
+    // it can ask about each one, and a `mastra` handle. Its failure is contained
+    // inside `fetchSonarSource`, so a bad run costs its own leads and nothing else.
+    for (const source of sources.filter(source => source.kind === 'sonar')) {
+      const result = await fetchSonarSource(source, mastra, wanted)
+      await recordSourceFetch(result.sourceId, {
+        status: result.status,
+        error: result.error,
+        count: result.postings.length,
+      })
+      if (result.error) sourceErrors.push(`${result.sourceId}: ${result.error}`)
+      collect(result, identifyLead)
     }
 
     // The primary key collapses the same role seen on several boards.

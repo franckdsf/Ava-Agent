@@ -6,6 +6,7 @@ import { joob, joobId } from './agents/joob.js'
 import { curatorAgents } from './agents/curator.js'
 import { memoryReviewer, memoryReviewerId } from './agents/memory.js'
 import { jobAgents } from './agents/job-scorer.js'
+import { jobScoutAgents } from './agents/job-scout.js'
 import { jobTargeterAgents } from './agents/job-targeter.js'
 import { scoutAgents } from './agents/scout.js'
 import { summarizer, summarizerId } from './agents/summarizer.js'
@@ -41,6 +42,7 @@ export const mastra = new Mastra({
     ...scoutAgents,
     ...jobTargeterAgents,
     ...jobAgents,
+    ...jobScoutAgents,
     [newyId]: newy,
     [joobId]: joob,
     [memoryReviewerId]: memoryReviewer,

@@ -137,3 +137,206 @@ export const jobPipeline = {
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) ' +
     'Chrome/126.0.0.0 Safari/537.36',
 } as const
+
+/**
+ * The `sonar` source kind — reaching past the boards, one query per search.
+ *
+ * The boards this repo can use for free are thin and skewed: Remotive's free
+ * endpoint returns 31 postings in total, and LinkedIn and Indeed are out of scope
+ * for good reasons
+ * ([ADR-0024](../../docs/decisions/0024-joob-a-job-pipeline-beside-the-news-one.md)).
+ * `perplexity/sonar` asks the open web which companies are hiring for a search,
+ * and **code** resolves the careers page — the model never supplies a URL that is
+ * stored, exactly as the beat scout never supplies a feed URL
+ * ([ADR-0020](../../docs/decisions/0020-feed-discovery-from-a-subject.md)).
+ *
+ * **This runs on a schedule, which is why the caps below are not optional.** A
+ * scheduled model call is legal here because the control flow is fixed and every
+ * URL is verified deterministically — see invariant 2 in
+ * [AGENTS.md](../../AGENTS.md#invariants) — but "fixed control flow" is only true
+ * if the loop is bounded. `maxSearchesPerRun` is that bound: without it the cost
+ * of a run grows every time the reader types `/target`, silently and unattended.
+ */
+export const jobScout = {
+  /**
+   * Companies asked of sonar, per search.
+   *
+   * Small on purpose. The beat scout asks for 8 sites and keeps ~6, and a
+   * proposal list degrades with length — the third run on one subject returned
+   * two law firms and a PR agency. Each lead here also costs a page fetch, so
+   * this multiplies with `maxSearchesPerRun`.
+   */
+  leadsPerSearch: 6,
+
+  /**
+   * Active searches that trigger a sonar call in one run.
+   *
+   * **The cost ceiling for the whole feature.** A run costs at most this many
+   * search calls plus `leadsPerSearch × this` page fetches, whatever the reader
+   * has accumulated in `job_searches`. Searches are taken oldest-first, which is
+   * `activeSearches()`'s own order, so the choice is stable rather than
+   * arbitrary — a search does not silently lose its turn to a newer one.
+   */
+  maxSearchesPerRun: 3,
+
+  /**
+   * Paths tried when a homepage links to no careers page.
+   *
+   * Ordered by how often they hit. Both `/careers` and `/careers/` are here for
+   * the reason `/feed` and `/feed/` both are in `discovery.wellKnownPaths`: some
+   * hosts redirect between them and some 404 rather than redirect.
+   */
+  careersPaths: [
+    '/careers',
+    '/careers/',
+    '/jobs',
+    '/jobs/',
+    '/join-us',
+    '/company/careers',
+    '/about/careers',
+    '/work-with-us',
+    '/en/careers',
+    '/hiring',
+  ],
+
+  /** Anchor text or href that suggests a link to the company's careers page. */
+  careersLinkHints: /\b(careers?|jobs?|hiring|join[- ]?us|work[- ]?with[- ]?us|vacancies|open[- ]?roles|opportunities)\b/i,
+
+  /**
+   * Applicant-tracking hosts, which are careers pages by definition.
+   *
+   * A resolved URL normally has to *look* like a careers page — see
+   * `looksLikeCareers` — because the link that pointed at it may have matched on
+   * a stray `class` attribute. These hosts bypass that check, because the shape
+   * test rejects several of them outright: `boards.greenhouse.io/acme` and
+   * `apply.workable.com/acme` contain neither "careers" nor "jobs" anywhere in
+   * host or path, and they are among the **best** pages resolution can find — a
+   * real employer's real vacancy list, with no marketing copy around it.
+   *
+   * The exact inverse of `excludedHosts` below and easy to confuse with it. An
+   * ATS is *infrastructure an employer rents*, so the page belongs to the
+   * employer; a marketplace *is* the company, and its listings are other
+   * people's jobs. Never move a host between these two lists without deciding
+   * which of those it is.
+   */
+  atsHosts: [
+    'greenhouse.io',
+    'lever.co',
+    'ashbyhq.com',
+    'workable.com',
+    'personio.com',
+    'personio.de',
+    'recruitee.com',
+    'teamtailor.com',
+    'bamboohr.com',
+    'smartrecruiters.com',
+    'jazz.co',
+    'breezy.hr',
+    'myworkdayjobs.com',
+    'successfactors.com',
+    'join.com',
+  ] as readonly string[],
+
+  /**
+   * Hosts that are never a lead, whatever the model says about them.
+   *
+   * **This is a guard, not a hint.** The prompt is told to skip marketplaces too,
+   * and that instruction is worth having, but a prompt rule obeyed 99% of the
+   * time is a bug at any volume — and this one was obeyed **0 of 6 times**:
+   * `arc.dev` was proposed and survived the filter in every run of every model
+   * measured on 2026-08-05.
+   *
+   * The defect is specific and worth stating precisely, because it is not "this
+   * company is an agency". Job&Talent and Deel are staffing businesses that also
+   * genuinely hire frontend engineers, and denying them would throw away real
+   * jobs. The problem is a company **whose careers page is a marketplace of other
+   * companies' jobs**: resolution succeeds, the page is enormous, and because
+   * `mustHave` scans the whole description a page listing every stack in
+   * existence passes every stack filter. `arc.dev/job-descriptions` came back as
+   * 12k characters tagging Angular, Python, Java, Ruby, C++, AWS, GCP and Azure.
+   *
+   * Two groups, both hosts rather than names, since a name is a model's phrasing:
+   *
+   * - **Talent marketplaces and dev-shop staffing platforms**, whose listings are
+   *   third-party roles behind an intermediary.
+   * - **The job boards themselves**, including the ones this pipeline already
+   *   ingests directly — a lead saying "Remote OK is hiring" is a duplicate of
+   *   our own source at best.
+   *
+   * Deliberately **not** here: `greenhouse.io`, `lever.co`, `ashbyhq.com`,
+   * `workable.com`, `bamboohr.com`, `recruitee.com`, `personio.de`. Those are
+   * applicant-tracking hosts, and `boards.greenhouse.io/acme` is the *real*
+   * careers page of a real employer — the single most valuable thing resolution
+   * finds. Adding them would reject the best leads this source produces.
+   *
+   * Matched on the proposed company's homepage, never on the resolved careers
+   * URL, for exactly that reason.
+   */
+  excludedHosts: [
+    // Talent marketplaces and staffing platforms.
+    'arc.dev',
+    'toptal.com',
+    'upwork.com',
+    'fiverr.com',
+    'freelancer.com',
+    'lemon.io',
+    'turing.com',
+    'andela.com',
+    'x-team.com',
+    'crossover.com',
+    'gun.io',
+    'gigster.com',
+    'braintrust.com',
+    'a.team',
+    // Job boards, including the ones already ingested as sources.
+    'linkedin.com',
+    'indeed.com',
+    'glassdoor.com',
+    'ziprecruiter.com',
+    'monster.com',
+    'dice.com',
+    'wellfound.com',
+    'angel.co',
+    'remoteok.com',
+    'weworkremotely.com',
+    'himalayas.app',
+    'jobicy.com',
+    'remotive.com',
+    'arbeitnow.com',
+    'builtin.com',
+    'otta.com',
+    'welcometothejungle.com',
+  ] as readonly string[],
+
+  /** One page fetch. Matches `discovery.pageTimeoutMs` — same job, same shape. */
+  pageTimeoutMs: 15_000,
+
+  /** Pages fetched at once. A burst of requests to unrelated strangers; keep it small. */
+  pageConcurrency: 4,
+
+  /**
+   * Careers-page text kept as a lead's description.
+   *
+   * **This field is what makes a lead survive the filter at all.** `filterJob`
+   * reads `mustHave` out of title + company + description, and a lead whose
+   * description is one model-written line is rejected with "never mentions
+   * TypeScript or React" — which is already the largest rejection reason on live
+   * intake. Real page text is what gives that rule something true to read.
+   *
+   * Larger than `maxDescriptionChars` would need to be for one advert, because a
+   * careers page is a *list* of roles and the one that matters may be well down
+   * it. The scorer still only ever sees `scorerDescriptionChars` of it.
+   */
+  maxPageChars: 20_000,
+
+  /**
+   * Shortest extracted page text that counts as a resolved careers page.
+   *
+   * A page that renders its listings entirely from JavaScript returns a shell of
+   * nav and footer, which fetches fine, returns 200, and carries no evidence
+   * whatsoever. Without a floor those leads reach the scorer as a company name
+   * and nothing else, and get judged on the model's prior about the company
+   * rather than on anything read. Below this the lead is dropped with a reason.
+   */
+  minPageChars: 400,
+} as const
