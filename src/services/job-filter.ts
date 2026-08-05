@@ -1,5 +1,5 @@
 import type { Job, JobSearch } from '../db/schema.js'
-import { deriveTags, tagsOfKind } from './job-tags.js'
+import { deriveTags, describesSoftwareWork, tagsOfKind } from './job-tags.js'
 
 /**
  * Decides which postings are worth scoring, without calling a model.
@@ -46,10 +46,17 @@ function mentions(job: Job, terms: string[]): boolean {
 export function filterJob(job: Job, search: JobSearch): FilterVerdict {
   const tags = job.derivedTags
 
-  // Not software work at all. The single biggest saving on a general board, and
-  // the flag is only set when the title claims no engineering discipline — see
-  // `deriveTags`.
-  if (tags.includes('flag:non-technical')) {
+  // Not software work at all — **and only a rejection when the reader is asking
+  // for software work.** The flag itself is honest: `deriveTags` sets it when a
+  // title claims no engineering discipline and does name a nurse, a teacher or a
+  // dental role. Rejecting on it unconditionally was the bug, because
+  // `NON_TECHNICAL` then decided which professions the reader is allowed to want.
+  // A `/target dentist in Lyon` had every result dropped with the reason "not a
+  // software role" before a single search criterion was read.
+  //
+  // Still the single biggest saving on a general board for the searches that are
+  // about engineering, which is why it stays first rather than being deleted.
+  if (tags.includes('flag:non-technical') && searchWantsSoftware(search)) {
     return { keep: false, reason: 'not a software role' }
   }
 
@@ -99,6 +106,24 @@ export function filterJob(job: Job, search: JobSearch): FilterVerdict {
   }
 
   return { keep: true }
+}
+
+/**
+ * Whether this search is asking for software work, in the reader's own words.
+ *
+ * Read from what they typed — the label, the request, the must-haves and the
+ * notes — rather than from a stored flag, because nothing asks them to declare a
+ * field and nothing should. `/target front end developer` names a discipline,
+ * `/target React and TypeScript, remote` names a stack, and `/target dentist in
+ * Lyon` names neither, which is the whole distinction needed.
+ *
+ * `dealbreakers` are deliberately excluded. "No JavaScript" would otherwise make
+ * a search look like a software search on the strength of what it rules *out*.
+ */
+function searchWantsSoftware(search: JobSearch): boolean {
+  return describesSoftwareWork(
+    [search.label, search.request, ...search.mustHave, search.notes ?? ''].join('\n'),
+  )
 }
 
 /**

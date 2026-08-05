@@ -111,6 +111,34 @@ export function deriveTags(
   return tags
 }
 
+/**
+ * Whether a piece of text describes software work.
+ *
+ * Scans the discipline and technology vocabularies over arbitrary prose, rather
+ * than a posting's title — which is what separates this from `deriveTags`. It
+ * exists for one caller: deciding whether a *search* is a software search, so
+ * that `flag:non-technical` can reject for it and stay out of the way otherwise.
+ *
+ * **Why this is needed at all.** `NON_TECHNICAL` lists `dental`, `nurse`,
+ * `physician`, `teacher`, `attorney`, `electrician`. Those entries are correct
+ * for a reader looking for engineering work and catastrophic for one looking to
+ * be a dentist: the filter dropped every such posting with the reason "not a
+ * software role" before any search criteria were read. A pipeline that is meant
+ * to answer `/target dentist in Lyon` cannot carry an unconditional opinion about
+ * which professions count.
+ *
+ * Technologies are included alongside disciplines because a search often names a
+ * stack and no discipline — `/target React and TypeScript, remote` says what it
+ * is without ever using the word "engineer".
+ */
+export function describesSoftwareWork(text: string): boolean {
+  if (!text.trim()) return false
+  return (
+    COMPILED.disciplines.some(({ patterns }) => matches(patterns, text)) ||
+    COMPILED.technologies.some(({ patterns }) => matches(patterns, text))
+  )
+}
+
 /** The values of one namespace — `tagsOfKind(tags, 'tech')` → `['typescript']`. */
 export function tagsOfKind(tags: string[], kind: string): string[] {
   const prefix = `${kind}:`
