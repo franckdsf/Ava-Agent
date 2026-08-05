@@ -343,6 +343,74 @@ export async function feedPerformance(
     )
 }
 
+/** One scored article, as a beat judged it. */
+export interface BeatVerdict {
+  title: string
+  source: string
+  score: number
+  reason: string | null
+  subtopic: string | null
+  /** Whether this beat is the one that won and sent it. */
+  delivered: boolean
+}
+
+/**
+ * A beat's best-scored articles in a window, highest first.
+ *
+ * The diagnostic that answers "why is nothing arriving", and it answers it in
+ * two different ways depending on what comes back. An empty result means the
+ * ranker has not scored anything — the beat is not being fed, and no rubric
+ * change will help. A full result whose top score sits under the beat's
+ * threshold means it *is* being fed and the rubric is turning it all away, and
+ * the reasons name what it turned away and why.
+ *
+ * Deliberately the best rather than the worst, which is the opposite of
+ * `feedPerformance`'s ordering. The near-misses carry the signal here: an
+ * article scored 12 tells you the feed is off-topic, while one scored 58 against
+ * a threshold of 60 tells you the rubric is a hair too strict — and only the
+ * second is actionable by retuning.
+ *
+ * Unranked rows are excluded rather than sorted last: a null score is not a low
+ * score, and mixing the two would make "nothing clears the bar" and "nothing has
+ * been looked at yet" read alike.
+ */
+export async function topVerdictsForBeat(
+  beatSlug: string,
+  since: number,
+  limit: number,
+): Promise<BeatVerdict[]> {
+  await migrate()
+  const rows = await db()
+    .select({
+      title: articles.title,
+      source: articles.source,
+      score: articleBeats.score,
+      reason: articleBeats.reason,
+      subtopic: articleBeats.subtopic,
+      deliveredBeat: articles.deliveredBeat,
+    })
+    .from(articleBeats)
+    .innerJoin(articles, eq(articles.id, articleBeats.articleId))
+    .where(
+      and(
+        eq(articleBeats.beatSlug, beatSlug),
+        gte(articles.discoveredAt, since),
+        isNotNull(articleBeats.score),
+      ),
+    )
+    .orderBy(desc(articleBeats.score))
+    .limit(limit)
+
+  return rows.map(row => ({
+    title: row.title,
+    source: row.source,
+    score: row.score ?? 0,
+    reason: row.reason,
+    subtopic: row.subtopic,
+    delivered: row.deliveredBeat === beatSlug,
+  }))
+}
+
 export async function verdictsForArticle(articleId: string): Promise<
   { beatSlug: string; score: number | null; subtopic: string | null; reason: string | null }[]
 > {

@@ -9,6 +9,7 @@ import { pipeline } from '../../config/pipeline.js'
 import { NEWY_SURFACE, withQuotedMessage } from '../channels.js'
 import { routeToChatTab } from '../chat-surface.js'
 import { newsTools } from '../tools/news.js'
+import { beatTools } from '../tools/beats.js'
 import { imageTools } from '../tools/image.js'
 import { memoryTools } from '../tools/memory.js'
 import { beatInstructions } from './beats.js'
@@ -68,7 +69,7 @@ export const newy = new Agent({
   id: newyId,
   name: 'Newy',
   model: env.AVA_MODEL_ORCHESTRATOR,
-  tools: { ...newsTools, ...imageTools, ...memoryTools },
+  tools: { ...newsTools, ...beatTools, ...imageTools, ...memoryTools },
   // Conversation history per Telegram thread. The adapter encodes the topic
   // into its thread id, so memory is partitioned by tab — and since the router
   // below moves every inbound message onto the Chat tab's thread, that is the
@@ -245,8 +246,55 @@ it:
 
 Use them whenever a question touches the news, rather than answering from what
 you remember of an earlier turn in this conversation. They are read-only: you
-cannot trigger a run, re-send an article, change a beat, or record a vote. When
-asked for any of those, say plainly that it is not something you can do.
+cannot trigger a run, re-send an article, or record a vote. When asked for any
+of those, say plainly that it is not something you can do.
+
+Beats. Two more tools reach the beats themselves.
+
+"inspect-beat" shows one beat as it really is: its rubric, its subtopics, its
+threshold, every feed with what that feed has actually delivered and whether it
+has ever been fetched, the best-scoring articles with the ranker's reason for
+each, and any rubric the beat used to have. Call it before you explain anything
+about why a beat is quiet, and always before changing one. Never diagnose a beat
+from memory or from its name.
+
+Read it before answering, because it separates causes that look identical from
+the outside and want opposite fixes:
+- A feed marked "neverFetched" has never been polled. On a beat made in the last
+  few hours that is simply "it has not run yet" — say so, and say when digests
+  arrive. Nothing is wrong and nothing needs changing.
+- "paused" means no ingest, no ranking, no digests. "/resume <slug>" is the fix.
+- Feeds collecting articles but "topScores" is empty means the ranker has not
+  reached them yet.
+- "topScores" full but every score under the threshold means the beat is being
+  fed and the rubric is turning it all away. The reasons say what it turned away.
+  This is the one case a retune actually addresses.
+- Feeds collecting nothing at all, or nothing on the subject, is a source
+  problem. **No rubric change can fix it** — a rubric only re-ranks what the
+  feeds already brought in, and it cannot make a feed carry news that feed does
+  not publish. Say that plainly and point at "/addfeed <slug> <url>" or
+  "/follow". Never offer a retune as the answer to a missing source.
+
+"retune-beat" rewrites what a beat looks for. Call it **only when they have
+asked you, in this conversation, to change what a beat covers** — never because
+you inferred it from an interest they mentioned, and never on your own
+initiative after a diagnosis. When a retune is the right fix, say so and let
+them ask for it.
+
+When you do call it:
+- Inspect the beat first and supply the **complete** rubric, not a diff. Every
+  bullet you leave out is removed, so restate the ones being kept.
+- Change the smallest thing that answers what they asked for. Keep their
+  existing wording where it still holds.
+- It changes what the **next** scheduled run does. Articles already scored keep
+  their scores, nothing is re-ranked, and nothing is re-sent — say this rather
+  than letting them expect the beat to fill up straight away.
+- It cannot touch feeds, thresholds, or anything a run produced.
+- Afterwards, tell them what changed in a line or two of plain prose — what the
+  beat now favours and what it now rejects. The old rubric is kept, so say it
+  can be put back.
+- If it comes back with "changed" empty, the beat already said that. Say so
+  instead of claiming a change.
 
 "generate-image" draws — see Diagrams below. Three more keep your notes about
 the reader — see Memory.

@@ -154,20 +154,46 @@ changing any of them.
    `getWebhookInfo`, which silently breaks invariant 1 for whichever bot it
    happens to.
    ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0023](docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md))
-8. **The conversational surface may write what the next run reads, and never
-   what a run produced.** This used to read "read-only over the pipeline" with
-   `memories` as its one exception; that wording could not survive the reader
-   creating beats by talking to Newy, and a principle is better than a growing
-   list. The line now falls between *configuration* and *run output*:
+8. **What a conversation may write is decided by what reads it back — and
+   nothing conversational may ever write what a run produced.** This has now been
+   restated twice, and each restatement removed a list. It began as "read-only
+   over the pipeline" with
+   `memories` as its one exception, which could not survive the reader creating
+   beats by talking to Newy. It then became *configuration* versus *run output*
+   over an enumeration of three tables — and `beat_revisions` broke that within a
+   day of it being written, because a superseded rubric is neither. The invariant
+   said "a principle is better than a growing list" and then gave a list; this is
+   the third attempt, and the criterion is now **what reads the table back**:
 
-   - **May be written from a conversation:** `memories`, `beats`, `beat_feeds`.
-     All of it is input to some *future* run. It is one-way and asynchronous —
-     a note or a new beat changes what the next scheduled run does, never this
-     one.
-   - **Never:** `articles`, `article_beats`, `feedback`, any score, any
-     `deliveredAt`. Nothing conversational may reach a run in progress, mark
-     anything delivered, or write a verdict. An agent that could re-send a digest
-     would eventually re-send a digest.
+   - **Input to a future run** — `memories`, `beats`, `beat_feeds`. One-way and
+     asynchronous: a note, a new beat or a retuned rubric changes what the *next*
+     scheduled run does, never the one in flight.
+   - **Read by no run at all** — `beat_revisions`. Write-only history, kept for a
+     human and never fed back into anything. This category is safe by
+     construction rather than by discipline: a table no run reads cannot reach a
+     run in progress however carelessly it is written, which is a stronger
+     guarantee than the first category has.
+   - **Never: anything a run produced.** `articles`, `article_beats`, `feedback`,
+     any score, any `deliveredAt`. Nothing conversational may reach a run in
+     progress, mark anything delivered, or write a verdict. An agent that could
+     re-send a digest would eventually re-send a digest.
+
+   Both permitted categories are additive in the same way: **a fact, a beat and a
+   rubric are all superseded rather than corrected.** `memories` never rewrites a
+   fact ([0014](docs/decisions/0014-two-tier-memory-for-ava.md)) and a retune
+   never discards the rubric it replaced, for one reason — the change is the half
+   worth keeping, and the ranker's ±10-point noise floor means a rubric that
+   quietly made a beat worse is not visibly worse for days. A write from a
+   conversation that destroys its own predecessor is the thing to refuse, whatever
+   table it lands in.
+
+   **Newy may retune a beat, and only when asked in those words.** `retune-beat`
+   rewrites `beats.rubric` and `beats.subtopics` and appends the old pair to
+   `beat_revisions`. It supplies `buildRubric()`'s *slots*, never freehand prose,
+   so the shape the ranker was tuned against survives an author who is not the
+   namer ([0020](docs/decisions/0020-feed-discovery-from-a-subject.md)) — and the
+   discipline `/pause` follows applies here too: the tool is called because the
+   reader asked, never because a model inferred a preference from a sentence.
 
    This is what keeps invariant 2 true now that an LLM sits on an inbound path.
    `read-article` may fetch a page the feed shipped no body for — an outbound GET
@@ -798,7 +824,67 @@ doesn't wrap without adding a second Telegram library.
 
 ## Where work stopped
 
-*Last updated: 2026-08-05.*
+*Last updated: 2026-08-06.*
+
+**Newy can inspect a beat and retune it — `src/mastra/tools/beats.ts`,
+`src/config/retune.ts`, `retuneBeat()` and `beatRevisionHistory()` in
+`src/db/beats.ts`, `topVerdictsForBeat()` in `src/db/articles.ts`, migration
+`0019` for `beat_revisions`, and the restated invariant 8 above.** No ADR: the
+permission was already ADR-0019's, the rubric's fixed shape was already
+ADR-0020's, and the append-only argument is ADR-0014's. What was genuinely new
+is in the invariant.
+
+**The reading half is the load-bearing one, and it exists because of a specific
+failure.** The reader asked why `ai-model-releases` was sending nothing and Newy
+could only answer that she could not change a beat. The true answer was that its
+three feeds had **never been fetched** — no `feed_state` row at all, `linked: 0`,
+the beat created three hours after the last run — and no rubric edit would have
+touched that. A tool that only wrote would have let her confidently rewrite a
+rubric that was never the problem. So `inspect-beat` returns `neverFetched` per
+feed and the *best*-scored articles rather than the worst, because those are what
+separate the causes: nothing ranked at all means the beat is not being fed, while
+a top score of 58 against a threshold of 62 means it is being fed and the rubric
+is turning it away. Only the second is a retune. **Her prompt says outright that
+a rubric cannot fix a missing source** — it only re-ranks what ingest already
+brought in — because that is the mistake the tool makes easy.
+
+**A retune supplies `buildRubric()`'s slots, never prose.** The template's
+justification does not weaken because the author is Newy rather than the namer: a
+model writing a rubric freehand can produce one that reads well and scores badly,
+and the ±10-point noise floor means nobody will ever run the measurement that
+would tell the difference. A retuned rubric is therefore byte-shaped like one
+`/follow` produced.
+
+**A no-op retune writes nothing, and that guard is conversational rather than
+general.** A slash command sends a definition once; a model re-sends the one it
+just read — the reader says "yes, do it" twice, or Newy restates the current
+bullets while proposing a change. Every one of those would append a revision
+identical to the live row, and a history full of duplicates stops being readable,
+which costs exactly what the table is for. Verified: the same call twice returns
+`changed: []` and leaves one row.
+
+Exercised against a copy of the live database (all three files), migration
+applied there, confirmed from a **separate process on a fresh connection**:
+guard rails return sentences rather than throwing, the retune wrote one revision
+holding the old rubric and subtopics verbatim, and `articles`, `article_beats`
+and `feedback` were unmoved.
+
+**X/Twitter is a dead end, measured 2026-08-05 — do not re-probe it.** Every
+bridge is gone: `nitter.poast.org` 403, `nitter.privacydev.net` unreachable,
+`rsshub.app/twitter/*` 404, `openrss.org` 503. **`xcancel.com` is worse than
+dead, it is a trap that `checkFeed()` cannot catch** — unwhitelisted it returns a
+*parseable* feed carrying one entry titled "RSS reader not yet whitelisted!"
+dated 1970, so it passes `ok` and would sit in `beat_feeds` returning nothing
+forever, exactly like the `grandprix247.com` sitemap. It whitelists by
+User-Agent (only `FreshRSS/…` got through of eight tried), which means adopting
+it would mean impersonating another product against a volunteer instance's
+deliberate load control. Two findings survive the dead end and are worth
+keeping: a vendor's own account is mostly *marketing* — `@Kling_ai` posts
+showreels ("Tiny Paws, Big Glam"), not releases — and the search endpoint returns
+strangers' replies and bare links, so neither could be verified by code the way
+`checkFeed()` verifies a feed. The image and video labs publish no usable feed at
+all (BFL 404, Midjourney 403, Luma and Stability HTML, ElevenLabs 404), which is
+the real reason that beat is hard to source.
 
 **The `sonar` job source ships — measured over three live runs, 2026-08-05.**
 `src/mastra/agents/job-scout.ts`, `src/services/job-scout.ts`, `jobScout` in

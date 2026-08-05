@@ -129,6 +129,56 @@ export const beatFeeds = sqliteTable(
 )
 
 /**
+ * Every rubric a beat has outgrown. **Append-only — nothing here is ever
+ * updated or deleted.**
+ *
+ * A row holds the definition that was *replaced*, not the one that replaced it:
+ * `beats` is the head, and this is the chain behind it. Reading them
+ * oldest-first gives the beat's history, and the newest row is what it looked
+ * like before the last retune.
+ *
+ * It exists because a rubric is the single highest-leverage prompt in the
+ * pipeline — it alone decides what a beat sends — and Newy may now rewrite one
+ * when the reader asks her to. An in-place update would make that
+ * unrecoverable: the ranker moves ±10 points on identical input
+ * ([AGENTS.md](../../AGENTS.md#gotchas)), so a retune that quietly made a beat
+ * worse is invisible for days and there would be nothing to go back to.
+ *
+ * The same argument `memories` makes, for the same reason. There, a fact that
+ * stops being true is superseded rather than corrected, because the change is
+ * the interesting half; here, "it stopped delivering after we added those
+ * bullets" is only answerable if the old bullets still exist.
+ *
+ * Keyed `(beatSlug, replacedAt)` rather than on a generated id: a retune is
+ * already identified by which beat it touched and when, and the pair doubles as
+ * the index history is read by. Two retunes of one beat in the same millisecond
+ * would collide, which is not reachable through a conversation.
+ *
+ * `reason` is what the reader asked for, in their own words — the one field
+ * here that is not a copy of a `beats` column, and the one that makes the
+ * history readable rather than just a diff.
+ */
+export const beatRevisions = sqliteTable(
+  'beat_revisions',
+  {
+    beatSlug: text('beat_slug').notNull(),
+    /** The rubric this beat carried *before* the retune that wrote this row. */
+    rubric: text('rubric').notNull(),
+    /** The subtopics it carried before that same retune. */
+    subtopics: text('subtopics', { mode: 'json' }).$type<string[]>().notNull(),
+    /**
+     * Why the reader wanted it changed, in their language. Null when they gave
+     * no reason — a retune is still recorded without one.
+     */
+    reason: text('reason'),
+    replacedAt: integer('replaced_at').notNull(),
+  },
+  table => [primaryKey({ columns: [table.beatSlug, table.replacedAt] })],
+)
+
+export type BeatRevisionRow = typeof beatRevisions.$inferSelect
+
+/**
  * One row per story. The id is a hash of the canonical link, so the same story
  * arriving from two feeds — or matching two beats — collides and is kept once.
  * That collision *is* the global dedupe ([invariant 5](../../AGENTS.md#invariants)).
