@@ -11,7 +11,7 @@ import { z } from 'zod'
  *
  * This guard exists because the mistake is silent and confusing: Mastra's
  * registry lists `deepseek` and `minimax` as *direct* providers too, so a bare
- * `deepseek/deepseek-v4-flash` is perfectly valid — it just bills DeepSeek and
+ * `deepseek/deepseek-v4-flash-0731` is perfectly valid — it just bills DeepSeek and
  * demands a `DEEPSEEK_API_KEY`. The failure surfaces at first model call, naming
  * a provider that was never chosen. Catching it at startup is far cheaper.
  */
@@ -21,7 +21,7 @@ const gatewayModelId = z
   .refine(id => id.startsWith('openrouter/'), {
     message:
       'must start with "openrouter/" — a bare "<provider>/<model>" routes directly to that ' +
-      'provider and needs its own API key (e.g. use openrouter/deepseek/deepseek-v4-flash)',
+      'provider and needs its own API key (e.g. use openrouter/deepseek/deepseek-v4-flash-0731)',
   })
 
 const coreSchema = z.object({
@@ -33,9 +33,9 @@ const coreSchema = z.object({
    * Cheap and high-volume: scores + labels every incoming headline. Text only,
    * but must support schema-constrained output — the rank step reads `.object`.
    */
-  AVA_MODEL_RSS_RANKER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
+  AVA_MODEL_RSS_RANKER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
   /** Strong: writes the digest for the handful of items that survive ranking. */
-  AVA_MODEL_RSS_SUMMARIZER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
+  AVA_MODEL_RSS_SUMMARIZER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
   /**
    * Conversational surface in Telegram. Vision-capable: images arrive inline.
    *
@@ -50,7 +50,7 @@ const coreSchema = z.object({
    * Cheap and schema-constrained like the ranker — it runs once a week over a
    * few dozen one-line rows, and its output is a list of ids, not prose.
    */
-  AVA_MODEL_MEMORY_REVIEWER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
+  AVA_MODEL_MEMORY_REVIEWER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
   /**
    * `/translearn` and `/translate`: translates an article into the reader's own
    * language, glossed with the English original.
@@ -85,7 +85,7 @@ const coreSchema = z.object({
    * created, over one line of input, and needs no search — which is the whole
    * reason it is not the scout below.
    */
-  AVA_MODEL_BEAT_NAMER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
+  AVA_MODEL_BEAT_NAMER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
   /**
    * `/follow`: proposes websites that publish about the subject.
    *
@@ -114,7 +114,7 @@ const coreSchema = z.object({
    * `/target` echoes every field back, so the reader sees a wrong parse and can
    * say it again.
    */
-  AVA_MODEL_JOB_TARGETER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
+  AVA_MODEL_JOB_TARGETER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
 
   /**
    * The `sonar` job source: proposes companies hiring for one saved search.
@@ -178,7 +178,7 @@ const coreSchema = z.object({
    *
    * Must support schema-constrained output — the step reads `.object`.
    */
-  AVA_MODEL_JOB_SCORER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash'),
+  AVA_MODEL_JOB_SCORER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
   /**
    * Writes the brief for each posting that cleared the bar.
    *
