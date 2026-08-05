@@ -20,19 +20,22 @@ export const catchup = {
 
   /**
    * The same for jobs, and it is a different number because the cadence is:
-   * `findJobs` fires daily and gates itself to every two days, so a week here
-   * would be three missed cycles rather than twenty missed fires.
+   * `findJobs` fires daily and gates itself with `jobPipeline.intervalHours`, so
+   * a week here would be several missed cycles rather than twenty missed fires.
    *
-   * **Three rather than two, so the bar clears the pipeline's own healthy
-   * range.** A daily fire gated at `jobPipeline.intervalHours` (44h) runs every
-   * *other* fire — 48h apart on the usual cycle, and up to
-   * `intervalHours + 24` = 68h after a run that started off the 08:00 rhythm,
-   * which is exactly what a catch-up run produces. Two days (48h) falls inside
-   * that: a restart on an ordinary Tuesday would fire a run the next 08:00 would
-   * have started anyway, and that run's scoring call is this system's single most
-   * expensive request. Seventy-two hours sits above the ceiling, so a boot fires
-   * only when a cycle was genuinely missed. The cost is a jobs digest that can
-   * wait up to a day longer after an outage.
+   * **The bar must clear the pipeline's own healthy range**, or a boot spends the
+   * run's scoring call — this system's single most expensive request — on a cycle
+   * the next 08:00 would have started anyway. At the current 20h gate a daily
+   * fire runs *every* fire, so the healthy range is 24h, stretching to ~48h after
+   * a run that started off the 08:00 rhythm (which is exactly what a catch-up run
+   * produces). Seventy-two hours sits clear above that.
+   *
+   * **Three is now conservative rather than tight, and deliberately left there.**
+   * It was calibrated against a 44h gate, where the ceiling was 68h and 72h was
+   * the next safe step. Lowering the gate to 20h dropped the ceiling to ~48h, so
+   * this could be two — but two days *is* 48h, which puts the bar exactly on the
+   * ceiling, and that is the collision this comment exists to prevent. The cost
+   * of leaving it at three is a jobs digest up to a day later after an outage.
    *
    * **So this is coupled to `jobPipeline.intervalHours`, with nothing enforcing
    * it.** Raise that gate past 48h and the healthy ceiling climbs back through

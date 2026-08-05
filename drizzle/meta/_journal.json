@@ -141,6 +141,13 @@
       "when": 1785967494073,
       "tag": "0019_ancient_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1785971994223,
+      "tag": "0020_goofy_midnight",
+      "breakpoints": true
     }
   ]
 }

@@ -529,7 +529,18 @@ export const jobSources = sqliteTable(
   {
     /** Stable slug — `remotive`, `weworkremotely-programming`. */
     id: text('id').primaryKey(),
-    kind: text('kind', { enum: ['rss', 'api', 'sonar', 'apify'] }).notNull(),
+    /**
+     * `ats` rows are **discovered, not seeded** — the only kind that is. A sonar
+     * lead whose employer turns out to have a public applicant-tracking board
+     * writes one, and from then on that board is polled like any other source,
+     * with no model call and no page resolution. That is what makes coverage
+     * compound instead of costing the same every run: sonar pays once per
+     * employer, the row pays off forever.
+     *
+     * SQLite does not enforce this list — it is a TypeScript-level enum over a
+     * plain text column, so adding a kind needs no migration.
+     */
+    kind: text('kind', { enum: ['rss', 'api', 'sonar', 'apify', 'ats'] }).notNull(),
     url: text('url').notNull(),
     /** Attribution shown under a posting. */
     label: text('label').notNull(),
@@ -546,6 +557,22 @@ export const jobSources = sqliteTable(
     lastError: text('last_error'),
     /** Postings returned by the last successful fetch. Zero for a while means a dead source. */
     lastCount: integer('last_count'),
+
+    /**
+     * When an `ats` board first came back empty, in an unbroken run of empties.
+     * Null while it is producing, and cleared the moment it produces again.
+     *
+     * This is what `decayAtsBoards` reads to switch a board off — see it for why
+     * discovered sources need an off-ramp that seeded ones do not.
+     *
+     * **Only `ats` rows ever set it, and that exclusion is not tidiness.** A 304
+     * from an RSS or API board is a *success* carrying zero postings — the normal
+     * state for a feed that has not changed — so counting empties there would
+     * decay every healthy board in the table within weeks. An ATS API sends no
+     * conditional request and answers with the employer's current openings, so
+     * zero there really does mean zero.
+     */
+    emptySince: integer('empty_since'),
   },
   table => [index('idx_job_sources_active').on(table.archivedAt)],
 )

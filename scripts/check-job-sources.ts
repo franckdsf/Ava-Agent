@@ -35,6 +35,7 @@ const sources: JobSource[] = SEED_JOB_SOURCES.filter(seed => seed.kind !== 'sona
   adapter: seed.adapter ?? null,
   addedAt: seed.addedAt,
   archivedAt: null,
+  emptySince: null,
   etag: null,
   lastModified: null,
   lastFetchedAt: null,

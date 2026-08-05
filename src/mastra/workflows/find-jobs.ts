@@ -6,10 +6,13 @@ import { JOOB_TOPICS } from '../../config/joob-topics.js'
 import { activeSearches } from '../../db/job-searches.js'
 import {
   activeJobSources,
+  decayAtsBoards,
   finishJobRun,
   insertJobs,
+  knownAtsCompanies,
   lastRunStartedAt,
   linkPendingToSearch,
+  recordAtsBoards,
   listScoredUndelivered,
   listUnscored,
   markJobDelivered,
@@ -37,7 +40,7 @@ import {
 } from '../agents/job-scorer.js'
 
 /**
- * The every-two-days job run.
+ * The daily job run.
  *
  * ```
  * gate → ingest → fetch CV → per search: filter, score → arbitrate → deliver
@@ -48,11 +51,12 @@ import {
  * schedule: the scorer is a classifier over a row set handed to it, and its
  * answers are validated against that set on the way back.
  *
- * **The schedule fires daily and the gate makes it every two days.** A
- * day-of-month cron step is not "every two days" — it fires on the 1st, 3rd …
- * 31st and then the 1st again — and a missed schedule firing on boot has already
- * put two runs in flight at once in this repo. `job_runs.startedAt` makes the
- * cadence a property of the data instead.
+ * **The schedule fires daily and `jobPipeline.intervalHours` decides whether a
+ * firing works.** The gate stays even though the cadence is now daily too: a
+ * missed schedule firing on boot has already put two runs in flight at once in
+ * this repo, and `job_runs.startedAt` is what makes that impossible. It also
+ * keeps the cadence a property of the data, so retuning it is one number here
+ * rather than a cron expression that has to encode an interval.
  *
  * **The filter runs before the model and is not an optimisation.** Scoring is one
  * batch call, so cutting the intake is what makes that call *possible*: the
@@ -204,6 +208,23 @@ const ingest = createStep({
     const cutoff = Date.now() - jobPipeline.ingestWindowDays * 24 * 60 * 60 * 1000
 
     /**
+     * When this run first saw everything it is about to store — **one timestamp
+     * for the whole run**, not one per posting.
+     *
+     * `Date.now()` inside the loop below encoded something that is not
+     * information: sources are fetched in batches of `sourceConcurrency` in `id`
+     * order, so the millisecond a posting was stamped with was its source's
+     * position in the fetch, and `listUnscored` then ordered the scoring queue by
+     * it. Two sources were never scored at all as a result — see the note there.
+     *
+     * It also strengthens what `postingMonth` already wanted. That function falls
+     * back to first-seen rather than `now()` so one advert crawled either side of
+     * midnight on the 31st is not two jobs; a run-level stamp makes that true for
+     * a whole run rather than for whichever postings landed on the same side.
+     */
+    const firstSeenAt = Date.now()
+
+    /**
      * One fetch result folded into the rows to insert.
      *
      * `identify` differs by source kind and that is the whole reason this takes a
@@ -213,7 +234,7 @@ const ingest = createStep({
      */
     const collect = (
       result: { sourceId: string; postings: RawPosting[] },
-      identify: (posting: RawPosting, firstSeenAt: number) => { id: string; identity: string },
+      identify: (posting: RawPosting) => { id: string; identity: string },
     ) => {
       fetched += result.postings.length
       for (const posting of result.postings) {
@@ -222,9 +243,8 @@ const ingest = createStep({
         // `job_deliveries` is the second and the one that actually holds.
         if (posting.postedAt !== null && posting.postedAt < cutoff) continue
 
-        const firstSeenAt = Date.now()
         postings.push({
-          ...identify(posting, firstSeenAt),
+          ...identify(posting),
           sourceId: result.sourceId,
           company: posting.company,
           title: posting.title,
@@ -242,7 +262,7 @@ const ingest = createStep({
       }
     }
 
-    const identifyPosting = (posting: RawPosting, firstSeenAt: number) => {
+    const identifyPosting = (posting: RawPosting) => {
       const input = {
         company: posting.company,
         title: posting.title,
@@ -254,7 +274,7 @@ const ingest = createStep({
       return { id: jobId(input), identity: jobIdentity(input) }
     }
 
-    const identifyLead = (posting: RawPosting, firstSeenAt: number) => {
+    const identifyLead = (posting: RawPosting) => {
       const input = { careersUrl: posting.url, firstSeenAt }
       return { id: leadId(input), identity: leadIdentity(input) }
     }
@@ -285,14 +305,27 @@ const ingest = createStep({
     // it can ask about each one, and a `mastra` handle. Its failure is contained
     // inside `fetchSonarSource`, so a bad run costs its own leads and nothing else.
     for (const source of sources.filter(source => source.kind === 'sonar')) {
-      const result = await fetchSonarSource(source, mastra, wanted)
+      const result = await fetchSonarSource(source, mastra, wanted, await knownAtsCompanies())
       await recordSourceFetch(result.sourceId, {
         status: result.status,
         error: result.error,
         count: result.postings.length,
       })
+      // **The pipeline's one compounding step.** Every employer whose board was
+      // verified this run becomes a source row, polled from the next run onward
+      // with no model call and no page resolution behind it. Written before the
+      // postings are stored so a crash in `insertJobs` still leaves the boards
+      // behind — re-finding them costs a whole sonar cycle.
+      await recordAtsBoards(result.boards ?? []).catch(() => 0)
       if (result.error) sourceErrors.push(`${result.sourceId}: ${result.error}`)
-      collect(result, identifyLead)
+      // **This source alone emits both kinds.** A lead is a company plus a
+      // careers page and is keyed on that URL; a posting expanded off the
+      // employer's ATS board is a real advert and is keyed like any board's. One
+      // identity function for the whole result would collapse a 40-role board
+      // into a single row — see `keyedAs` on `RawPosting`.
+      collect(result, posting =>
+        posting.keyedAs === 'lead' ? identifyLead(posting) : identifyPosting(posting),
+      )
     }
 
     // The primary key collapses the same role seen on several boards.
@@ -588,6 +621,11 @@ const report = createStep({
     // counters, hence the catch — a table one cycle too large costs nothing.
     if (!state.skipped) {
       await pruneJobs().catch(() => 0)
+      // Beside the prune and for the same reason: bookkeeping this pipeline owns,
+      // where a second schedule would only be a second thing to forget. This is
+      // the counterweight to `recordAtsBoards` above — without it the table this
+      // run adds to only ever grows. Its failure must not lose the run's counters.
+      await decayAtsBoards().catch(() => ({ idled: 0, forgotten: 0 }))
     }
 
     if (state.runId) {
@@ -635,8 +673,8 @@ export const findJobs = createWorkflow({
   inputSchema: runInput,
   outputSchema: runReport,
   stateSchema: runState,
-  // Daily, gated to every two days by `job_runs.startedAt` — see the note at the
-  // head of this file for why the cron does not express the cadence itself.
+  // Daily, gated by `job_runs.startedAt` — see the note at the head of this file
+  // for why the cron does not express the cadence itself.
   schedule: [
     {
       id: 'jobs-daily',

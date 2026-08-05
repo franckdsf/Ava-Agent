@@ -172,7 +172,7 @@ const coreSchema = z.object({
    * full — measured at ~20k tokens — plus every posting that survived the
    * deterministic filters, once per run. Deliberately *not* sharing
    * `AVA_MODEL_RSS_RANKER`: that one sees hundreds of headlines a day against a
-   * ~200-token rubric, this one runs once every two days against a document a
+   * ~200-token rubric, this one runs once a day against a document a
    * hundred times larger, and a model chosen for one is chosen against the wrong
    * cost for the other. They share a default value and nothing else.
    *

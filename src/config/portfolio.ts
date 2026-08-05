@@ -6,13 +6,13 @@
  * It is fetched fresh at the start of every run, cached nowhere, and distilled
  * into nothing:
  *
- * - **No stored copy.** A stale CV costs nothing — the next run is two days away
- *   — and a failed fetch costs nothing either, because unscored postings stay
+ * - **No stored copy.** A stale CV costs nothing — the next run is a day away —
+ *   and a failed fetch costs nothing either, because unscored postings stay
  *   pending and the next run picks them all up, exactly as `listUnranked`
  *   already behaves for articles. A cache would be a second source of truth for
  *   a document the reader edits somewhere else.
  * - **No distilled profile.** It enters the scoring prompt **once for the whole
- *   batch**, every two days, so compressing it buys nothing. The deterministic
+ *   batch**, once a run, so compressing it buys nothing. The deterministic
  *   filters read `job_searches` rows, not the CV.
  *
  * The guards below exist because a wrong endpoint never errors — the same

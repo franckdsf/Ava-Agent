@@ -54,8 +54,17 @@ export const jobPipeline = {
    * and several boards serve their whole history. Without this the first run
    * scores several hundred postings in one call. Mirrors
    * `pipeline.maxItemsPerRankingRun`, and exists for the same reason it does.
+   *
+   * **Raised from 60 because a live search saturated it exactly.** On 2026-08-05
+   * `founding-engineer-worldwide` handed the scorer 60 of 60 and delivered one
+   * job: for that search the bottleneck was never sourcing, it was this number,
+   * and adding boards would have changed nothing. Ninety rather than more,
+   * because the cost is a *truncated answer* rather than a slow one — the scorer
+   * returns a verdict per posting and `modelAttempts` exists precisely because
+   * that output gets cut off. Watch the run report for postings the model
+   * silently dropped before raising it again.
    */
-  maxJobsPerScoringRun: 60,
+  maxJobsPerScoringRun: 90,
 
   /** Postings delivered in one run, per search, so a busy cycle can't wall the tab. */
   maxJobsPerDelivery: 8,
@@ -67,23 +76,31 @@ export const jobPipeline = {
    * search that never set its own — which is the point of the null rather than a
    * copied number.
    */
-  defaultFitThreshold: 70,
+  defaultFitThreshold: 60,
 
   /**
    * Hours that must pass before a run does anything.
    *
-   * The schedule fires **daily** and this gate is what makes it every two days.
-   * A day-of-month step of two — the obvious cron for this — is *not* "every two
-   * days": it fires on the 1st, 3rd … 31st and then the 1st again, so seven
-   * month boundaries a year produce two consecutive runs. (The literal cannot be
-   * written in a block comment here; its star-slash closes the comment.) A
-   * stored `lastRunAt` also survives the thing that already bit this repo once:
-   * a missed schedule firing on boot, with two runs then in flight at once.
+   * The schedule fires **daily** and this gate decides whether a firing does any
+   * work. It stays a gate rather than becoming a bare daily cron, because a
+   * stored `lastRunAt` survives the thing that already bit this repo once: a
+   * missed schedule firing on boot, with two runs then in flight at once. It also
+   * keeps the cadence a property of the data, so changing this number is the only
+   * edit needed — the cron never has to express an interval, which is the trap
+   * a day-of-month step falls into (a step of two fires on the 1st, 3rd … 31st
+   * and then the 1st again, so seven month boundaries a year run twice).
    *
-   * 44 rather than 48 so a run that starts a few minutes late doesn't push the
-   * next one a whole day.
+   * **Twenty rather than 44, which makes this a daily pipeline.** Every-two-days
+   * was set when a run's intake was four thin boards; it is now the cheapest
+   * throughput left, because doubling the runs doubles the scoring batches
+   * without touching the prompt size that `maxJobsPerScoringRun` has to respect.
+   * The cost is honest and worth stating: it doubles the model spend, one scoring
+   * call plus up to `maxSearchesPerRun` scout calls per day rather than per two.
+   *
+   * Twenty rather than 24 for the reason 44 was not 48 — a run that starts a few
+   * minutes late must not push the next one a whole day.
    */
-  intervalHours: 44,
+  intervalHours: 20,
 
   /** Hour the daily schedule fires, in `AGENT_TIMEZONE`. */
   runHour: 8,
@@ -161,12 +178,22 @@ export const jobScout = {
   /**
    * Companies asked of sonar, per search.
    *
-   * Small on purpose. The beat scout asks for 8 sites and keeps ~6, and a
-   * proposal list degrades with length — the third run on one subject returned
-   * two law firms and a PR agency. Each lead here also costs a page fetch, so
-   * this multiplies with `maxSearchesPerRun`.
+   * **Raised from 6 once a lead stopped being worth one row.** Before ATS
+   * expansion each lead produced a single posting whose description was a careers
+   * landing page, so asking for more bought more of almost nothing. Measured
+   * 2026-08-06 on the six employers of a live run, a lead is now worth ~28 real
+   * adverts: five companies produced 140 postings where they had produced five.
+   *
+   * Not raised further, and the limit is the model rather than the cost. A
+   * proposal list degrades with length — the beat scout asks for 8 and keeps ~6,
+   * and the third run on one subject returned two law firms and a PR agency. Ten
+   * is where the list is still all plausible employers.
+   *
+   * Each lead still costs a homepage fetch, up to four careers-link fetches, up
+   * to ten well-known path attempts and up to three ATS probes, so this
+   * multiplies with `maxSearchesPerRun`.
    */
-  leadsPerSearch: 6,
+  leadsPerSearch: 10,
 
   /**
    * Active searches that trigger a sonar call in one run.
@@ -328,6 +355,63 @@ export const jobScout = {
    * it. The scorer still only ever sees `scorerDescriptionChars` of it.
    */
   maxPageChars: 20_000,
+
+  /**
+   * Postings taken from one applicant-tracking board.
+   *
+   * A lead that resolves to an ATS board is expanded into that employer's real
+   * adverts rather than stored as its landing page — see `services/ats.ts` for
+   * why the landing page was worthless. The cap is what stops one employer
+   * becoming the run: Lever's own demo board returns 388 postings, which is more
+   * than every free board in this pipeline produces put together.
+   *
+   * Fifty rather than ten, because the boards are not tech boards and the role
+   * the reader wants may be well down a list covering every function the employer
+   * hires for. `sortedByRecency` inside `fetchAtsBoard` means the cap takes the
+   * newest, and the ingest window then discards anything genuinely stale.
+   */
+  atsMaxPostingsPerBoard: 50,
+
+  /**
+   * How long an ATS board may return nothing before it is switched off.
+   *
+   * **Discovered sources need an off-ramp that seeded ones do not.** The seed is
+   * nine rows a human chose; `ats` rows arrive on their own at up to
+   * `leadsPerSearch × maxSearchesPerRun` a day and never leave. Unchecked that is
+   * roughly 450 rows a month, each costing a request every run at
+   * `sourceConcurrency` four — an ingest that gets slower forever, which is a
+   * strange way for a feature that adds coverage to fail.
+   *
+   * Forty-five days rather than a count of runs, deliberately: a run-count
+   * threshold silently means something different every time the cadence moves,
+   * and the cadence moved once already. Time is what "this employer is not
+   * hiring" is actually measured in.
+   *
+   * Generous, because being wrong here is asymmetric. A board switched off too
+   * early loses an employer the scout paid to find; one left on too long costs a
+   * single cheap request a day. Six weeks of silence is a real answer.
+   */
+  atsIdleDays: 45,
+
+  /**
+   * How long an idled board is remembered before the row is deleted.
+   *
+   * **The row has to outlive the archiving, or the decay achieves nothing.**
+   * `knownAtsCompanies` hands every ATS row — archived included — to the scout as
+   * a company to skip, so an idled employer stops being proposed. Delete the row
+   * the same day it is archived and the very next run rediscovers the employer,
+   * pays for the lead again, and re-adds a board that is still empty.
+   *
+   * So this is a quarantine, and deletion is what finally makes an employer
+   * discoverable again — right, because "not hiring" is a fact with a shelf life.
+   * With `atsIdleDays` in front of it that is about five and a half months from
+   * last posting to fresh eligibility.
+   *
+   * **Only boards idled by this mechanism are ever deleted.** A row the reader
+   * archived by hand is kept forever: it records a decision, and deleting it
+   * would let the scout undo them by rediscovery.
+   */
+  atsForgetDays: 120,
 
   /**
    * Shortest extracted page text that counts as a resolved careers page.

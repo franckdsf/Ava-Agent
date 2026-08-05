@@ -14,7 +14,7 @@ import { findJobs } from './workflows/find-jobs.js'
  * want and also the whole problem: a machine that was off for a fortnight comes
  * back knowing only when the *next* fire is due. Nothing anywhere reads the gap.
  * So the reader turns the container back on and hears nothing until 08:00, and
- * the job run is up to two days behind that
+ * the job run is up to a further day behind that
  * ([ADR-0025](../../docs/decisions/0025-a-boot-catch-up-for-a-stale-pipeline.md)).
  *
  * Three things are deliberate about the shape here.

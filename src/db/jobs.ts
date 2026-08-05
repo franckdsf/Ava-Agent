@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm'
-import { jobPipeline } from '../config/jobs.js'
+import { jobPipeline, jobScout } from '../config/jobs.js'
 import { SEED_JOB_SOURCES } from '../config/seed-job-sources.js'
 import { db, migrate } from './client.js'
 import {
@@ -30,6 +30,63 @@ export async function seedJobSources(): Promise<number> {
   if (existing.length > 0) return 0
   await db().insert(jobSources).values(SEED_JOB_SOURCES).onConflictDoNothing()
   return SEED_JOB_SOURCES.length
+}
+
+/**
+ * Remembers an applicant-tracking board a sonar lead turned up.
+ *
+ * **This is the only way a source row is ever created outside the seed, and it is
+ * the pipeline's one compounding mechanism.** Every other cost here is paid again
+ * every run: sonar proposes companies, code resolves their pages, and the whole
+ * lot is discarded before the next cycle. A board is different — it is a URL that
+ * keeps answering. Writing it down converts one model call into a source that is
+ * polled for free from then on, so the reader's coverage is a function of how
+ * long the pipeline has been running rather than of what one run could afford.
+ *
+ * `onConflictDoNothing` on a deterministic id makes re-discovery free, which
+ * matters because sonar has no memory and will propose a good employer again.
+ * **An archived row stays archived**: the reader switching a board off must not be
+ * undone by the scout finding it a second time.
+ *
+ * Returns how many were genuinely new, for the run report.
+ */
+export async function recordAtsBoards(
+  boards: readonly { id: string; adapter: string; url: string; label: string }[],
+): Promise<number> {
+  if (boards.length === 0) return 0
+  await migrate()
+  const result = await db()
+    .insert(jobSources)
+    .values(
+      boards.map(board => ({
+        id: board.id,
+        kind: 'ats' as const,
+        adapter: board.adapter,
+        url: board.url,
+        label: board.label,
+        addedAt: Date.now(),
+      })),
+    )
+    .onConflictDoNothing()
+  return result.rowsAffected ?? 0
+}
+
+/**
+ * Labels of every ATS board already known, archived ones included.
+ *
+ * Handed to the scout as companies to skip. Without it every run spends its
+ * proposals re-finding the employers already being polled — the model has no
+ * memory between runs, and `seenCompanies` only dedupes within one. Archived
+ * boards are in the list on purpose: the reader switched that employer off, and
+ * proposing it again is exactly what they asked not to happen.
+ */
+export async function knownAtsCompanies(): Promise<string[]> {
+  await migrate()
+  const rows = await db()
+    .select({ label: jobSources.label })
+    .from(jobSources)
+    .where(eq(jobSources.kind, 'ats'))
+  return rows.map(row => row.label)
 }
 
 export async function activeJobSources(): Promise<JobSource[]> {
@@ -64,8 +121,69 @@ export async function recordSourceFetch(
       ...(update.etag !== undefined ? { etag: update.etag } : {}),
       ...(update.lastModified !== undefined ? { lastModified: update.lastModified } : {}),
       ...(update.count !== undefined ? { lastCount: update.count } : {}),
+      // The empty streak, maintained in SQL rather than by the caller so no fetch
+      // path can forget it. `kind <> 'ats'` is the first branch because a 304 on a
+      // feed is a healthy zero — see the note on `emptySince` in `schema.ts`.
+      ...(update.count !== undefined
+        ? {
+            emptySince: sql`case
+              when ${jobSources.kind} <> 'ats' then null
+              when ${update.count} > 0 then null
+              when ${jobSources.emptySince} is null then ${Date.now()}
+              else ${jobSources.emptySince}
+            end`,
+          }
+        : {}),
     })
     .where(eq(jobSources.id, sourceId))
+}
+
+/**
+ * Switches off ATS boards that have stopped producing, and forgets old ones.
+ *
+ * **The counterweight to `recordAtsBoards`.** Discovery with no decay is a table
+ * that only grows: boards arrive at up to `leadsPerSearch × maxSearchesPerRun` a
+ * day and each one costs a request every run forever. This is what makes the
+ * compounding bounded instead of unbounded.
+ *
+ * Two stages, and the gap between them is load-bearing. A board silent for
+ * `atsIdleDays` is *archived* and marked `idle` — it stops being fetched, but the
+ * row survives, so `knownAtsCompanies` keeps telling the scout not to propose that
+ * employer again. Only after `atsForgetDays` more is the row deleted, which is
+ * what finally makes the employer discoverable afresh. Delete at the first stage
+ * instead and the next run simply re-finds the same empty board.
+ *
+ * **`lastStatus = 'idle'` is the marker that separates an automatic archive from
+ * the reader's own.** A row the reader archived by hand keeps whatever status its
+ * last fetch left, is never deleted, and so can never be undone by rediscovery —
+ * their decision outlives the mechanism.
+ */
+export async function decayAtsBoards(): Promise<{ idled: number; forgotten: number }> {
+  await migrate()
+  const now = Date.now()
+
+  const idled = await db()
+    .update(jobSources)
+    .set({ archivedAt: now, lastStatus: 'idle' })
+    .where(
+      and(
+        eq(jobSources.kind, 'ats'),
+        isNull(jobSources.archivedAt),
+        lt(jobSources.emptySince, now - jobScout.atsIdleDays * 24 * 60 * 60 * 1000),
+      ),
+    )
+
+  const forgotten = await db()
+    .delete(jobSources)
+    .where(
+      and(
+        eq(jobSources.kind, 'ats'),
+        eq(jobSources.lastStatus, 'idle'),
+        lt(jobSources.archivedAt, now - jobScout.atsForgetDays * 24 * 60 * 60 * 1000),
+      ),
+    )
+
+  return { idled: idled.rowsAffected ?? 0, forgotten: forgotten.rowsAffected ?? 0 }
 }
 
 /**
@@ -141,7 +259,32 @@ export async function linkPendingToSearch(searchSlug: string): Promise<number> {
   )
 }
 
-/** Postings this search has not scored yet, newest first. */
+/**
+ * Postings this search has not scored yet, newest first — **by the board's own
+ * date, never by when we happened to fetch it**.
+ *
+ * This ordering is the whole reason some sources are looked at and others are
+ * not, because `limit` is far smaller than the backlog. Sorting on
+ * `discoveredAt` alone was therefore a silent source filter: ingest stamps
+ * `Date.now()` once per run, but before that it stamped it per posting, and
+ * sources are fetched in batches of `sourceConcurrency` in `id` order — so every
+ * We Work Remotely posting landed a few hundred milliseconds "newer" than every
+ * API board's, and `weworkremotely-fullstack`, alphabetically last in its batch,
+ * was the newest thing in the table on every run.
+ *
+ * Measured 2026-08-06, and it is not a small effect. The window of 240 for
+ * `front-end-developer` was 143 rows from that day's fetch plus 97 older ones —
+ * and all 97 were `weworkremotely-fullstack`. Himalayas, alphabetically *first*
+ * and so collected first, had never been scored by any search in any run; nor had
+ * `weworkremotely-devops`. Seven postings were delivered that cycle and all seven
+ * were WWR, which looked like a source quality difference and was not.
+ *
+ * `coalesce` rather than `postedAt` alone because a `sonar` lead has no date —
+ * it is a careers page, not an advert. Falling back to `discoveredAt` puts leads
+ * at the top of the window, which is right: there are at most
+ * `leadsPerSearch × maxSearchesPerRun` of them and each one cost a model call and
+ * a page fetch.
+ */
 export async function listUnscored(searchSlug: string, limit: number): Promise<Job[]> {
   await migrate()
   const rows = await db()
@@ -149,7 +292,10 @@ export async function listUnscored(searchSlug: string, limit: number): Promise<J
     .from(jobMatches)
     .innerJoin(jobs, eq(jobs.id, jobMatches.jobId))
     .where(and(eq(jobMatches.searchSlug, searchSlug), isNull(jobMatches.scoredAt)))
-    .orderBy(desc(jobs.discoveredAt))
+    // `discoveredAt` stays as the tiebreak. Postings that share a posted date are
+    // common on boards that publish at day granularity, and among an exact tie
+    // fetch order is arbitrary rather than biased.
+    .orderBy(sql`coalesce(${jobs.postedAt}, ${jobs.discoveredAt}) desc`, desc(jobs.discoveredAt))
     .limit(limit)
   return rows.map(row => row.job)
 }

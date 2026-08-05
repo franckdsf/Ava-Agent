@@ -1,6 +1,14 @@
 import type { Mastra } from '@mastra/core'
 import { jobPipeline, jobScout } from '../config/jobs.js'
 import type { JobSearch, JobSource } from '../db/schema.js'
+import {
+  atsBoardAsSource,
+  atsBoardUrl,
+  detectAtsBoard,
+  fetchAtsBoard,
+  findAtsBoardInHtml,
+  probeAtsBoards,
+} from './ats.js'
 import { htmlToText } from './article.js'
 import type { JobFetchResult, RawPosting } from './job-fetch.js'
 import { proposeCompanies, type JobLead } from '../mastra/agents/job-scout.js'
@@ -38,6 +46,12 @@ export interface LeadResolution {
   careersUrl: string | null
   /** Extracted page text, capped. Null when nothing was resolved. */
   pageText: string | null
+  /**
+   * The careers page's raw markup, kept only so `leadToPostings` can look for an
+   * applicant-tracking board mounted on it — usually an embed script rather than
+   * a link, which `pageText` has already thrown away. Never stored.
+   */
+  pageHtml: string | null
   /** How it was found, for the report. Null when nothing was. */
   via: 'linked' | 'well-known' | null
   /** Why nothing was found. Null on success. */
@@ -154,12 +168,12 @@ function usableText(html: string): string | null {
 /** The first candidate that answers with usable text, or null. */
 async function firstUsable(
   candidates: readonly string[],
-): Promise<{ url: string; text: string } | null> {
+): Promise<{ url: string; text: string; html: string } | null> {
   for (const candidate of candidates) {
     const { html } = await fetchPage(candidate)
     if (!html) continue
     const text = usableText(html)
-    if (text) return { url: candidate, text }
+    if (text) return { url: candidate, text, html }
   }
   return null
 }
@@ -183,6 +197,7 @@ export async function resolveLead(lead: JobLead): Promise<LeadResolution> {
       lead,
       careersUrl: null,
       pageText: null,
+      pageHtml: null,
       via: null,
       problem: 'not a valid http(s) URL',
     }
@@ -192,7 +207,14 @@ export async function resolveLead(lead: JobLead): Promise<LeadResolution> {
 
   const linked = await firstUsable(careersLinks(html, homepage))
   if (linked) {
-    return { lead, careersUrl: linked.url, pageText: linked.text, via: 'linked', problem: null }
+    return {
+      lead,
+      careersUrl: linked.url,
+      pageText: linked.text,
+      pageHtml: linked.html,
+      via: 'linked',
+      problem: null,
+    }
   }
 
   const guesses = jobScout.careersPaths
@@ -210,6 +232,7 @@ export async function resolveLead(lead: JobLead): Promise<LeadResolution> {
       lead,
       careersUrl: guessed.url,
       pageText: guessed.text,
+      pageHtml: guessed.html,
       via: 'well-known',
       problem: null,
     }
@@ -219,6 +242,7 @@ export async function resolveLead(lead: JobLead): Promise<LeadResolution> {
     lead,
     careersUrl: null,
     pageText: null,
+    pageHtml: null,
     via: null,
     problem: ok ? 'no careers page found on the site' : 'the site could not be fetched',
   }
@@ -250,6 +274,7 @@ export async function resolveLeads(leads: readonly JobLead[]): Promise<LeadResol
 export function leadToPosting(resolution: LeadResolution): RawPosting | null {
   if (!resolution.careersUrl || !resolution.pageText) return null
   return {
+    keyedAs: 'lead',
     company: resolution.lead.company,
     title: resolution.lead.role,
     location: null,
@@ -267,6 +292,79 @@ export function leadToPosting(resolution: LeadResolution): RawPosting | null {
     tags: [],
     postedAt: null,
   }
+}
+
+/**
+ * One resolved lead as postings — the employer's real adverts where possible.
+ *
+ * **The landing page is the fallback now, not the product.** When resolution
+ * lands on an applicant-tracking board, that board has a public API listing the
+ * employer's actual openings with actual descriptions, and reading it replaces a
+ * single row of marketing copy with N real adverts. That is the difference
+ * between a lead the filter rejects for naming no stack and a set of postings the
+ * filter can judge on their own words — see the head of `services/ats.ts` for the
+ * measurement that motivated this.
+ *
+ * A board that answers nothing usable degrades to `leadToPosting` rather than to
+ * nothing at all. An employer whose board is genuinely empty is still a company
+ * that was proposed and verified, and the careers page is still a real page; it
+ * is simply worth much less, and the filter will treat it accordingly.
+ *
+ * **Three ways to a board, cheapest first, and the order is what makes it work.**
+ * Measured over the six employers of a live run: resolution landed directly on an
+ * ATS host **zero** times, the careers-page markup referenced one, and probing the
+ * domain label found four of the remaining five. Shipping only the first two
+ * would have been a feature that never fired — which is exactly how the landing
+ * page problem it replaces went unnoticed.
+ */
+export async function leadToPostings(resolution: LeadResolution): Promise<LeadExpansion> {
+  if (!resolution.careersUrl || !resolution.pageText) {
+    return { postings: [], board: null, problem: null }
+  }
+
+  const board =
+    detectAtsBoard(resolution.careersUrl) ??
+    (resolution.pageHtml ? findAtsBoardInHtml(resolution.pageHtml) : null) ??
+    (await probeAtsBoards(resolution.lead.homepage, resolution.lead.company))
+  if (board) {
+    const { postings, problem } = await fetchAtsBoard(board)
+    if (postings.length > 0) {
+      return {
+        // The employer's own name from their board where they publish one;
+        // Greenhouse does, the other two only carry the slug, so the model's
+        // company name is the better label there. Either way it is never the
+        // model that decides the *URL*, which is the part that must be true.
+        postings: postings.map(posting => ({
+          ...posting,
+          company: board.provider === 'greenhouse' ? posting.company : resolution.lead.company,
+        })),
+        // Handed up rather than written here — this module does not touch the
+        // database, and `findJobs` is where a run's writes belong.
+        board: atsBoardAsSource(board, resolution.lead.company),
+        problem: null,
+      }
+    }
+    const fallback = leadToPosting(resolution)
+    return {
+      postings: fallback ? [fallback] : [],
+      // **Not remembered.** A board that lists nothing today is not evidence of a
+      // source worth polling forever, and storing it would fill the table with
+      // employers who are not hiring.
+      board: null,
+      problem: problem ?? `${atsBoardUrl(board)} listed no open postings`,
+    }
+  }
+
+  const posting = leadToPosting(resolution)
+  return { postings: posting ? [posting] : [], board: null, problem: null }
+}
+
+/** One lead, expanded — plus the board worth remembering, when there is one. */
+export interface LeadExpansion {
+  postings: RawPosting[]
+  /** The ATS board to store as a source row. Null when there is nothing to keep. */
+  board: { id: string; adapter: string; url: string; label: string } | null
+  problem: string | null
 }
 
 /**
@@ -293,6 +391,8 @@ export async function fetchSonarSource(
   source: JobSource,
   mastra: Mastra,
   searches: readonly JobSearch[],
+  /** Employers already polled as `ats` rows, so the scout looks past them. */
+  knownCompanies: readonly string[] = [],
 ): Promise<JobFetchResult> {
   const wanted = searches.slice(0, jobScout.maxSearchesPerRun)
   if (wanted.length === 0) {
@@ -301,10 +401,16 @@ export async function fetchSonarSource(
 
   const postings: RawPosting[] = []
   const problems: string[] = []
+  const boards: LeadExpansion['board'][] = []
   // Companies already resolved this run, so two searches that overlap don't both
   // spend fetches on the same employer. Names, because that is what the prompt
   // can be told to skip; the real dedupe is `leadIdentity` at ingest.
-  const seenCompanies = new Set<string>()
+  //
+  // **Seeded with every employer already polled as an `ats` row.** The model has
+  // no memory between runs, so without this each run spends its proposals
+  // re-finding the boards the pipeline is already reading — the scout's whole
+  // value is finding employers it has *not* found before.
+  const seenCompanies = new Set(knownCompanies.map(company => company.toLowerCase()))
 
   for (const search of wanted) {
     try {
@@ -313,8 +419,13 @@ export async function fetchSonarSource(
       for (const lead of fresh) seenCompanies.add(lead.company.toLowerCase())
 
       for (const resolution of await resolveLeads(fresh)) {
-        const posting = leadToPosting(resolution)
-        if (posting) postings.push(posting)
+        const expanded = await leadToPostings(resolution)
+        postings.push(...expanded.postings)
+        if (expanded.board) boards.push(expanded.board)
+        // A board that resolved but listed nothing is worth recording on the row:
+        // it is the difference between "sonar found no one" and "sonar found six
+        // employers who are not currently hiring", which look identical in a count.
+        if (expanded.problem) problems.push(`${search.slug}: ${expanded.problem}`)
       }
     } catch (error) {
       problems.push(
@@ -326,6 +437,7 @@ export async function fetchSonarSource(
   return {
     sourceId: source.id,
     postings,
+    boards: boards.filter((board): board is NonNullable<typeof board> => board !== null),
     // A source that resolved nothing at all is worth seeing on the row, because
     // it is indistinguishable from a healthy quiet run otherwise.
     status: problems.length > 0 ? 'partial' : '200',

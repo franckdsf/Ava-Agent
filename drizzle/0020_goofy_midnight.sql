@@ -1,0 +1,1 @@
+ALTER TABLE `job_sources` ADD `empty_since` integer;

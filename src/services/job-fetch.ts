@@ -1,6 +1,7 @@
 import Parser from 'rss-parser'
 import { jobPipeline } from '../config/jobs.js'
 import type { JobRemote, JobSource } from '../db/schema.js'
+import { detectAtsBoard, fetchAtsBoard } from './ats.js'
 import { htmlToText } from './article.js'
 
 /**
@@ -28,6 +29,19 @@ export interface RawPosting {
   contractType: string | null
   tags: string[]
   postedAt: number | null
+  /**
+   * How this is keyed at ingest. Absent means `posting`, which is what every
+   * board produces.
+   *
+   * Only the `sonar` source emits both, and the difference is not cosmetic. A
+   * *lead* is a company plus a careers page, keyed on the URL alone because its
+   * title is a model's phrasing and changes between runs
+   * ([`job-identity.ts`](./job-identity.ts)). A posting expanded off that
+   * company's ATS board is a real advert with the employer's own title, location
+   * and URL — keying it like a lead would collapse an entire board into one row
+   * and deliver the reader a link to the board instead of to the job.
+   */
+  keyedAs?: 'posting' | 'lead'
 }
 
 export interface JobFetchResult {
@@ -37,6 +51,12 @@ export interface JobFetchResult {
   error?: string
   etag?: string | null
   lastModified?: string | null
+  /**
+   * Applicant-tracking boards this fetch discovered and that are worth keeping as
+   * source rows of their own. Only `sonar` ever fills this — see
+   * `recordAtsBoards` for why the pipeline has exactly one compounding step.
+   */
+  boards?: { id: string; adapter: string; url: string; label: string }[]
 }
 
 /**
@@ -383,6 +403,7 @@ export async function fetchJobSource(source: JobSource): Promise<JobFetchResult>
   try {
     if (source.kind === 'rss') return await fetchRssSource(source)
     if (source.kind === 'api') return await fetchApiSource(source)
+    if (source.kind === 'ats') return await fetchAtsSource(source)
     // `sonar` is wired, but not here: it needs a model handle and the reader's
     // active searches, which a function taking only a row cannot have. `findJobs`
     // routes it to `fetchSonarSource` in `services/job-scout.ts`. Reaching this
@@ -409,6 +430,40 @@ export async function fetchJobSource(source: JobSource): Promise<JobFetchResult>
       status: 'error',
       error: error instanceof Error ? error.message : String(error),
     }
+  }
+}
+
+/**
+ * One discovered applicant-tracking board.
+ *
+ * **The row stores the employer-facing board URL, not the API endpoint**, and
+ * `detectAtsBoard` recovers the provider and token from it. Two reasons, both
+ * practical: the stored URL is then something a human can open to check what the
+ * row actually is, and the endpoint shape stays a private detail of `ats.ts`
+ * rather than being frozen into hundreds of rows that would all need rewriting if
+ * a provider changed its API path.
+ *
+ * No conditional-GET state, unlike the board kinds above. These APIs answer with
+ * the employer's current openings and carry no useful validators; a 304 that
+ * never comes is not worth a column.
+ */
+async function fetchAtsSource(source: JobSource): Promise<JobFetchResult> {
+  const board = detectAtsBoard(source.url)
+  if (!board) {
+    return {
+      sourceId: source.id,
+      postings: [],
+      status: 'error',
+      error: `"${source.url}" is not a readable ATS board URL`,
+    }
+  }
+
+  const { postings, problem } = await fetchAtsBoard(board)
+  return {
+    sourceId: source.id,
+    postings: postings.map(posting => ({ ...posting, company: posting.company || source.label })),
+    status: problem ? 'error' : '200',
+    error: problem ?? undefined,
   }
 }
 
