@@ -44,8 +44,9 @@ something looks the way it does.
 | [0024](0024-joob-a-job-pipeline-beside-the-news-one.md) | Joob — a job pipeline beside the news one, sharing everything but the tables | Accepted |
 | [0025](0025-a-boot-catch-up-for-a-stale-pipeline.md) | A boot fires a pipeline that has stopped running, on its own cadence | Accepted |
 | [0026](0026-sonar-as-a-job-source.md) | Sonar as a job source, keyed on the page it resolves | Accepted |
-| [0027](0027-ats-boards-as-discovered-sources.md) | Real postings off applicant-tracking boards, and the boards become sources | Accepted |
+| [0027](0027-ats-boards-as-discovered-sources.md) | Real postings off applicant-tracking boards, and the boards become sources | Partly superseded by [0029](0029-six-ats-providers-probed-concurrently.md) |
 | [0028](0028-a-search-decides-what-counts-as-a-job.md) | A search decides what counts as a job, not the taxonomy | Accepted |
+| [0029](0029-six-ats-providers-probed-concurrently.md) | Six applicant-tracking providers, probed concurrently | Accepted |
 
 **Reading 0001–0021:** they predate [0022](0022-ava-is-the-system-agents-have-names.md)
 and call the conversational agent *Ava*. That agent is now **Newy**; *Ava* is the

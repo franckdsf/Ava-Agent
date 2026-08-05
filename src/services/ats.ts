@@ -18,17 +18,36 @@ import type { RawPosting } from './job-fetch.js'
  * text, not the amount of it.
  *
  * Every board here answers **without a key, in one request, with the full advert
- * body**. That last part is the selection rule and it excluded two obvious
- * candidates, both verified live on 2026-08-06:
+ * body**. That last part is the selection rule, and it is the whole reason this
+ * list is six providers rather than the fifty-odd trackers that exist. A second
+ * sweep on 2026-08-06 added three and rejected five, all verified live:
  *
- * - **SmartRecruiters** works and is free, but its list endpoint carries no
- *   description at all — the body needs a second fetch per posting. An N+1 against
- *   a stranger's API, for text that then has to clear the same filter, is a worse
- *   deal than it looks. Add it when there is a reason to spend those requests.
- * - **Personio** answered `429` on every request but one, which matters because it
- *   is *the* European SME tracker and therefore the single best route to the
- *   non-software employers this pipeline is meant to reach. Worth revisiting with
- *   a backoff; not worth shipping as a source that mostly rate-limits.
+ * - **Workable** and **Recruitee** pass outright, and both publish the employer's
+ *   own name in the list payload — so they get the `companyAgrees` check that
+ *   ADR-0027 could only give Greenhouse, which makes four of six providers
+ *   checkable instead of one of three.
+ * - **Personio** passes, and it is the one ADR-0027 named as the largest remaining
+ *   gap — *the* European SME tracker, and therefore the best route to the
+ *   non-software employers this pipeline exists to reach. **It was never really a
+ *   rate-limit problem.** The `429`s recorded then did not reproduce (six
+ *   consecutive `200`s); the real blocker is that `<jobDescriptions>` comes back
+ *   *present but empty* unless the request carries `?language=en`, which reads
+ *   exactly like a board with no bodies. With the parameter: 3,300–5,700
+ *   characters a position.
+ * - **Breezy HR** and **Rippling** are keyless and answer fine, but neither puts a
+ *   description in the list — the same N+1 that keeps **SmartRecruiters** out,
+ *   re-confirmed unchanged. Add any of them when there is a reason to spend a
+ *   request per posting.
+ * - **Workday** fails twice over, which is worth recording because it is the
+ *   biggest tracker here by headcount. Its list carries `title`, a path and
+ *   `"Posted Today"` — not a description and not even a real date — *and* its URL
+ *   needs a datacenter, a tenant and a site name
+ *   (`nvidia.wd5.myworkdayjobs.com/wday/cxs/nvidia/NVIDIAExternalCareerSite`),
+ *   none of which is derivable from a domain label. See `probeAtsBoards` for why
+ *   that second half is disqualifying on its own.
+ * - **Teamtailor** has no keyless endpoint at all: `api.teamtailor.com/v1/jobs`
+ *   answers `406` without an `X-Api-Key`, and per-tenant `jobs.json` / `jobs.rss`
+ *   are `404`.
  *
  * **The domain generality is the point, not a side effect.** These boards are not
  * tech boards. Figure's Greenhouse board was 18 non-engineering roles out of 19 —
@@ -39,8 +58,16 @@ import type { RawPosting } from './job-fetch.js'
  * what the four remaining remote-tech boards can never provide.
  */
 
-/** The trackers this module can read. */
-export type AtsProvider = 'greenhouse' | 'lever' | 'ashby'
+/**
+ * The trackers this module can read, in probe order — see `PROBE_ORDER`.
+ */
+export type AtsProvider =
+  | 'greenhouse'
+  | 'lever'
+  | 'ashby'
+  | 'workable'
+  | 'recruitee'
+  | 'personio'
 
 export interface AtsBoard {
   provider: AtsProvider
@@ -51,11 +78,17 @@ export interface AtsBoard {
 /**
  * The board a resolved careers URL belongs to, or null.
  *
- * Matched on host *and* first path segment, never on the host alone: every one of
- * these providers serves its own marketing site from the same domain, and
- * `greenhouse.io/customers` is not a board. A missing or reserved first segment
- * is therefore a null rather than a token — the alternative is requesting
+ * **The token lives in one of two places and which one is per-provider.**
+ * Greenhouse, Lever, Ashby and Workable put it in the first path segment; those
+ * are matched on host *and* segment, never the host alone, because every one of
+ * these providers serves its own marketing site from the same domain and
+ * `greenhouse.io/customers` is not a board. A missing or reserved segment is a
+ * null rather than a token — the alternative is requesting
  * `/v1/boards/customers/jobs` and recording a 404 as if an employer had no jobs.
+ *
+ * Recruitee and Personio put it in the *subdomain* instead, so for those the path
+ * is irrelevant and `acme.recruitee.com/o/some-role` is the same board as
+ * `acme.recruitee.com`.
  *
  * Greenhouse has three published shapes for the same board and all three are in
  * the wild: `boards.greenhouse.io/acme`, the newer `job-boards.greenhouse.io/acme`
@@ -74,6 +107,8 @@ export function detectAtsBoard(url: string): AtsBoard | null {
   const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
   const segments = parsed.pathname.split('/').filter(Boolean)
   const first = segments[0]?.toLowerCase()
+  /** The leftmost label, for the providers that key on it. */
+  const label = host.split('.')[0]
 
   if (host === 'greenhouse.io' || host.endsWith('.greenhouse.io')) {
     // `…/embed/job_board?for=acme` — the token is in the query, not the path.
@@ -83,6 +118,17 @@ export function detectAtsBoard(url: string): AtsBoard | null {
   }
   if (host === 'lever.co' || host.endsWith('.lever.co')) return board('lever', first)
   if (host === 'ashbyhq.com' || host.endsWith('.ashbyhq.com')) return board('ashby', first)
+
+  // Workable serves every board from one host — `apply.workable.com/acme` — and
+  // still answers the older per-tenant `acme.workable.com`.
+  if (host === 'apply.workable.com') return board('workable', first)
+  if (host.endsWith('.workable.com')) return board('workable', label)
+
+  if (host.endsWith('.recruitee.com')) return board('recruitee', label)
+  // Personio answers on both TLDs; `.de` is the canonical one and the one probed.
+  if (host.endsWith('.jobs.personio.de') || host.endsWith('.jobs.personio.com')) {
+    return board('personio', label)
+  }
 
   return null
 }
@@ -98,6 +144,14 @@ export function detectAtsBoard(url: string): AtsBoard | null {
 const RESERVED_SEGMENTS = new Set([
   'customers', 'pricing', 'about', 'blog', 'legal', 'privacy', 'terms',
   'products', 'solutions', 'login', 'signup', 'demo', 'contact', 'jobs',
+  // `apply.workable.com/j/186545F8C1` is a single advert, and it is the URL
+  // Workable puts on every posting it returns — so unlike the rest of this set,
+  // this one is certain to be met rather than merely plausible.
+  'j',
+  // Provider-owned *subdomains*, which matter now that Recruitee, Personio and
+  // per-tenant Workable read the leftmost label as the token. `www` never
+  // reaches here — it is stripped before matching — but the rest do.
+  'help', 'support', 'app', 'api', 'assets', 'status', 'docs',
 ])
 
 function board(provider: AtsProvider, token: string | undefined): AtsBoard | null {
@@ -114,13 +168,26 @@ const API_URLS: Record<AtsProvider, (token: string) => string> = {
   greenhouse: token => `https://boards-api.greenhouse.io/v1/boards/${token}/jobs?content=true`,
   lever: token => `https://api.lever.co/v0/postings/${token}?mode=json`,
   ashby: token => `https://api.ashbyhq.com/posting-api/job-board/${token}`,
+  workable: token => `https://apply.workable.com/api/v1/widget/accounts/${token}?details=true`,
+  recruitee: token => `https://${token}.recruitee.com/api/offers/`,
+  // `language` is load-bearing, not a preference. Without it every
+  // `<jobDescriptions>` element comes back present and empty — see the module
+  // doc; it is the entire reason Personio looked unusable until now.
+  personio: token => `https://${token}.jobs.personio.de/xml?language=en`,
+}
+
+const BOARD_URLS: Record<AtsProvider, (token: string) => string> = {
+  greenhouse: token => `https://job-boards.greenhouse.io/${token}`,
+  lever: token => `https://jobs.lever.co/${token}`,
+  ashby: token => `https://jobs.ashbyhq.com/${token}`,
+  workable: token => `https://apply.workable.com/${token}`,
+  recruitee: token => `https://${token}.recruitee.com`,
+  personio: token => `https://${token}.jobs.personio.de`,
 }
 
 /** The employer-facing URL for a board — what an `ats` source row stores. */
 export function atsBoardUrl(board: AtsBoard): string {
-  if (board.provider === 'greenhouse') return `https://job-boards.greenhouse.io/${board.token}`
-  if (board.provider === 'lever') return `https://jobs.lever.co/${board.token}`
-  return `https://jobs.ashbyhq.com/${board.token}`
+  return BOARD_URLS[board.provider](board.token)
 }
 
 /**
@@ -308,11 +375,220 @@ function fromAshby(payload: unknown, board: AtsBoard): RawPosting[] {
   })
 }
 
+/**
+ * Workable — `apply.workable.com/api/v1/widget/accounts/{token}?details=true`.
+ *
+ * **`details=true` is the difference between a title list and an advert.** The
+ * widget without it returns titles and locations; with it, `description` is the
+ * full HTML body — 154KB over Blueground's 28 postings, measured 2026-08-06.
+ *
+ * The employer's name is on the *account*, not the posting, so it is read once
+ * from the envelope and stamped on every row. That envelope name is what lets
+ * `probeAtsBoards` check Workable for company agreement.
+ */
+function fromWorkable(payload: unknown, board: AtsBoard): RawPosting[] {
+  const account = payload as { name?: unknown; jobs?: unknown[] }
+  const jobs = account?.jobs
+  if (!Array.isArray(jobs)) return []
+
+  const company = clean(account.name) ?? board.token
+
+  return jobs.flatMap((raw): RawPosting[] => {
+    const job = raw as Record<string, unknown>
+    const title = clean(job.title)
+    const url = clean(job.url) ?? clean(job.shortlink) ?? clean(job.application_url)
+    if (!title || !url) return []
+
+    // City, state and country are three fields and any of them can be an empty
+    // string rather than absent, so the location is joined from whichever are
+    // really there instead of formatted from a fixed template.
+    const location =
+      [clean(job.city), clean(job.state), clean(job.country)].filter(Boolean).join(', ') || null
+
+    return [{
+      company,
+      title,
+      location,
+      remote: remoteFrom(location, job.telecommuting === true),
+      url,
+      description: truncate(clean(htmlToText(String(job.description ?? '')))),
+      salaryText: null,
+      contractType: clean(job.employment_type),
+      tags: [clean(job.department), clean(job.function)].filter(
+        (tag): tag is string => tag !== null,
+      ),
+      postedAt: parseDate(job.published_on ?? job.created_at),
+    }]
+  })
+}
+
+/**
+ * Recruitee — `{token}.recruitee.com/api/offers/`.
+ *
+ * Three booleans instead of one — `remote`, `on_site` and `hybrid` — and
+ * **`hybrid` maps to `unknown`, not `onsite`**. It is the only honest answer: a
+ * hybrid role is neither, and `search.remote === 'required'` rejects `onsite`
+ * outright, so calling it on-site would silently discard roles a reader asking
+ * for remote might well accept. `unknown` costs a scoring slot and lets the model
+ * decide, which is the same trade `remoteFrom` already makes for a silent field.
+ *
+ * `careers_url` is usually on the employer's *own* domain
+ * (`werkenbij.vandebron.nl/o/…`) rather than Recruitee's, which is a better
+ * identity signal than the provider-hosted URLs the other five produce.
+ */
+function fromRecruitee(payload: unknown, board: AtsBoard): RawPosting[] {
+  const offers = (payload as { offers?: unknown[] })?.offers
+  if (!Array.isArray(offers)) return []
+
+  return offers.flatMap((raw): RawPosting[] => {
+    const job = raw as Record<string, unknown>
+    const title = clean(job.title)
+    const url = clean(job.careers_url) ?? clean(job.careers_apply_url)
+    if (!title || !url) return []
+
+    const location =
+      clean(job.location) ??
+      ([clean(job.city), clean(job.country)].filter(Boolean).join(', ') || null)
+
+    // `requirements` is frequently null and the whole advert sits in
+    // `description`, but when it is filled it is the part naming a qualification
+    // — the same split Lever has, and the same reason to keep both.
+    const body = [clean(job.description), clean(job.requirements)].filter(Boolean).join('\n\n')
+
+    const remote: JobRemote =
+      job.remote === true ? 'remote'
+      : job.hybrid === true ? 'unknown'
+      : job.on_site === true ? 'onsite'
+      : remoteFrom(location)
+
+    return [{
+      company: clean(job.company_name) ?? board.token,
+      title,
+      location,
+      remote,
+      url,
+      description: truncate(clean(htmlToText(body))),
+      salaryText: salaryFromRecruitee(job.salary),
+      contractType: clean(job.employment_type_code),
+      tags: [clean(job.department), ...(Array.isArray(job.tags) ? job.tags.map(clean) : [])].filter(
+        (tag): tag is string => tag !== null,
+      ),
+      postedAt: parseDate(job.published_at ?? job.created_at),
+    }]
+  })
+}
+
+/**
+ * Recruitee's salary object, or null when it is the empty shell it usually is.
+ *
+ * Every field arrives as `null` on a board that does not publish pay, so the
+ * object is always present and almost always says nothing. Formatting it
+ * unconditionally would write `"null–null null"` into every row.
+ */
+function salaryFromRecruitee(value: unknown): string | null {
+  const salary = value as { min?: unknown; max?: unknown; currency?: unknown; period?: unknown } | null
+  if (!salary) return null
+  const min = clean(String(salary.min ?? '')) ?? null
+  const max = clean(String(salary.max ?? '')) ?? null
+  if (!min && !max) return null
+  const range = min && max ? `${min}–${max}` : (min ?? max)
+  return [range, clean(String(salary.currency ?? '')), clean(String(salary.period ?? ''))]
+    .filter(Boolean)
+    .join(' ')
+}
+
+/** The text of the first `<tag>` in a fragment, CDATA unwrapped and tags stripped. */
+function xmlText(fragment: string, tag: string): string | null {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(fragment)
+  if (!match?.[1]) return null
+  // CDATA markers must go *before* `htmlToText`, not after. `<![CDATA[` is not a
+  // well-formed tag, so a tag-stripping pass starting there runs to the first
+  // `>` it finds — which is inside the body's own `<br>` — and eats real text.
+  return clean(htmlToText(match[1].replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '')))
+}
+
+/**
+ * Personio — `{token}.jobs.personio.de/xml?language=en`.
+ *
+ * The only non-JSON provider here, and the XML is why it is worth the exception:
+ * flat `<position>` blocks whose one nested element is `<jobDescriptions>`, a
+ * list of `<name>`/`<value>` section pairs. That is the same shape as Lever's
+ * `lists[]` and it is read the same way — **the sections are the advert**, and
+ * the one naming a qualification is never the first.
+ *
+ * Two traps, both structural rather than incidental:
+ *
+ * - **`<name>` means two different things in one document.** It is the position's
+ *   title as a direct child, and a section heading inside `<jobDescriptions>`. So
+ *   the description block is lifted out first and the flat fields are read from
+ *   what remains, rather than trusting document order to keep them apart.
+ * - **Personio publishes no per-posting URL at all**, so it is constructed from
+ *   the id. Verified 2026-08-06: `…/job/{id}` answers 200.
+ */
+function fromPersonio(payload: unknown, board: AtsBoard): RawPosting[] {
+  const xml = typeof payload === 'string' ? payload : ''
+
+  return [...xml.matchAll(/<position>([\s\S]*?)<\/position>/g)].flatMap(
+    ([, block = '']): RawPosting[] => {
+      const descriptions = /<jobDescriptions>([\s\S]*?)<\/jobDescriptions>/.exec(block)?.[1] ?? ''
+      const flat = block.replace(/<jobDescriptions>[\s\S]*?<\/jobDescriptions>/, '')
+
+      const title = xmlText(flat, 'name')
+      const id = xmlText(flat, 'id')
+      if (!title || !id) return []
+
+      const body = [...descriptions.matchAll(/<jobDescription>([\s\S]*?)<\/jobDescription>/g)]
+        .map(([, section = '']) =>
+          `${xmlText(section, 'name') ?? ''}\n${xmlText(section, 'value') ?? ''}`.trim(),
+        )
+        .filter(Boolean)
+        .join('\n\n')
+
+      const location = xmlText(flat, 'office')
+
+      return [{
+        // `<subcompany>` is the hiring legal entity — "Wandelbots GmbH" — which
+        // is a real employer name and makes Personio checkable for agreement.
+        company: xmlText(flat, 'subcompany') ?? board.token,
+        title,
+        location,
+        remote: remoteFrom(location),
+        url: `${atsBoardUrl(board)}/job/${id}`,
+        description: truncate(clean(body)),
+        salaryText: null,
+        contractType: xmlText(flat, 'employmentType'),
+        tags: [xmlText(flat, 'department'), xmlText(flat, 'recruitingCategory')].filter(
+          (tag): tag is string => tag !== null,
+        ),
+        postedAt: parseDate(xmlText(flat, 'createdAt')),
+      }]
+    },
+  )
+}
+
 const ADAPTERS: Record<AtsProvider, (payload: unknown, board: AtsBoard) => RawPosting[]> = {
   greenhouse: fromGreenhouse,
   lever: fromLever,
   ashby: fromAshby,
+  workable: fromWorkable,
+  recruitee: fromRecruitee,
+  personio: fromPersonio,
 }
+
+/**
+ * Providers that publish the employer's own name in the list payload.
+ *
+ * Only these can be checked for company agreement, and it is the difference
+ * between a board resting on evidence and a board resting on a token match.
+ * ADR-0027 recorded this as a cost when Greenhouse was the only one; Workable,
+ * Recruitee and Personio each carry a name too, so it now covers four of six.
+ */
+export const PUBLISHES_COMPANY: ReadonlySet<AtsProvider> = new Set<AtsProvider>([
+  'greenhouse',
+  'workable',
+  'recruitee',
+  'personio',
+])
 
 /**
  * An ATS board referenced anywhere in a page's markup.
@@ -329,8 +605,22 @@ const ADAPTERS: Record<AtsProvider, (payload: unknown, board: AtsBoard) => RawPo
  * carries the resolution.
  */
 export function findAtsBoardInHtml(html: string): AtsBoard | null {
-  const pattern =
-    /(?:https?:\/\/)?(?:boards|job-boards)\.greenhouse\.io\/[^"'\s<>)]+|(?:https?:\/\/)?(?:www\.)?greenhouse\.io\/embed\/job_board(?:\/js)?\?for=[a-z0-9_-]+|(?:https?:\/\/)?jobs\.lever\.co\/[^"'\s<>)]+|(?:https?:\/\/)?jobs\.ashbyhq\.com\/[^"'\s<>)]+|(?:https?:\/\/)?api\.ashbyhq\.com\/posting-api\/job-board\/[a-z0-9_-]+/gi
+  const pattern = new RegExp(
+    [
+      String.raw`(?:https?:\/\/)?(?:boards|job-boards)\.greenhouse\.io\/[^"'\s<>)]+`,
+      String.raw`(?:https?:\/\/)?(?:www\.)?greenhouse\.io\/embed\/job_board(?:\/js)?\?for=[a-z0-9_-]+`,
+      String.raw`(?:https?:\/\/)?jobs\.lever\.co\/[^"'\s<>)]+`,
+      String.raw`(?:https?:\/\/)?jobs\.ashbyhq\.com\/[^"'\s<>)]+`,
+      String.raw`(?:https?:\/\/)?api\.ashbyhq\.com\/posting-api\/job-board\/[a-z0-9_-]+`,
+      // Workable is matched host-first so `apply.workable.com/acme` wins over the
+      // per-tenant form; both resolve through `detectAtsBoard`.
+      String.raw`(?:https?:\/\/)?apply\.workable\.com\/[^"'\s<>)]+`,
+      String.raw`(?:https?:\/\/)?[a-z0-9-]+\.workable\.com[^"'\s<>)]*`,
+      String.raw`(?:https?:\/\/)?[a-z0-9-]+\.recruitee\.com[^"'\s<>)]*`,
+      String.raw`(?:https?:\/\/)?[a-z0-9-]+\.jobs\.personio\.(?:de|com)[^"'\s<>)]*`,
+    ].join('|'),
+    'gi',
+  )
 
   for (const match of html.matchAll(pattern)) {
     const raw = match[0].startsWith('http') ? match[0] : `https://${match[0]}`
@@ -363,13 +653,31 @@ export function findAtsBoardInHtml(html: string): AtsBoard | null {
  * and Ramp (120) all resolved from the domain label alone — **six of seven**. Only
  * ASBIS, an Eastern European distributor on none of the three, did not.
  *
- * **Greenhouse is checked for company agreement, the other two cannot be.**
- * Greenhouse returns `company_name` on every posting, so a token collision — some
- * *other* Figure — is caught by comparing it to the employer we were looking for.
- * Lever and Ashby publish no company name anywhere in their posting API, so a
- * board found there rests on the token match alone. The exposure is bounded by
- * what the reader is sent: every posting carries the employer's own URL on the
- * provider's domain, so a mismatch is visible in one click rather than hidden.
+ * **Four of the six can be checked for company agreement, and two cannot.**
+ * Greenhouse, Workable, Recruitee and Personio each publish the employer's own
+ * name, so a token collision — some *other* Figure — is caught by comparing it to
+ * the employer we were looking for. Lever and Ashby publish no company name
+ * anywhere in their posting API, so a board found there still rests on the token
+ * match alone. The exposure is bounded by what the reader is sent: every posting
+ * carries the employer's own URL, so a mismatch is visible in one click.
+ *
+ * **A provider that cannot be reached from a domain label cannot be added here at
+ * all**, however good its data. That is the disqualifying half of Workday: its
+ * URL needs a datacenter, a tenant *and* a site name, so there is nothing to
+ * derive and this function has no question to ask. Such a provider could only
+ * ever arrive through `findAtsBoardInHtml` — the path ADR-0027 measured at 1 of 6
+ * — which is not enough to carry a source on its own.
+ *
+ * **The probes run concurrently.** Sequentially they cost one `pageTimeoutMs`
+ * each in the worst case, so six providers would be up to 90s of wall time per
+ * employer and 45 minutes across a full run — the reason the provider count
+ * looked like the binding constraint. It isn't: fanning out makes the wall time
+ * one timeout regardless of how many providers there are. What concurrency does
+ * cost is the early exit — a Greenhouse hit used to stop after one request and
+ * now always spends six. At `leadsPerSearch × maxSearchesPerRun` that is 180
+ * requests a day worst case, spread across six different hosts, which is not a
+ * number worth optimising against. `PROBE_ORDER` still decides *which* hit wins
+ * when more than one answers, so behaviour is unchanged where it matters.
  */
 export async function probeAtsBoards(
   homepage: string,
@@ -386,15 +694,37 @@ export async function probeAtsBoards(
   const candidate = board('greenhouse', token)
   if (!candidate) return null
 
-  for (const provider of ['greenhouse', 'lever', 'ashby'] as const) {
-    const probe: AtsBoard = { provider, token: candidate.token }
-    const { postings } = await fetchAtsBoard(probe)
-    if (postings.length === 0) continue
-    if (provider === 'greenhouse' && !companyAgrees(postings[0]?.company, company, token)) continue
-    return probe
-  }
-  return null
+  const probes = await Promise.all(
+    PROBE_ORDER.map(async (provider): Promise<AtsBoard | null> => {
+      const probe: AtsBoard = { provider, token: candidate.token }
+      const { postings } = await fetchAtsBoard(probe)
+      if (postings.length === 0) return null
+      if (PUBLISHES_COMPANY.has(provider) && !companyAgrees(postings[0]?.company, company, token)) {
+        return null
+      }
+      return probe
+    }),
+  )
+
+  return probes.find((probe): probe is AtsBoard => probe !== null) ?? null
 }
+
+/**
+ * Which provider wins when a token resolves on more than one.
+ *
+ * Ordered by measured hit rate, so the winner of a tie is the board most likely
+ * to be the employer's real one rather than a slug collision. The three added on
+ * 2026-08-06 go after the three ADR-0027 measured, because their hit rate is
+ * genuinely unknown — the endpoints were verified, the frequency was not.
+ */
+const PROBE_ORDER: readonly AtsProvider[] = [
+  'greenhouse',
+  'lever',
+  'ashby',
+  'workable',
+  'recruitee',
+  'personio',
+]
 
 /**
  * Whether a board's own company name is plausibly the employer we were after.
@@ -440,15 +770,23 @@ export interface AtsFetchResult {
  */
 export async function fetchAtsBoard(board: AtsBoard): Promise<AtsFetchResult> {
   try {
+    // Personio is the one XML provider, so its payload reaches the adapter as a
+    // string and `fromPersonio` is the only one that expects one.
+    const isXml = board.provider === 'personio'
+
     const response = await fetch(API_URLS[board.provider](board.token), {
-      headers: { 'user-agent': jobPipeline.userAgent, accept: 'application/json' },
+      headers: {
+        'user-agent': jobPipeline.userAgent,
+        accept: isXml ? 'application/xml' : 'application/json',
+      },
       signal: AbortSignal.timeout(jobScout.pageTimeoutMs),
     })
     if (!response.ok) {
       return { postings: [], problem: `${board.provider} board answered HTTP ${response.status}` }
     }
 
-    const postings = ADAPTERS[board.provider](await response.json(), board)
+    const payload = isXml ? await response.text() : await response.json()
+    const postings = ADAPTERS[board.provider](payload, board)
       .sort((a, b) => (b.postedAt ?? 0) - (a.postedAt ?? 0))
       .slice(0, jobScout.atsMaxPostingsPerBoard)
 

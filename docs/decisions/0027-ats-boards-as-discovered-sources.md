@@ -1,6 +1,8 @@
 # ADR-0027: Real postings off applicant-tracking boards, and the boards become sources
 
-- **Status:** Accepted
+- **Status:** Partly superseded by [ADR-0029](0029-six-ats-providers-probed-concurrently.md).
+  The design stands; the provider set is six rather than three and the probes run
+  concurrently. Its "Revisit if" fired the same day.
 - **Date:** 2026-08-06
 
 ## Context

@@ -8,6 +8,7 @@ import {
   fetchAtsBoard,
   findAtsBoardInHtml,
   probeAtsBoards,
+  PUBLISHES_COMPANY,
 } from './ats.js'
 import { htmlToText } from './article.js'
 import type { JobFetchResult, RawPosting } from './job-fetch.js'
@@ -330,13 +331,15 @@ export async function leadToPostings(resolution: LeadResolution): Promise<LeadEx
     const { postings, problem } = await fetchAtsBoard(board)
     if (postings.length > 0) {
       return {
-        // The employer's own name from their board where they publish one;
-        // Greenhouse does, the other two only carry the slug, so the model's
-        // company name is the better label there. Either way it is never the
-        // model that decides the *URL*, which is the part that must be true.
+        // The employer's own name from their board where they publish one —
+        // `PUBLISHES_COMPANY` is the four that do. Lever and Ashby carry only the
+        // slug, so the model's company name is the better label there. Either way
+        // it is never the model that decides the *URL*, the part that must be true.
         postings: postings.map(posting => ({
           ...posting,
-          company: board.provider === 'greenhouse' ? posting.company : resolution.lead.company,
+          company: PUBLISHES_COMPANY.has(board.provider)
+            ? posting.company
+            : resolution.lead.company,
         })),
         // Handed up rather than written here — this module does not touch the
         // database, and `findJobs` is where a run's writes belong.
