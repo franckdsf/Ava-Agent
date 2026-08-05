@@ -826,6 +826,112 @@ doesn't wrap without adding a second Telegram library.
 
 *Last updated: 2026-08-06.*
 
+**Six applicant-tracking providers, and the probes run concurrently —
+`src/services/ats.ts` (`PROBE_ORDER`, `PUBLISHES_COMPANY`, `fromWorkable`,
+`fromRecruitee`, `fromPersonio`) and
+[ADR-0029](docs/decisions/0029-six-ats-providers-probed-concurrently.md).**
+Workable, Recruitee and Personio join the original three. Verified end to end:
+**66 postings across four boards, zero with a body under 200 characters**, which
+is the bar the module exists to enforce. Four of six now publish the employer's
+own name, so `companyAgrees` covers Workable, Recruitee and Personio too.
+
+**The selection rule is the answer to "why not add ATS X", and it is not
+negotiable by list length.** Keyless, one request, full advert body. Nine
+candidates were tested on 2026-08-06 and five failed: Breezy, Rippling and
+SmartRecruiters put no description in the list (a fetch per posting), Teamtailor
+answers `406` without an API key. **Workday is the one to remember** — the largest
+tracker here by headcount, and it fails on a second axis that disqualifies it
+outright: its URL needs a datacenter, a tenant *and* a site name, so
+`probeAtsBoards` has no question it can ask. **Being a large ATS and being
+reachable by this pipeline are independent properties.** Do not re-test the market
+from a vendor list; re-read the rule.
+
+**Personio's `429`s were a red herring and cost a provider for a day.** ADR-0027
+recorded it as rate-limiting; it answers `200` six times in a row. The real
+blocker is that `<jobDescriptions>` comes back **present but empty** without
+`?language=en` — which from outside is indistinguishable from a board whose
+postings have no bodies. With the parameter, 3,300–5,700 characters a position.
+When a provider looks like it has no advert text, check for a content parameter
+before concluding the API is useless.
+
+**Probing concurrently is what decouples provider count from run duration.**
+Sequentially each miss costs one `pageTimeoutMs`, so six providers would be up to
+90s per employer and ~45 minutes across a run — which makes provider count look
+like the binding constraint. It is not one. Measured 322–717ms over four live
+probes. The trade is the early exit: a Greenhouse hit now always spends six
+requests instead of one, ~180 a day worst case across six hosts. `PROBE_ORDER`
+still decides which board wins when a token resolves on more than one, so only the
+timing changed. **The new three are ordered last because their hit rate is
+unmeasured** — those companies were picked *because* they were known to sit on
+those boards, so the endpoints are verified and the frequency is not. Re-order
+once a real run has produced data.
+
+**A search decides what counts as a job, not the taxonomy —
+`describesSoftwareWork` in `src/services/job-tags.ts`, `filterJob` in
+`src/services/job-filter.ts`, and
+[ADR-0028](docs/decisions/0028-a-search-decides-what-counts-as-a-job.md).**
+`flag:non-technical` used to reject **unconditionally, before a single search
+criterion was read** — so `/target dentist in Lyon` would have had every dentist
+rejected with the reason "not a software role", the word `dental` being literally
+in the list. It was killing 43 stored rows. Now the flag rejects only when the
+search is itself about software, judged from the reader's own label, request,
+must-haves and notes. `dealbreakers` are excluded from that read on purpose:
+*"no JavaScript"* must not make a search look like a software search on the
+strength of what it rules out.
+
+**The principle generalises and is worth stating before touching
+`job-taxonomy.ts`: the taxonomy describes postings, and only a search may reject
+them.** A vocabulary may label a posting a nursing role; it may not decide the
+reader does not want one. Two fixes were rejected for violating it — deleting
+`NON_TECHNICAL` (it is the biggest saving on a general board for searches that
+*are* about engineering) and adding a stored field to `job_searches` (asks the
+reader to declare a category they never mentioned). **The live cost:** the rest of
+the taxonomy is still software-shaped, so a dentist search runs with nearly every
+deterministic rule disabled and degrades to `flag:untagged`, which is deliberately
+let through to the model. Safe, but a non-software search leans on the scorer far
+harder and costs proportionally more per delivered job.
+
+**Real postings come off the employer's ATS board, and verified boards become
+source rows — `src/services/ats.ts`, `leadToPostings` in
+`src/services/job-scout.ts`, `recordAtsBoards`/`knownAtsCompanies` in
+`src/db/jobs.ts`, the `ats*` tunables in `src/config/jobs.ts`, and
+[ADR-0027](docs/decisions/0027-ats-boards-as-discovered-sources.md).** A lead's
+description used to be its careers *landing page*, which is marketing copy: on the
+2026-08-05 run all six leads were rejected by `mustHave` for never naming a stack,
+and the one search with no `mustHave` topped the same six out at 40/100. **Raising
+`maxPageChars` could never have fixed it — the problem is the kind of text, not
+the amount of it.** Measured after: five companies produced 140 real adverts where
+they had produced five rows.
+
+**All three routes to a board earn their place, and the cheap ones do not carry
+it.** The resolved URL *is* a board: 0 of 6. The careers markup references one,
+usually an embed script rather than a link: 1 of 6. Probing the domain label: 4 of
+the remaining 5. **Shipping only the first two would have been a feature that
+never fired** — which is how the landing-page problem it replaces went unnoticed
+in the first place. The probe is a guess that code verifies; a real 200 carrying
+real postings is the only thing that counts.
+
+**Boards as `ats` rows are the pipeline's one compounding step, and that is why
+they need decay.** Every other cost is paid again every run. A board keeps
+answering, so sonar pays once per employer and the row pays off every run after,
+with `knownAtsCompanies` stopping the scout re-proposing employers already being
+read. The counterweight: silent for `atsIdleDays` (45) → archived and marked
+`idle`; `atsForgetDays` (120) more → deleted. **The gap between the two stages is
+load-bearing** — while the row exists the scout skips that employer, so deleting
+at the first stage would just have the next run rediscover the same empty board. A
+row the reader archived by hand is never deleted.
+
+**`listUnscored` had been ordering the scoring queue by fetch order, not recency,
+and two sources had therefore never been scored in any run.** `discoveredAt` is
+stamped per posting at ingest, so a posting's millisecond was its source's
+position in a fetch batch — Himalayas, alphabetically first and collected first,
+never entered a scoring window. `listUnscored` (`src/db/jobs.ts`) now orders on
+`coalesce(postedAt, discoveredAt)` — the board's own date, with fetch order kept
+only as the tiebreak among exact ties — and ingest stamps one `firstSeenAt` per
+run rather than per posting (`src/mastra/workflows/find-jobs.ts`). **A timestamp that encodes batch
+position rather than time is invisible until something reads it as time**; check
+what stamps a column before ordering on it.
+
 **Newy can inspect a beat and retune it — `src/mastra/tools/beats.ts`,
 `src/config/retune.ts`, `retuneBeat()` and `beatRevisionHistory()` in
 `src/db/beats.ts`, `topVerdictsForBeat()` in `src/db/articles.ts`, migration
