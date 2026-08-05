@@ -16,6 +16,26 @@ import type { NewJobSource } from '../db/schema.js'
  * is the only free source of on-site European roles, so re-add it as a row if
  * that ever matters; nothing in the code was removed with it.
  *
+ * **Remote OK went the same way on 2026-08-06, and for a worse reason: it is no
+ * longer returning jobs at all.** Its free API answers 200 with 100 entries whose
+ * `position` field holds scraped page furniture rather than a role — `Waitology`,
+ * `Company Name`, `Optimize`, `Share`, `EMPLOYEES`, `15 15`, `NO CURRENT
+ * OPENINGS`, `Currently no vacancies`, `Express your interest`. **Two of the 100
+ * carry an engineering title.** It is not our parsing (the adapter reads
+ * `position` and `company`, and those fields contain the junk), it is not bot
+ * detection (an honest UA and a browser UA get byte-identical payloads, and
+ * `?tags=dev` reaches three of 100), and their RSS now answers `410 Gone`. Forty
+ * four of the 100 descriptions also arrive mojibaked from the API itself.
+ *
+ * It mattered because it was the *largest* source in the table — 178 of 526
+ * stored rows, 34% of everything — and the deterministic filter absorbed all of
+ * it silently, which is exactly why it went unnoticed for two runs: the garbage
+ * never reached the reader, so the pipeline looked healthy while a third of every
+ * scoring window was spent on page fragments.
+ *
+ * `fromRemoteOk` stays in `job-fetch.ts`, as `fromArbeitnow` did. If the board
+ * ever serves real postings again, this is one row.
+ *
  * **What is deliberately absent: LinkedIn and Indeed.** Both killed their feeds
  * and actively block scrapers. A direct integration would break within weeks and
  * would fail *silently*, which is worse than the coverage gap
@@ -25,7 +45,7 @@ import type { NewJobSource } from '../db/schema.js'
  * so it needs a cap before it is turned on.
  *
  * Every board here is free and needs no key. That is not a coincidence — it is
- * the constraint that picked them. Three of the five ask for attribution and a
+ * the constraint that picked them. Two of the four ask for attribution and a
  * link back to the posting's own URL, which every delivered message does.
  */
 
@@ -48,14 +68,6 @@ export const SEED_JOB_SOURCES: NewJobSource[] = [
     adapter: 'jobicy',
     url: 'https://jobicy.com/api/v2/remote-jobs?count=50',
     label: 'Jobicy',
-    addedAt: now(),
-  },
-  {
-    id: 'remoteok',
-    kind: 'api',
-    adapter: 'remoteok',
-    url: 'https://remoteok.com/api',
-    label: 'Remote OK',
     addedAt: now(),
   },
   {
