@@ -3,6 +3,7 @@ import { Agent } from '@mastra/core/agent'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { jobCommands } from '../../config/job-commands.js'
+import { domainIds, isKnownDomain } from '../../config/job-taxonomy.js'
 
 /**
  * The one model call behind `/target`.
@@ -36,6 +37,15 @@ export const jobTargeterId = 'job-targeter'
 export const targetSchema = z.object({
   slug: z.string(),
   label: z.string(),
+  /**
+   * The field of work, from a closed set, or null.
+   *
+   * Validated against `DOMAINS` by `parseTarget` rather than trusted — a model
+   * answering `"polymer science"` where the vocabulary says `chemistry` would
+   * match no posting and filter nothing, silently. Same discipline as the news
+   * ranker discarding an article id it was not given.
+   */
+  domain: z.string().nullable(),
   locations: z.array(z.string()),
   remote: z.enum(['required', 'preferred', 'onsite', 'any']),
   seniority: z.array(z.string()),
@@ -69,6 +79,16 @@ Return:
   colon. Derive it from the role and the place, not from the whole sentence.
 - "label": the search as a short phrase for a message footer, four to six words,
   in the reader's own language. "Senior frontend, Paris ou remote".
+- "domain": the field of work, **exactly one of these strings** — ${domainIds().join(', ')}
+  — or null. This is the coarsest filter there is: a posting recognised as
+  belonging to a different field is dropped before anything reads it, so getting
+  it wrong throws away everything they wanted. **Return null whenever the request
+  does not clearly sit in one of those fields**, and null is a perfectly good
+  answer — it means "do not filter on this", and a search that filters on no
+  field still works. Never stretch a request to fit: a request about marketing,
+  architecture or journalism is null, not the closest listed field. Judge it from
+  the work described, not from a passing mention — someone who wants a chemistry
+  role at a software company is "chemistry".
 - "locations": place names they named, as they would appear in a posting —
   "Paris", "Île-de-France", "Germany", "EU". Empty if they named none. Do **not**
   put "remote" here; that is the next field.
@@ -231,5 +251,11 @@ export async function parseTarget(mastra: Mastra, request: string): Promise<Pars
     structuredOutput: { schema: targetSchema },
   })
   if (!response.object) throw new Error('The targeter returned no parseable object')
-  return response.object
+
+  // A domain the vocabulary does not know is dropped to null rather than stored.
+  // Storing it would filter on a value nothing can ever match — which does not
+  // error, it just quietly rejects every posting that names any field at all,
+  // and the reader sees a search that found nothing rather than a broken one.
+  const domain = isKnownDomain(response.object.domain) ? response.object.domain : null
+  return { ...response.object, domain }
 }

@@ -27,7 +27,7 @@ import type { Job, JobSearch, NewJob } from '../../db/schema.js'
 import { joobTelegram } from '../../services/joob-telegram.js'
 import { fetchJobSource, type RawPosting } from '../../services/job-fetch.js'
 import { fetchSonarSource } from '../../services/job-scout.js'
-import { cvTechTags, filterJobs, rankByCvOverlap } from '../../services/job-filter.js'
+import { cvSkillTags, filterJobs, rankByCvOverlap } from '../../services/job-filter.js'
 import { jobId, jobIdentity, leadId, leadIdentity } from '../../services/job-identity.js'
 import { deriveTags } from '../../services/job-tags.js'
 import { fetchPortfolio, PortfolioError } from '../../services/portfolio.js'
@@ -357,7 +357,7 @@ const scoreSearch = createStep({
     const pending = await listUnscored(search.slug, jobPipeline.maxJobsPerScoringRun * 4)
     if (pending.length === 0) return idle
 
-    const { kept, rejected } = filterJobs(pending, search)
+    const { kept, rejected, tags } = filterJobs(pending, search)
     const rejectedCount = [...rejected.values()].reduce((total, count) => total + count, 0)
 
     // Everything the filter rejected is settled at zero rather than left pending,
@@ -375,7 +375,7 @@ const scoreSearch = createStep({
     // CV touches the deterministic path, and it can only reorder: a posting that
     // misses the cap is scored on a later run, where one wrongly filtered is
     // gone for good.
-    const batch = rankByCvOverlap(kept, cvTechTags(state.cv)).slice(
+    const batch = rankByCvOverlap(kept, cvSkillTags(state.cv), tags).slice(
       0,
       jobPipeline.maxJobsPerScoringRun,
     )

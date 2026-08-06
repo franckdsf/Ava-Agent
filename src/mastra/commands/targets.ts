@@ -12,6 +12,7 @@ import type { JobSearch, SuggestedCriteria, TargetSuggestion } from '../../db/sc
 import { constraintCount } from '../../services/job-filter.js'
 import { fetchPortfolio } from '../../services/portfolio.js'
 import { joobTelegram } from '../../services/joob-telegram.js'
+import { domainLabel } from '../../config/job-taxonomy.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { parseTarget, suggestTighterTarget, type ParsedTarget } from '../agents/job-targeter.js'
 
@@ -111,6 +112,7 @@ async function target(mastra: Mastra, request: string): Promise<string> {
     slug: parsed.slug,
     label: parsed.label,
     request,
+    domain: parsed.domain,
     locations: parsed.locations,
     remote: parsed.remote,
     seniority: parsed.seniority,
@@ -222,6 +224,11 @@ function renderCriteria(search: ParsedTarget | JobSearch): string {
       : `${search.minCompensation.toLocaleString('en-US')} ${search.currency ?? ''}`.trim()
 
   return [
+    // First, because it is the coarsest filter: a posting recognised as another
+    // field is dropped before any other rule runs. Showing it is what makes a
+    // wrong parse correctable — the reader says the target again more plainly
+    // and the row is overwritten.
+    `- **Field** — ${search.domain ? domainLabel(search.domain) : '_any_'}`,
     `- **Where** — ${list(search.locations)}`,
     `- **Remote** — ${search.remote}`,
     `- **Level** — ${list(search.seniority)}`,

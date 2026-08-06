@@ -140,14 +140,17 @@ console.log(`\n${'='.repeat(70)}\nTAGS`)
       .map(([tag, n]) => `${tag.slice(prefix.length)} ${n}`)
       .join(', ')
 
+  // Domains lead, because they are what the filter's coarsest rule reads. A
+  // board whose postings mostly land outside `software` is a board that costs a
+  // software reader a fetch to produce nothing — which is the judgement this
+  // whole report exists to support.
+  console.log(`domains      ${show('domain:')}`)
   console.log(`disciplines  ${show('discipline:')}`)
   console.log(`levels       ${show('level:')}`)
-  console.log(`tech         ${show('tech:')}`)
+  console.log(`skills       ${show('skill:')}`)
   console.log(
-    `flags        non-technical ${counts.get('flag:non-technical') ?? 0} ` +
-    `(${pct(counts.get('flag:non-technical') ?? 0).trim()}), ` +
-    `untagged ${counts.get('flag:untagged') ?? 0} ` +
-    `(${pct(counts.get('flag:untagged') ?? 0).trim()})`,
+    `flags        untagged ${counts.get('flag:untagged') ?? 0} ` +
+      `(${pct(counts.get('flag:untagged') ?? 0).trim()})`,
   )
 }
 
@@ -159,6 +162,7 @@ console.log(`\n${'='.repeat(70)}\nFILTER — what would reach the model`)
     slug: 'sample-senior-frontend',
     label: 'Senior frontend, remote',
     request: 'senior frontend, remote, TypeScript or React',
+    domain: 'software',
     locations: [],
     remote: 'preferred',
     seniority: ['senior', 'staff'],

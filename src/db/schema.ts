@@ -430,6 +430,32 @@ export const jobSearches = sqliteTable(
     request: text('request').notNull(),
 
     // --- Deterministic filters, applied before the model ---
+    /**
+     * The field of work this search is in — a key of `DOMAINS` in
+     * `job-taxonomy.ts`, or null.
+     *
+     * **Written by the targeter, never asked of the reader.** ADR-0028 rejected
+     * a stored category on the grounds that it "asks the reader to declare a
+     * category they never mentioned", and that objection was to the *asking*:
+     * the model parses this out of the same sentence it already parses eleven
+     * other fields from, and `/target` echoes it straight back, so a wrong domain
+     * is visible in the reply and re-typing overwrites the row. That echo is the
+     * mitigation the targeter's own header calls the reason it may write
+     * configuration directly.
+     *
+     * The alternative — inferring it from keyword overlap at read time — was
+     * tried on paper and is worse in the way this repo cares about most: it is
+     * invisible, so nobody can see or correct it. It also cannot break a tie.
+     * `/target research scientist, polymer chemistry` matches software's `ml`
+     * vocabulary *and* chemistry, and only something reading the sentence knows
+     * which was meant.
+     *
+     * **Null is a legal, common answer** and means "do not filter on this",
+     * exactly as an empty `seniority` does — for a request that fits no curated
+     * field, and for every row written before this column existed. The filter
+     * only rejects when both sides name a domain and they do not intersect.
+     */
+    domain: text('domain'),
     /** Free-form place names as the reader gave them. Empty means anywhere. */
     locations: text('locations', { mode: 'json' }).$type<string[]>().notNull(),
     remote: text('remote', { enum: ['required', 'preferred', 'onsite', 'any'] }).notNull(),
@@ -630,13 +656,15 @@ export const jobs = sqliteTable(
      * Tags derived from this posting's own words at ingest — the ones that are
      * actually filtered on.
      *
-     * Namespaced by kind: `discipline:frontend`, `tech:typescript`,
-     * `level:senior`, `flag:non-technical`. This is what lets the filter reject
-     * most of a run's intake before any model sees it, which is the difference
-     * between a scoring bill proportional to what is plausible and one
-     * proportional to what the boards happened to publish. See
-     * `src/services/job-tags.ts` for why disciplines read the title and
-     * technologies read the body.
+     * Namespaced by kind: `domain:software`, `discipline:software.frontend`,
+     * `skill:chemistry.chromatography`, `level:senior`.
+     *
+     * **An audit trail, not what the filter reads.** Tagging moved to filter
+     * time — see `jobTags` in `src/services/job-filter.ts` — because tags frozen
+     * at ingest describe a posting with whatever vocabulary existed that day, so
+     * a domain added later would never reach a row already stored. This column
+     * records what the vocabulary said when the posting arrived, which is what
+     * makes an argument about a specific posting settleable.
      */
     derivedTags: text('derived_tags', { mode: 'json' }).$type<string[]>().notNull(),
 

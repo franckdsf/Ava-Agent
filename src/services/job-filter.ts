@@ -1,5 +1,6 @@
+import { domainLabel, isKnownDomain } from '../config/job-taxonomy.js'
 import type { Job, JobSearch } from '../db/schema.js'
-import { deriveTags, describesSoftwareWork, tagsOfKind } from './job-tags.js'
+import { deriveCvTags, deriveTags, tagsOfKind } from './job-tags.js'
 
 /**
  * Decides which postings are worth scoring, without calling a model.
@@ -43,21 +44,31 @@ function mentions(job: Job, terms: string[]): boolean {
  * Order matters only for which reason is reported first, and the cheapest and
  * most decisive checks come first so the common rejections are also the fastest.
  */
-export function filterJob(job: Job, search: JobSearch): FilterVerdict {
-  const tags = job.derivedTags
-
-  // Not software work at all — **and only a rejection when the reader is asking
-  // for software work.** The flag itself is honest: `deriveTags` sets it when a
-  // title claims no engineering discipline and does name a nurse, a teacher or a
-  // dental role. Rejecting on it unconditionally was the bug, because
-  // `NON_TECHNICAL` then decided which professions the reader is allowed to want.
-  // A `/target dentist in Lyon` had every result dropped with the reason "not a
-  // software role" before a single search criterion was read.
+export function filterJob(job: Job, search: JobSearch, tags: string[] = jobTags(job)): FilterVerdict {
+  // A different field of work entirely — and only ever a rejection when **both**
+  // sides name a field. Three ways this declines to fire, and each one is a
+  // deliberate bias toward keeping:
   //
-  // Still the single biggest saving on a general board for the searches that are
-  // about engineering, which is why it stays first rather than being deleted.
-  if (tags.includes('flag:non-technical') && searchWantsSoftware(search)) {
-    return { keep: false, reason: 'not a software role' }
+  // - the search has no domain (an older row, or a request the targeter could
+  //   not place) — then it filters on none, exactly as an empty `seniority` does;
+  // - the posting matched no domain — `flag:untagged` goes to the model, because
+  //   "we could not read this" is not "this is not for you";
+  // - they overlap at all — an ambiguous title like "Chemical Engineer" holds two
+  //   domains and is kept by a search in either.
+  //
+  // This is the single biggest saving on a general board, and unlike the
+  // `flag:non-technical` rule it replaces it now runs in every direction: the
+  // accountant is skipped for a chemistry search too, where before only software
+  // searches got anything at all. See the header of `job-taxonomy.ts` for why the
+  // old shape had to be inverted rather than extended.
+  const wanted = isKnownDomain(search.domain) ? (search.domain as string) : null
+  const found = tagsOfKind(tags, 'domain')
+  const [primary] = found
+  if (wanted && primary && !found.includes(wanted)) {
+    return {
+      keep: false,
+      reason: `looks like a ${domainLabel(primary)} role, and you asked for ${domainLabel(wanted)}`,
+    }
   }
 
   // Anything the reader ruled out, in the posting's own words. Checked before
@@ -109,21 +120,22 @@ export function filterJob(job: Job, search: JobSearch): FilterVerdict {
 }
 
 /**
- * Whether this search is asking for software work, in the reader's own words.
+ * A posting's tags, derived here rather than read from `jobs.derived_tags`.
  *
- * Read from what they typed — the label, the request, the must-haves and the
- * notes — rather than from a stored flag, because nothing asks them to declare a
- * field and nothing should. `/target front end developer` names a discipline,
- * `/target React and TypeScript, remote` names a stack, and `/target dentist in
- * Lyon` names neither, which is the whole distinction needed.
+ * **This moved out of ingest deliberately.** Tags used to be computed once when
+ * a posting was stored, which meant a vocabulary added later never reached the
+ * rows already in the table — the same trap `seed-beats.ts` documents ("editing
+ * it does not reach a beat that already exists"), and a fatal one for a pipeline
+ * whose whole premise is gaining domains over time. A chemistry vocabulary added
+ * on a Tuesday would have described no posting collected before it.
  *
- * `dealbreakers` are deliberately excluded. "No JavaScript" would otherwise make
- * a search look like a software search on the strength of what it rules *out*.
+ * Derived data is therefore derived when it is *read*. The cost is regex over at
+ * most `bodyScanChars` per posting per run — microseconds each, against a
+ * scoring batch that costs a model call — and `jobs.derived_tags` keeps being
+ * written at ingest as the audit trail of what the vocabulary said that day.
  */
-function searchWantsSoftware(search: JobSearch): boolean {
-  return describesSoftwareWork(
-    [search.label, search.request, ...search.mustHave, search.notes ?? ''].join('\n'),
-  )
+export function jobTags(job: Job): string[] {
+  return deriveTags({ title: job.title, description: job.description })
 }
 
 /**
@@ -151,15 +163,21 @@ export function constraintCount(search: JobSearch): number {
 }
 
 /**
- * Technologies named anywhere in the reader's CV.
+ * Skills named anywhere in the reader's CV, across every domain's vocabulary.
  *
- * Scans the **whole** document rather than going through `deriveTags`, whose
- * `bodyScanChars` cap is right for a job advert — where the stack is stated up
- * front and the tail is boilerplate — and wrong for a CV, where the stack
- * section can sit anywhere in 80,000 characters.
+ * Scans the **whole** document — `deriveCvTags` lifts the `bodyScanChars` cap,
+ * which is right for a job advert, where the requirements are stated up front
+ * and the tail is boilerplate, and wrong for a CV, where the skills section can
+ * sit anywhere in 80,000 characters.
+ *
+ * The tags are domain-qualified (`software.react`, `chemistry.chromatography`),
+ * so a chemist's CV and a software advert share nothing and score 0 — which is
+ * the correct answer, not a bug. Under the flat `tech:` namespace this function
+ * returned an empty set for any non-software reader and `rankByCvOverlap`
+ * silently became a no-op; it now returns real tags for every curated field.
  */
-export function cvTechTags(cv: string): Set<string> {
-  return new Set(tagsOfKind(deriveTags({ title: '', description: cv }, cv.length), 'tech'))
+export function cvSkillTags(cv: string): Set<string> {
+  return new Set(tagsOfKind(deriveCvTags(cv), 'skill'))
 }
 
 /**
@@ -183,8 +201,8 @@ export function cvTechTags(cv: string): Set<string> {
  * | Lemon.io, Graphic Designer | 6 | 20 | 6 | 0.30 | **0.25** |
  * | one that only says "React" | 1 | 1 | 1 | 1.00 | **0.10** |
  */
-function cvAffinity(job: Job, cvTags: Set<string>): number {
-  const tags = tagsOfKind(job.derivedTags, 'tech')
+function cvAffinity(jobTagList: string[], cvTags: Set<string>): number {
+  const tags = tagsOfKind(jobTagList, 'skill')
   if (tags.length === 0) return 0
   const shared = tags.filter(tag => cvTags.has(tag)).length
   return shared / (cvTags.size + tags.length - shared)
@@ -203,29 +221,47 @@ function cvAffinity(job: Job, cvTags: Set<string>): number {
  *
  * Recency breaks ties, so a batch with no overlap at all keeps the previous
  * newest-first behaviour exactly.
+ *
+ * `tags` is the map `filterJobs` already built, passed in rather than re-derived
+ * — every job here has just been through the filter, so deriving again would pay
+ * the same regex twice for one batch.
  */
-export function rankByCvOverlap(jobs: Job[], cvTags: Set<string>): Job[] {
+export function rankByCvOverlap(
+  jobs: Job[],
+  cvTags: Set<string>,
+  tags: JobTagMap = new Map(),
+): Job[] {
   if (cvTags.size === 0) return jobs
+  const tagsFor = (job: Job) => tags.get(job.id) ?? jobTags(job)
 
   return [...jobs].sort((a, b) => {
-    const difference = cvAffinity(b, cvTags) - cvAffinity(a, cvTags)
+    const difference = cvAffinity(tagsFor(b), cvTags) - cvAffinity(tagsFor(a), cvTags)
     return difference !== 0 ? difference : b.discoveredAt - a.discoveredAt
   })
 }
+
+/** Derived tags by job id, so one batch pays for them once. */
+export type JobTagMap = Map<string, string[]>
 
 export interface FilterOutcome {
   kept: Job[]
   /** Rejections, for reporting. Counted by reason rather than kept per posting. */
   rejected: Map<string, number>
+  /** What each posting was tagged with, for the ranking step that follows. */
+  tags: JobTagMap
 }
 
 /** Runs one search's filter over a batch, tallying why things were dropped. */
 export function filterJobs(jobs: Job[], search: JobSearch): FilterOutcome {
   const kept: Job[] = []
   const rejected = new Map<string, number>()
+  const tags: JobTagMap = new Map()
 
   for (const job of jobs) {
-    const verdict = filterJob(job, search)
+    const jobTagList = jobTags(job)
+    tags.set(job.id, jobTagList)
+
+    const verdict = filterJob(job, search, jobTagList)
     if (verdict.keep) {
       kept.push(job)
       continue
@@ -236,5 +272,5 @@ export function filterJobs(jobs: Job[], search: JobSearch): FilterOutcome {
     rejected.set(key, (rejected.get(key) ?? 0) + 1)
   }
 
-  return { kept, rejected }
+  return { kept, rejected, tags }
 }

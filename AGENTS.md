@@ -826,6 +826,63 @@ doesn't wrap without adding a second Telegram library.
 
 *Last updated: 2026-08-06.*
 
+**Domains are vocabularies now, and a search names its own field —
+`src/config/job-taxonomy.ts` (`DOMAINS`, `domainIds`, `isKnownDomain`),
+`jobTags`/`filterJob` in `src/services/job-filter.ts`, `job_searches.domain`,
+migration `0021`, and
+[ADR-0030](docs/decisions/0030-domains-as-vocabularies-a-search-names-its-field.md).**
+Ten vocabularies — `software` and `chemistry` curated properly, seven shallow
+recognise-and-reject fields, plus `people`. A posting is tagged `domain:<id>` for
+every vocabulary its **title** matches; rejection is a set intersection against
+the search's own domain. `NON_TECHNICAL` and `describesSoftwareWork` are deleted.
+
+**A domain declares what it is, never what it is not — that inversion is the
+whole change.** The old shape only ever saved a software search, because nothing
+recognised an accountant as an accountant; a chemistry search paid full model
+price for a board's entire intake. Measured on 300 live postings: 24 rejected by
+domain (16 sales, 4 finance, 2 healthcare, 1 legal, 1 people operations, 1
+chemistry), each naming both sides — *"looks like a sales role, and you asked for
+software"*.
+
+**`pnpm jobs:check` after any vocabulary edit — a term that fails to match is
+silent.** It found two misses in the first run that reading the file did not:
+`medical` had been dropped for fear of catching "Medical Device Engineer" (the
+fear was unfounded — under intersection that title holds both domains), and
+`call center` was listed while `contact center` was not. Silence here looks
+exactly like a quiet week.
+
+**Domain membership comes from disciplines only, never from skills.** A polymer
+advert asking for Python in its body is not a software posting. Skills feed
+`rankByCvOverlap`, which may only reorder and never reject — and they are
+domain-qualified now (`skill:chemistry.chromatography`), which fixed a silent
+no-op: under the flat `tech:` namespace a non-software reader's CV produced an
+empty tag set and the whole ranking step quietly did nothing.
+
+**Tagging moved from ingest to filter time, and that is the load-bearing part for
+adding fields later.** `jobs.derived_tags` was written once when a posting was
+stored, so a vocabulary added on a Tuesday described nothing collected before it
+— the `seed-beats.ts` trap ("editing it does not reach a beat that already
+exists"). Tags are derived when read now, memoized per batch; the column stays as
+the audit trail. **Bare `engineer` is deliberately still in `software`**, so
+"Chemical Engineer" carries both domains — harmless under intersection, and
+removing it drops real adverts titled only "Engineer".
+
+**Not done: the news side has no equivalent.** `beat_feeds` has no source-kind
+discriminator at all, where `job_sources` has five, so a *query* source — arXiv,
+PubMed, Europe PMC, where the subject goes in the URL and no homepage advertises
+the feed — cannot be reached by `discoverSiteFeed`, which only ever asks where a
+site's existing stream lives. Probed 2026-08-06: `export.arxiv.org/api/query`
+answers `200 application/atom+xml` with real Atom, so **no schema change and no
+new kind is needed** — `rss.ts` does not care that a URL has a query string, and
+a query feed is a `beat_feeds` row with a longer URL. The only new code is a
+builder plus a small host table, called as a third route in discovery with
+`checkFeed()` verifying as usual. Two things measured: `all:"plastic
+degradation"` returned 1 relevant paper in 3 (*"Sparsity-Driven **Plasticity** in
+Multi-Task RL"* matched on stemming), so field-scoped terms (`abs:`, `ti:`) are
+required; and the query is baked into the URL while `retune-beat` never touches
+feeds, so a retuned beat would keep searching its old terms forever — silently,
+the same failure class as a wrong feed URL.
+
 **Six applicant-tracking providers, and the probes run concurrently —
 `src/services/ats.ts` (`PROBE_ORDER`, `PUBLISHES_COMPANY`, `fromWorkable`,
 `fromRecruitee`, `fromPersonio`) and
@@ -867,29 +924,28 @@ those boards, so the endpoints are verified and the frequency is not. Re-order
 once a real run has produced data.
 
 **A search decides what counts as a job, not the taxonomy —
-`describesSoftwareWork` in `src/services/job-tags.ts`, `filterJob` in
-`src/services/job-filter.ts`, and
-[ADR-0028](docs/decisions/0028-a-search-decides-what-counts-as-a-job.md).**
+[ADR-0028](docs/decisions/0028-a-search-decides-what-counts-as-a-job.md),
+extended by
+[ADR-0030](docs/decisions/0030-domains-as-vocabularies-a-search-names-its-field.md).**
 `flag:non-technical` used to reject **unconditionally, before a single search
 criterion was read** — so `/target dentist in Lyon` would have had every dentist
 rejected with the reason "not a software role", the word `dental` being literally
-in the list. It was killing 43 stored rows. Now the flag rejects only when the
-search is itself about software, judged from the reader's own label, request,
-must-haves and notes. `dealbreakers` are excluded from that read on purpose:
-*"no JavaScript"* must not make a search look like a software search on the
-strength of what it rules out.
+in the list. It was killing 43 stored rows.
 
-**The principle generalises and is worth stating before touching
-`job-taxonomy.ts`: the taxonomy describes postings, and only a search may reject
-them.** A vocabulary may label a posting a nursing role; it may not decide the
-reader does not want one. Two fixes were rejected for violating it — deleting
-`NON_TECHNICAL` (it is the biggest saving on a general board for searches that
-*are* about engineering) and adding a stored field to `job_searches` (asks the
-reader to declare a category they never mentioned). **The live cost:** the rest of
-the taxonomy is still software-shaped, so a dentist search runs with nearly every
-deterministic rule disabled and degrades to `flag:untagged`, which is deliberately
-let through to the model. Safe, but a non-software search leans on the scorer far
-harder and costs proportionally more per delivered job.
+**The principle is worth stating before touching `job-taxonomy.ts`: the taxonomy
+describes postings, and only a search may reject them.** A vocabulary may label a
+posting a nursing role; it may not decide the reader does not want one. That is
+now structural rather than a rule to remember — see the entry below.
+
+**ADR-0028's own fix was reachable through a back door, and that is the finding
+worth carrying.** `describesSoftwareWork` judged a search from keyword overlap,
+`DISCIPLINES.ml` contained `research scientist`, and `NON_TECHNICAL` contained
+`technician` — so `/target research scientist, polymer chemistry` read as a
+*software* search and rejected "Lab Technician — Polymer Analysis" as "not a
+software role". Exactly the bug ADR-0028 removed, reintroduced by two overloaded
+English words. **An inferred category is invisible, so nobody can see or correct
+it, and it cannot break a tie between fields that share vocabulary.** Both
+functions are gone; the search says which field it is in.
 
 **Real postings come off the employer's ATS board, and verified boards become
 source rows — `src/services/ats.ts`, `leadToPostings` in

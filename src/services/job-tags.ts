@@ -1,22 +1,29 @@
-import {
-  DISCIPLINES,
-  jobTaxonomy,
-  NON_TECHNICAL,
-  SENIORITY,
-  TECHNOLOGIES,
-} from '../config/job-taxonomy.js'
+import { DOMAINS, jobTaxonomy, SENIORITY } from '../config/job-taxonomy.js'
 
 /**
  * Derives a posting's tags from its own words.
  *
  * This is the stage that keeps the model bill proportional to what is plausible.
- * Every posting gets tagged deterministically at ingest; the filter then decides
- * from those tags and a search's criteria whether a posting is worth scoring at
- * all. Nothing here calls a model, and it runs in microseconds per posting.
+ * The filter decides from these tags and a search's criteria whether a posting
+ * is worth scoring at all. Nothing here calls a model, and it runs in
+ * microseconds per posting.
  *
- * The tags are namespaced by kind — `discipline:frontend`, `tech:typescript`,
- * `level:senior`, `flag:non-technical` — so one column can hold all of them and
- * a filter can ask for exactly one kind without a second table.
+ * Tags are namespaced by kind so one column can hold all of them and a filter
+ * can ask for exactly one kind without a second table:
+ *
+ * ```
+ * domain:software      the field this posting belongs to
+ * discipline:software.frontend
+ * skill:chemistry.chromatography
+ * level:senior
+ * flag:untagged        nothing recognised at all
+ * ```
+ *
+ * **Disciplines and skills are namespaced by their domain**, which the old flat
+ * `discipline:qa` could not be: software's `quality` means test automation and
+ * chemistry's means a QC bench, and a filter reading them as one thing would
+ * match a chemist to a testing role. The domain prefix is what lets two fields
+ * use the same English word for different work.
  */
 
 /** Escapes a vocabulary term for use in a word-boundary regex. */
@@ -29,21 +36,31 @@ function termPattern(term: string): RegExp {
   return new RegExp(`${left}${escaped}${right}`, 'i')
 }
 
+interface CompiledGroup {
+  tag: string
+  patterns: RegExp[]
+}
+
+interface CompiledDomain {
+  id: string
+  disciplines: CompiledGroup[]
+  skills: CompiledGroup[]
+}
+
+const compileGroups = (source: Record<string, string[]>, prefix: string): CompiledGroup[] =>
+  Object.entries(source).map(([tag, terms]) => ({
+    tag: `${prefix}${tag}`,
+    patterns: terms.map(termPattern),
+  }))
+
 /** Built once — a few hundred regexes compiled per posting would dominate the cost. */
-const COMPILED = {
-  disciplines: Object.entries(DISCIPLINES).map(([tag, terms]) => ({
-    tag,
-    patterns: terms.map(termPattern),
+const COMPILED: { domains: CompiledDomain[]; seniority: CompiledGroup[] } = {
+  domains: Object.entries(DOMAINS).map(([id, vocabulary]) => ({
+    id,
+    disciplines: compileGroups(vocabulary.disciplines, `${id}.`),
+    skills: compileGroups(vocabulary.skills ?? {}, `${id}.`),
   })),
-  technologies: Object.entries(TECHNOLOGIES).map(([tag, terms]) => ({
-    tag,
-    patterns: terms.map(termPattern),
-  })),
-  seniority: Object.entries(SENIORITY).map(([tag, terms]) => ({
-    tag,
-    patterns: terms.map(termPattern),
-  })),
-  nonTechnical: NON_TECHNICAL.map(termPattern),
+  seniority: compileGroups(SENIORITY, ''),
 }
 
 const matches = (patterns: RegExp[], text: string): boolean =>
@@ -57,20 +74,29 @@ export interface TaggedPosting {
 /**
  * Every tag a posting earns, namespaced.
  *
- * **Disciplines and seniority read the title; technologies read the body too.**
- * That split is the whole accuracy of this function. A backend advert saying
- * "you'll work alongside our React team" is not a frontend job, and matching
- * disciplines body-wide tags it as one — which turns the filter from something
- * that saves model calls into something that spends them on the wrong postings.
- * A stack, by contrast, is genuinely listed in the requirements, and a posting
- * that never names a technology does not need it.
+ * **Disciplines and seniority read the title; skills read the body too.** That
+ * split is the whole accuracy of this function. A backend advert saying "you'll
+ * work alongside our React team" is not a frontend job, and matching disciplines
+ * body-wide tags it as one — which turns the filter from something that saves
+ * model calls into something that spends them on the wrong postings. A stack or
+ * an instrument list, by contrast, is genuinely stated in the requirements.
+ *
+ * **Domain membership comes from disciplines only, never from skills.** A
+ * polymer advert that asks for Python somewhere in its body is not a software
+ * posting, and a domain read from the body would make it one — then a software
+ * search would keep it and the saving this stage exists for would quietly leak
+ * away. Skills are tagged for `rankByCvOverlap`, which may only reorder.
+ *
+ * A posting may hold several domains, and that is the intended outcome for an
+ * ambiguous title: "Chemical Engineer" is both `domain:software` (bare
+ * `engineer`) and `domain:chemistry`, so a search in either field keeps it.
  */
 export function deriveTags(
   posting: TaggedPosting,
   /**
    * How much of the body to scan. The default is right for a job advert, where
-   * the stack is stated up front and the tail is boilerplate; a CV needs the
-   * whole document, because its stack section can sit anywhere in 80,000
+   * the requirements are stated up front and the tail is boilerplate; a CV needs
+   * the whole document, because its skills section can sit anywhere in 80,000
    * characters.
    */
   bodyChars: number = jobTaxonomy.bodyScanChars,
@@ -79,27 +105,22 @@ export function deriveTags(
   const body = `${title}\n${(posting.description ?? '').slice(0, bodyChars)}`
   const tags: string[] = []
 
-  for (const { tag, patterns } of COMPILED.disciplines) {
-    if (matches(patterns, title)) tags.push(`discipline:${tag}`)
-  }
-  for (const { tag, patterns } of COMPILED.seniority) {
-    if (matches(patterns, title)) tags.push(`level:${tag}`)
-  }
-  for (const { tag, patterns } of COMPILED.technologies) {
-    if (matches(patterns, body)) tags.push(`tech:${tag}`)
+  for (const domain of COMPILED.domains) {
+    let inDomain = false
+    for (const { tag, patterns } of domain.disciplines) {
+      if (matches(patterns, title)) {
+        tags.push(`discipline:${tag}`)
+        inDomain = true
+      }
+    }
+    for (const { tag, patterns } of domain.skills) {
+      if (matches(patterns, body)) tags.push(`skill:${tag}`)
+    }
+    if (inDomain) tags.push(`domain:${domain.id}`)
   }
 
-  // A single flag rather than a discipline, because it is used to reject rather
-  // than to describe — and because "not software" is a statement about the
-  // posting as a whole, not one more category alongside frontend and backend.
-  //
-  // Only set when the title claims no engineering discipline at all: plenty of
-  // real roles mention sales or support in passing ("supporting our sales team"),
-  // and a title that says "Software Engineer" is a software job whatever else it
-  // says.
-  const engineering = tags.some(tag => tag.startsWith('discipline:'))
-  if (!engineering && matches(COMPILED.nonTechnical, title)) {
-    tags.push('flag:non-technical')
+  for (const { tag, patterns } of COMPILED.seniority) {
+    if (matches(patterns, title)) tags.push(`level:${tag}`)
   }
 
   // Nothing recognised at all. Worth its own flag rather than an empty list,
@@ -112,34 +133,16 @@ export function deriveTags(
 }
 
 /**
- * Whether a piece of text describes software work.
+ * Derives tags for a CV, scanning the whole document.
  *
- * Scans the discipline and technology vocabularies over arbitrary prose, rather
- * than a posting's title — which is what separates this from `deriveTags`. It
- * exists for one caller: deciding whether a *search* is a software search, so
- * that `flag:non-technical` can reject for it and stay out of the way otherwise.
- *
- * **Why this is needed at all.** `NON_TECHNICAL` lists `dental`, `nurse`,
- * `physician`, `teacher`, `attorney`, `electrician`. Those entries are correct
- * for a reader looking for engineering work and catastrophic for one looking to
- * be a dentist: the filter dropped every such posting with the reason "not a
- * software role" before any search criteria were read. A pipeline that is meant
- * to answer `/target dentist in Lyon` cannot carry an unconditional opinion about
- * which professions count.
- *
- * Technologies are included alongside disciplines because a search often names a
- * stack and no discipline — `/target React and TypeScript, remote` says what it
- * is without ever using the word "engineer".
+ * Separate from `deriveTags` only in that it lifts the body cap, which is right
+ * for an advert and wrong for a CV — see the `bodyChars` note above.
  */
-export function describesSoftwareWork(text: string): boolean {
-  if (!text.trim()) return false
-  return (
-    COMPILED.disciplines.some(({ patterns }) => matches(patterns, text)) ||
-    COMPILED.technologies.some(({ patterns }) => matches(patterns, text))
-  )
+export function deriveCvTags(cv: string): string[] {
+  return deriveTags({ title: '', description: cv }, cv.length)
 }
 
-/** The values of one namespace — `tagsOfKind(tags, 'tech')` → `['typescript']`. */
+/** The values of one namespace — `tagsOfKind(tags, 'domain')` → `['software']`. */
 export function tagsOfKind(tags: string[], kind: string): string[] {
   const prefix = `${kind}:`
   return tags.filter(tag => tag.startsWith(prefix)).map(tag => tag.slice(prefix.length))

@@ -3,6 +3,7 @@ import { Agent } from '@mastra/core/agent'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { jobScout as scoutConfig } from '../../config/jobs.js'
+import { domainLabel } from '../../config/job-taxonomy.js'
 import type { JobSearch } from '../../db/schema.js'
 
 /**
@@ -133,6 +134,11 @@ export function renderSearchForScouting(search: JobSearch): string {
   const list = (values: string[]) => (values.length > 0 ? values.join(', ') : null)
   return [
     `role: ${search.label}`,
+    // Stated outright rather than left for the model to read out of the label.
+    // "Research Scientist" names no field on its own, and the scout proposing
+    // software companies for a chemistry search wastes the whole run — every
+    // lead it returns is then rejected by a filter that knows better.
+    search.domain && `field: ${domainLabel(search.domain)}`,
     list(search.seniority) && `seniority: ${list(search.seniority)}`,
     list(search.mustHave) && `must involve: ${list(search.mustHave)}`,
     list(search.locations) && `locations: ${list(search.locations)}`,
