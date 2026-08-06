@@ -65,6 +65,24 @@ transcript is ~30k input tokens, about a third of a US cent.
 loses exactly what a reader wants from a long talk: the specifics. Verified — the
 1h56m transcript produced a correct, structured French summary in 8.2s.
 
+**The summarizer is given the title and the description's first line, and asked
+to settle what they claim.** Added the same day, from the first real use: a
+reader asked why the speaker said he was wrong, and the summary had nothing —
+correctly, because the video never says it. The summarizer had been reading the
+transcript blind, so a title's promise could go unaddressed and the reader's
+first follow-up had no answer anywhere. It now settles the claim explicitly,
+including the case that matters most: saying in as many words when the video
+never comes back to it.
+
+Two constraints came with it. **A YouTube title is served per viewer** — YouTube
+tests variants — so the one fetched here is likely not the one the reader
+clicked; the prompt therefore requires the claim to be addressed and forbids the
+title to be quoted, since naming a title the reader is not looking at reads as
+the wrong video having been summarized. And the **description's first line is
+the steadier signal**, written once by the author rather than tuned per viewer,
+so it is passed alongside — first paragraph only, links stripped, capped at
+`maxBlurbChars`, because the rest is course plugs and social profiles.
+
 **When the cap binds, the reader is told in video time.** The tool returns
 `covers: "the first 2h07m of 2h45m"` and Newy must pass it on. "89%" is not
 something a reader can act on; a timestamp is. A partial summary presented as a

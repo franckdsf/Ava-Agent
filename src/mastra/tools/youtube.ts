@@ -125,10 +125,16 @@ export const summarizeVideo = createTool({
     const mastra = context?.mastra
     if (!mastra) throw new Error('summarize-video ran with no Mastra instance in context.')
 
+    // The title goes to the summarizer, not just into Newy's heading. Without
+    // it the summary is written blind to what the video was sold as, so a
+    // clickbait title's promise goes unaddressed and the reader's first
+    // follow-up — "why does he say he was wrong?" — has no answer anywhere.
     const result = await summarizeSource(mastra, {
       text: transcript.text,
       language,
       kind: 'transcript',
+      title: transcript.title,
+      blurb: transcript.blurb ?? undefined,
     })
 
     return {

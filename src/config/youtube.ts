@@ -84,6 +84,29 @@ export const youtube = {
   minTranscriptChars: 120,
 
   /**
+   * Ceiling on the blurb — the video's own one-line framing, taken from the
+   * first paragraph of its description.
+   *
+   * Worth having because the description's opening line is routinely the
+   * question the video is answering, in plain words the title had no room for.
+   * Measured on the video that prompted this: the title is `Shadcn UI? in 2026?`
+   * and the first description line is *"Should you still Shadcn UI or are you
+   * better off using another 'traditional' UI library?"* — the second is what
+   * the video is actually about.
+   *
+   * **Only the first paragraph, and never the whole description.** The rest is
+   * link furniture: course plugs, affiliate tools, five social profiles, sponsor
+   * contacts. That video's description is 723 characters of which about 110 are
+   * the blurb. Feeding the rest to a summarizer forbidden to write links, in a
+   * prompt that already has to be told to ignore sponsor reads, buys noise.
+   *
+   * Small on purpose. This is context, not content — the transcript remains the
+   * thing being summarized, and a blurb that ran to a paragraph would start
+   * competing with it.
+   */
+  maxBlurbChars: 300,
+
+  /**
    * Timeout for each of the two HTTP calls a transcript costs — the InnerTube
    * `player` lookup, then the caption track itself.
    *

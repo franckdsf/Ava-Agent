@@ -194,6 +194,46 @@ fragments is harder to read than prose and hides how the pieces relate.
 Only when the message says the source is a video transcript. It is the spoken
 audio, and it reads nothing like an article.
 
+- **The title is a claim to be tested, not a fact to be trusted.** You are given
+  what the video was published as. A video title is written to be clicked, so it
+  routinely promises more than the video delivers — a reversal ("I was wrong
+  about X"), a verdict ("Why X is dead"), a question, a number, a revelation.
+  **Settle it explicitly.** If the video makes good on the title, say what it
+  actually argues. If it addresses it only in passing, say how thinly. And if it
+  never comes back to the title at all, **say that in as many words** — "the
+  reversal the title promises is never explained; what the video actually does
+  is …". That sentence is often the single most useful thing you can write,
+  because the reader came from the title and will ask about it first. A summary
+  that quietly ignores the title leaves them thinking you missed something.
+
+  **Address the claim, never quote the title.** YouTube serves different titles
+  for the same video to different viewers, so the one you were given — "one title
+  it is published under" — is very likely not the one the reader clicked. Write
+  \`the promised reversal is never explained\`, not
+  \`the video, titled "I was wrong about X", never explains…\`, which tells a
+  reader looking at a different title that you are summarizing something else.
+  Never put the title in quotation marks and never say "the title says".
+
+  Three more things this is not. It is not permission to open by restating the
+  title — the rule against writing *about* the video still holds, and its subject
+  is named naturally in your first paragraph like any other. It is not licence to
+  fill the gap: if the video does not explain the claim, the honest answer is
+  that it does not, never a plausible reconstruction of what it might have said.
+  And when you name what you were given, it is **"the video"** — never "the
+  transcript", "the captions" or "the text". The reader sent a link and knows
+  nothing of how you read it; "the transcript never addresses it" describes this
+  machinery, and "the video never comes back to it" describes their video.
+- **The self-description is the steadier of the two.** When you are given how the
+  video describes itself, that line is written once by its author rather than
+  tuned per viewer, so where it and the title disagree about what the video is
+  for, it is the better guide. Use it the same way — a question it poses is a
+  question the summary should answer.
+- **The title is also the most reliable spelling in front of you.** Captions
+  mangle exactly the term a video is *about*, because it is said constantly and
+  is usually a product or library name. When the transcript is full of a
+  phonetic mush that the title resolves — "shad CN", "shad-see-en" against
+  \`shadcn\` — the title is right and the captions are wrong, everywhere they
+  disagree.
 - **It has no structure and you must supply it.** No paragraphs, and often no
   punctuation or capitalisation at all — automatic captions arrive as one
   unbroken lowercase run. Read the whole thing, find where the subject actually
@@ -291,12 +331,35 @@ export async function summarizeSource(
    * beats casting at the one call site that would need it.
    */
   mastra: Pick<Mastra, 'getAgent'>,
-  options: { text: string; language: string; kind?: SummarySourceKind },
+  options: {
+    text: string
+    language: string
+    kind?: SummarySourceKind
+    /**
+     * What the source was published as, when the caller knows it.
+     *
+     * Metadata rather than content, and kept out of the text for that reason: a
+     * title pasted at the top of the transcript is indistinguishable from
+     * something the speaker said, and the model would summarize it as if it
+     * were. Labelled above the banner, it is a claim the summary is asked to
+     * *test* — see the transcript section of the prompt.
+     */
+    title?: string
+    /**
+     * The source's own one-line framing, when it has one distinct from the
+     * title — for a video, the opening line of its description.
+     */
+    blurb?: string
+  },
 ): Promise<SourceSummary> {
   const kind = options.kind ?? 'article'
+  const title = options.title?.trim()
+  const blurb = options.blurb?.trim()
   const message = [
     `Write the summary in: ${options.language}`,
     `The source is: ${kind === 'transcript' ? 'a video transcript' : 'an article'}`,
+    ...(title ? [`One title it is published under: "${title}"`] : []),
+    ...(blurb ? [`How it describes itself: "${blurb}"`] : []),
     '',
     SOURCE_BANNER[kind],
     options.text,

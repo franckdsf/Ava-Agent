@@ -756,6 +756,24 @@ doesn't wrap without adding a second Telegram library.
   fails at once. `pnpm youtube:check` is how that is noticed and
   `pnpm update youtube-caption-extractor` is the fix — not this repo's code.
   ([0032](docs/decisions/0032-a-youtube-link-summarizes-itself.md))
+- **A YouTube title is not *the* title — YouTube A/B tests them per viewer, so
+  the one fetched here is very likely not the one the reader clicked.** This came
+  out of a real session: the reader asked why the speaker said he was wrong, the
+  summary said nothing about it, and the title we fetch is `Shadcn UI? in 2026?`
+  — no reversal anywhere in it, and grepping the spoken text for "was wrong",
+  "mistaken" and "take it back" returns **zero** hits. The reversal was in the
+  variant *they* were served, and the "I was wrong" framing most likely lives in
+  the **thumbnail**, which is an image and reachable by nothing here. So the
+  title is passed to the summarizer as context and the prompt requires the claim
+  to be *addressed* while forbidding the title to be *quoted* — writing
+  `the video, titled "…", never explains` tells a reader looking at a different
+  title that the wrong video was summarized. The description's first line is
+  passed alongside it and is the steadier of the two: written once by the author
+  rather than tuned per viewer. Here it is *"Should you still Shadcn UI or are
+  you better off using another 'traditional' UI library?"*, which is what the
+  video is actually about, and it now frames the opening paragraph of every run.
+  Only the first paragraph — the other 600 characters of that description are
+  course plugs, affiliate links and five social profiles.
 - **A transcript is ten times the length of an article, and the article cap
   silently truncates it into a plausible lie.** Speech runs ~940 characters a
   minute, so `summary.maxSourceChars` (8,000) is the first *eight and a half

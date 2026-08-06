@@ -1,5 +1,6 @@
 import { getVideoDetails, type Subtitle } from 'youtube-caption-extractor'
 import { youtube } from '../config/youtube.js'
+import { capText } from './article.js'
 
 /**
  * A YouTube link to a readable transcript.
@@ -38,6 +39,12 @@ export interface VideoTranscript {
   /** Canonical, rebuilt from the id — never the URL the reader pasted. */
   url: string
   title: string
+  /**
+   * The video's own one-line framing, from the first paragraph of its
+   * description. Null when the description opens with link furniture or nothing
+   * at all, which is common.
+   */
+  blurb: string | null
   /** Whole-video length in seconds, from the last cue's end. */
   seconds: number
   /** Seconds of video the transcript below actually covers. */
@@ -152,7 +159,16 @@ export async function fetchVideoTranscript(videoId: string): Promise<TranscriptR
     ok: true,
     videoId,
     url: watchUrl(videoId),
+    /**
+     * **Not necessarily the title the reader saw.** YouTube tests several titles
+     * for one video and serves different ones to different viewers, and what
+     * arrives here is whichever variant the InnerTube call was given — which is
+     * nobody's in particular. Treat it as *a* title, never as *the* title: it is
+     * good context for what the video claims, and a bad thing to quote back as
+     * though the reader were looking at it.
+     */
     title: details.title,
+    blurb: toBlurb(details.description),
     // The last cue ends at roughly the end of the video, which is the only
     // length available here — the package returns title, description and cues,
     // and nothing about the video itself.
@@ -161,6 +177,27 @@ export async function fetchVideoTranscript(videoId: string): Promise<TranscriptR
     truncated,
     text,
   }
+}
+
+/**
+ * The first paragraph of a description, as context — never the whole thing.
+ *
+ * The opening line is routinely the question the video answers, spelled out in
+ * words the title had no room for. Everything after the first blank line is link
+ * furniture: course plugs, affiliate tools, social profiles, sponsor contacts.
+ *
+ * URLs are stripped rather than the line being rejected for containing one,
+ * because a blurb quite often ends in a link to the previous video. What is left
+ * has to be long enough to be a sentence — a description opening with a bare
+ * "🎓 LEARN" heading contributes nothing and returns null.
+ */
+function toBlurb(description: string): string | null {
+  const opening = description.split(/\n\s*\n/)[0] ?? ''
+  const cleaned = opening
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return cleaned.length >= 20 ? capText(cleaned, youtube.maxBlurbChars) : null
 }
 
 /** `1h56m`, `19m`, `45s` — for a reader, not for a machine. */
