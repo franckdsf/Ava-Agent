@@ -29,6 +29,7 @@ import { nameBeat } from '../agents/scout.js'
 import { NEWY_BOT } from '../../config/bots.js'
 import { db, migrate } from '../../db/client.js'
 import { articleBeats, articles } from '../../db/schema.js'
+import { scopeArxivFeed } from '../../services/arxiv.js'
 import { checkFeed, normalizeFeedUrl, sourceLabel } from '../../services/feed-check.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { newyTelegram } from '../../services/newy-telegram.js'
@@ -474,11 +475,28 @@ async function addFeed(slug: string | undefined, rawUrl: string | undefined): Pr
     return `${beat.emoji} **${escapeMarkdown(beat.title)}** already reads that feed.`
   }
 
+  // An arXiv category listing is narrowed to this beat's subtopics before it is
+  // stored — 287 papers a day becomes the newest 60 that match what the beat is
+  // about ([src/config/arxiv.ts](../../config/arxiv.ts)).
+  //
+  // **Verified, and reverted if it fails.** A query matching no papers is a
+  // healthy feed that returns nothing forever, which is the failure this whole
+  // command exists to prevent — so the scoped URL has to prove itself, and the
+  // reader gets the plain category feed if it cannot. `scoped` is left null on
+  // that path so the message tells the truth about what was stored.
+  let scoped = scopeArxivFeed(url, beat)
+  let stored = url
+  if (scoped) {
+    const scopedCheck = await checkFeed(scoped.url)
+    if (scopedCheck.ok) stored = scoped.url
+    else scoped = null
+  }
+
   // Checked before it is written, always. A stored feed that turns out to be a
   // web page is a source that silently returns nothing for as long as nobody
   // looks — and the reader has no reason to look, because they were told it
   // worked.
-  const check = await checkFeed(url)
+  const check = await checkFeed(stored)
   if (!check.ok) {
     return [
       `That doesn't work as a feed: ${check.problem}.`,
@@ -486,14 +504,14 @@ async function addFeed(slug: string | undefined, rawUrl: string | undefined): Pr
     ].join('\n\n')
   }
 
-  const source = sourceLabel(check.title, url)
-  await addBeatFeed(beat.slug, url, source)
+  const source = sourceLabel(check.title, stored)
+  await addBeatFeed(beat.slug, stored, source)
 
   // The backfill. A feed another beat already polls answers 304 on the next run,
   // so without this the new subscription is linked to nothing until that feed
   // changes — days, on a quiet source. Its articles are already stored; this
   // links them and lets the ranker do the rest.
-  const ids = await articleIdsFromFeed(url, since(pipeline.maxItemAgeDays))
+  const ids = await articleIdsFromFeed(stored, since(pipeline.maxItemAgeDays))
   const linked = await linkToBeats(
     ids.map(id => ({ articleId: id, beatSlug: beat.slug, subtopic: null })),
   )
@@ -505,11 +523,20 @@ async function addFeed(slug: string | undefined, rawUrl: string | undefined): Pr
       check.newestAt ? `latest ${describeAge(check.newestAt)}` : 'no dates',
       check.hasBodies ? 'full article bodies' : 'headlines only',
     ].join(' · '),
+    // Said outright. The stored URL is not the one they typed, and a silent
+    // rewrite is the kind of surprise that reads as a bug six weeks later.
+    scoped
+      ? `That's arXiv's whole \`${escapeMarkdown(scoped.category)}\` category, so I narrowed it to ` +
+        `this beat's subjects — ${scoped.terms.map(term => `_${escapeMarkdown(term)}_`).join(', ')}. ` +
+        `\`/removefeed\` and re-add the plain category URL if you'd rather have all of it.`
+      : null,
     linked > 0
       ? `${linked} article${linked === 1 ? '' : 's'} from it were already stored — they go into ` +
         `the next ranking run, so this beat has something to say straight away.`
       : `Nothing stored from it yet. The next scheduled run picks it up.`,
-  ].join('\n\n')
+  ]
+    .filter((block): block is string => block !== null)
+    .join('\n\n')
 }
 
 async function removeFeed(slug: string | undefined, rawUrl: string | undefined): Promise<string> {

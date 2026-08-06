@@ -124,6 +124,15 @@ export interface FeedFetchResult {
   /** Server answered 304 — nothing changed since our last fetch. */
   notModified: boolean
   error?: string
+  /**
+   * Entries this feed offered that `pipeline.maxItemsPerFeedRun` discarded.
+   *
+   * Reported rather than swallowed because the discard is **permanent** — the
+   * etag is saved on the same fetch, so those entries are never offered again.
+   * A feed quietly losing half its output every run is exactly the kind of
+   * silent failure that is invisible until someone asks why a source went quiet.
+   */
+  dropped?: number
 }
 
 /**
@@ -172,7 +181,8 @@ export async function fetchFeed(feed: FeedRef): Promise<FeedFetchResult> {
     }
 
     const parsed = await parser.parseString(await response.text())
-    const oldestAccepted = Date.now() - pipeline.maxItemAgeDays * 24 * 60 * 60 * 1000
+    const now = Date.now()
+    const oldestAccepted = now - pipeline.maxItemAgeDays * 24 * 60 * 60 * 1000
 
     const found: DiscoveredArticle[] = []
     for (const entry of parsed.items ?? []) {
@@ -200,6 +210,21 @@ export async function fetchFeed(feed: FeedRef): Promise<FeedFetchResult> {
       })
     }
 
+    // The count bound, applied after the age window so the cap is never spent on
+    // entries that were going to be dropped anyway.
+    //
+    // Sorted rather than trusting feed order: most feeds are newest-first and
+    // nothing requires it, so slicing the raw order would keep an arbitrary 200
+    // rather than the newest 200. Undated entries sort as current, which is the
+    // same reading the age filter above gives them.
+    const dropped = Math.max(0, found.length - pipeline.maxItemsPerFeedRun)
+    const kept =
+      dropped === 0
+        ? found
+        : [...found]
+          .sort((a, b) => (b.publishedAt ?? now) - (a.publishedAt ?? now))
+          .slice(0, pipeline.maxItemsPerFeedRun)
+
     await saveFeedState({
       feedUrl: feed.url,
       etag: response.headers.get('etag'),
@@ -208,7 +233,7 @@ export async function fetchFeed(feed: FeedRef): Promise<FeedFetchResult> {
       lastError: null,
     })
 
-    return { feedUrl: feed.url, articles: found, notModified: false }
+    return { feedUrl: feed.url, articles: kept, notModified: false, dropped }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     await saveFeedState({

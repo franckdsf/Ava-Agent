@@ -83,6 +83,30 @@ export function sourceLabel(title: string | null, url: string): string {
     }
   })()
 
+  // A feed whose title is really its own query. arXiv's API names the feed after
+  // the search — `arXiv Query: search_query=cat:cs.AI AND (abs:"large language
+  // model" OR abs:"LLM")&id_list=&start=0&max_results=40`, 113 characters — so
+  // the length fallback below reduces every such feed to `export.arxiv.org`, and
+  // two different queries become one indistinguishable name under every article
+  // they deliver, in `/beat`, and in the weekly review's report.
+  //
+  // The category is the honest attribution and it is already in the URL, so no
+  // one has to type a name. Two queries over the *same* category still collide;
+  // that is the case where a hand-written label would be worth having.
+  // Decoded first: a hand-typed URL carries a literal `cat:` and a generated one
+  // carries `cat%3A`, and matching only the raw form silently reduced every
+  // *generated* feed to `export.arxiv.org` — the exact bug this branch exists to
+  // prevent, reintroduced by the encoder.
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(url)
+    } catch {
+      return url
+    }
+  })()
+  const category = decoded.match(/cat:([a-z-]+(?:\.[A-Za-z-]+)?)/)?.[1]
+  if (category && /arxiv\.org$/i.test(host)) return `arXiv ${category}`
+
   const trimmed = title?.trim()
   if (!trimmed) return host
 

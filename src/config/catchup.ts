@@ -12,9 +12,14 @@ export const catchup = {
   /**
    * How long the news pipeline may go without an ingest before a boot fires it.
    *
-   * Against three digests a day this is twenty missed fires — far enough out
-   * that no reading of "the schedule has not been running" disagrees, and not
-   * reachable by a slow run or a quiet week of feeds.
+   * Against `pipeline.digestHours` this is fourteen missed fires — far enough
+   * out that no reading of "the schedule has not been running" disagrees, and
+   * not reachable by a slow run or a quiet week of feeds.
+   *
+   * **It said twenty when the cadence was three a day**, and the cadence dropped
+   * to two on 2026-08-06. The number did not need to move: the bar is a multiple
+   * of the cadence rather than a fixed count, and fourteen missed fires is still
+   * nowhere near a healthy gap. Halve the cadence again and re-read this.
    */
   newsStaleAfterDays: 7,
 

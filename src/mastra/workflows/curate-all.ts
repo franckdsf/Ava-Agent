@@ -183,9 +183,22 @@ const ingest = createStep({
       feedsFetched: distinct.length,
       discovered,
       linked,
-      feedErrors: results
-        .filter(result => result.error)
-        .map(result => `${result.feedUrl}: ${result.error}`),
+      feedErrors: [
+        ...results
+          .filter(result => result.error)
+          .map(result => `${result.feedUrl}: ${result.error}`),
+        // A feed hitting the per-run cap is not an error — it is a firehose
+        // being throttled deliberately — but it must not be silent either: the
+        // etag is already saved, so those entries are gone for good. Reported on
+        // the same channel because that channel is the one anybody reads.
+        ...results
+          .filter(result => (result.dropped ?? 0) > 0)
+          .map(
+            result =>
+              `${result.feedUrl}: capped — ${result.dropped} newer-than-${pipeline.maxItemAgeDays}d ` +
+              `entries discarded above ${pipeline.maxItemsPerFeedRun}`,
+          ),
+      ],
     })
 
     return beats.map(beat => ({ beatSlug: beat.slug }))

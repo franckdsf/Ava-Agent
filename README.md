@@ -110,6 +110,8 @@ pnpm feeds:check
 | `pnpm feeds:check` | Confirm every subscribed feed is reachable and parses |
 | `pnpm catchup:check` | Show what a boot would do about a pipeline that has gone quiet |
 | `pnpm sonar:check "<slug or text>"` | Dry-run the `sonar` job source — companies, careers pages, what survives the filter. Calls a model |
+| `pnpm finder:check "<topic>"` | Find candidate sources and measure **which of them break a story and which repeat it late**. `--against <url>` races them past feeds you already have |
+| `pnpm rssfinder:check "<subject or domain>"` | Ask rssfinder.app what feeds it knows about a subject or a site. Add `--verify` to fetch each one |
 | `pnpm db:generate` | Emit a migration after editing `src/db/schema.ts` |
 | `pnpm db:studio` | Browse the database |
 | `pnpm typecheck` | `tsc --noEmit` |

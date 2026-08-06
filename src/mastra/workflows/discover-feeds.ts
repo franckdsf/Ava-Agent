@@ -10,7 +10,8 @@ import {
   setBeatArchived,
   subscribedFeedUrls,
 } from '../../db/beats.js'
-import { sourceLabel } from '../../services/feed-check.js'
+import { scopeArxivFeed } from '../../services/arxiv.js'
+import { checkFeed, sourceLabel } from '../../services/feed-check.js'
 import { discoverFeeds, type SiteDiscovery } from '../../services/feed-discovery.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { newyTelegram } from '../../services/newy-telegram.js'
@@ -217,9 +218,27 @@ const attach = createStep({
     const attachedFeeds: { feedUrl: string; source: string }[] = []
     let linked = 0
 
+    // The beat's own subjects, for narrowing an arXiv category listing the same
+    // way `/addfeed` does. Read once: it is the same beat for every result.
+    const beat = await getBeat(inputData.slug)
+
     for (const result of working) {
-      const url = result.feedUrl as string
-      const source = result.source ?? hostLabel(url)
+      let url = result.feedUrl as string
+      let source = result.source ?? hostLabel(url)
+
+      // A category listing is every paper announced that day, which on a beat
+      // with a narrow subject is a firehose of near-misses. Verified before it
+      // is preferred — a query matching nothing is a feed that looks healthy and
+      // returns nothing forever, so the plain category survives that case.
+      const scoped = beat ? scopeArxivFeed(url, beat) : null
+      if (scoped) {
+        const scopedCheck = await checkFeed(scoped.url)
+        if (scopedCheck.ok) {
+          url = scoped.url
+          source = sourceLabel(scopedCheck.title, scoped.url)
+        }
+      }
+
       await addBeatFeed(inputData.slug, url, source)
       attachedFeeds.push({ feedUrl: url, source })
 

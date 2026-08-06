@@ -53,7 +53,23 @@ export const pipeline = {
    * business having a hand-picked threshold.
    */
   defaultDigestThreshold: 62,
-  defaultMaxItemsPerDigest: 6,
+
+  /**
+   * **8, raised from 6 on 2026-08-06, as insurance against downtime rather than
+   * to send more.**
+   *
+   * The cap only binds when a beat has more articles over its threshold than
+   * slots, which at a healthy cadence it does not: measured demand is ~6.4
+   * articles a day clearing 62 against 16 slots a day at two fires. It binds
+   * hard when the machine has been *off* — the real gap between digest runs
+   * measured 27.8h median (67.2h at worst), and six items to cover twenty-eight
+   * hours of news is a backlog that never drains. Eighteen articles were sitting
+   * over the bar when this was measured.
+   *
+   * Raising it costs nothing on a quiet day: nothing below the threshold is ever
+   * sent to fill a slot.
+   */
+  defaultMaxItemsPerDigest: 8,
 
   /**
    * How many beats curate at once inside one run.
@@ -72,6 +88,31 @@ export const pipeline = {
    * first run pays to rank years-old news.
    */
   maxItemAgeDays: 7,
+
+  /**
+   * Newest items one feed may contribute in one run, applied **after** the age
+   * window.
+   *
+   * The age window was the only bound until 2026-08-06, and it is the wrong tool
+   * for a feed that is genuinely prolific rather than merely historical. Figma's
+   * 437 entries and OpenAI's 1051 are *old*, so the window handles them. arXiv
+   * `cs.AI` publishes **258–693 papers a day, every one of them hours old** —
+   * measured, 693 on 2026-08-04 — so every single one passes the window and the
+   * ranker is paid to read all of them. That was 88% of intake and ~92% of
+   * ranking input tokens, for a 2% hit rate.
+   *
+   * Scoping the feed URL is the better fix where a feed supports it — arXiv's
+   * API takes `max_results` — but that is one vendor's query parameter and
+   * nothing else honours it. This is the bound that works on any feed from any
+   * domain, which is why both exist.
+   *
+   * **Dropping here is permanent, and that is the cost.** `saveFeedState`
+   * records the etag on the same fetch, so the next request answers 304 and the
+   * items that did not make the cut are never offered again. The cap is
+   * therefore set well above any honest publisher's daily output: it is a
+   * circuit breaker for a firehose, not a per-run reading quota.
+   */
+  maxItemsPerFeedRun: 200,
 
   /**
    * Jaccard similarity over normalized title tokens above which two headlines
@@ -130,8 +171,21 @@ export const pipeline = {
    */
   pruneBatchSize: 500,
 
-  /** Local-time hours (AGENT_TIMEZONE) at which each category's digest fires. */
-  digestHours: [8, 13, 19],
+  /**
+   * Local-time hours (AGENT_TIMEZONE) at which each category's digest fires.
+   *
+   * **Two a day, not three** — 10:00 and 20:00, set 2026-08-06 at the reader's
+   * request. Nothing is lost by dropping a fire: `defaultMaxItemsPerDigest`
+   * gives 12 slots a day here, and the measured demand is ~6.4 articles a day
+   * clearing `defaultDigestThreshold` on the busiest beat. The slots were slack
+   * at three fires and are still slack at two.
+   *
+   * Read dynamically by the schedule, by `/start` and by `/beat`, so this array
+   * is the only place the cadence lives. `catchup.newsStaleAfterDays` is set
+   * against it and is **not** derived — `pnpm catchup:check` after any change
+   * here, which is what the [AGENTS.md](../../AGENTS.md) table demands.
+   */
+  digestHours: [10, 20],
 
   /**
    * Local-time hour at which retention runs. Deliberately between the 19:00 and

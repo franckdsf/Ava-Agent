@@ -78,6 +78,8 @@ The full list is in the [README](README.md#commands). These three carry obligati
 | `pnpm sonar:check "<slug or free text>"` | Run after touching the job scout's prompt, careers-page resolution or `jobScout`. Dry-runs the `sonar` source end to end — proposes companies, resolves and verifies every careers page, builds the rows ingest would store and runs the real filter over them — writing and sending nothing. **It calls a model, unlike `jobs:check`**, which is why it is a separate command. Read the FILTER block first: a lead survives only if its careers page carries the reader's must-haves in real text, so a low survival rate means the design is failing, not that the week is quiet. Run it **three times** — company sets vary run to run, and the ±10 discipline applies. Free text touches no database; a slug-shaped argument opens one and applies migrations. |
 | `pnpm portfolio:check` | Run before believing anything about job scoring, and after any change to the portfolio endpoint. It is the one input to that scoring living outside this repo, and a wrong endpoint **never errors** — a protection wall answers 200 with an HTML login page, an empty deploy answers 200 with nothing. Prints the size, the estimated per-run token cost, the headings and the first lines. Read-only. |
 | `pnpm catchup:check` | **Required** after touching `decideCatchup`, `src/config/catchup.ts`, `pipeline.digestHours` or `jobPipeline.intervalHours` — the last two because the staleness bars are set against those cadences and nothing enforces the relationship. The boot catch-up runs once, unattended, on a path that is invisible when it decides right and expensive when it decides wrong. Every guard needs a case here. Also prints what a boot *right now* would do to both live pipelines. Read-only; fires nothing. |
+| `pnpm finder:check "<topic>" [--against <url>…]` | **Run before adding a source to a beat that is meant to be timely.** `feeds:check` reports health, and a late blog is perfectly healthy — measured 2026-08-06, all 20 subscribed feeds passed while `ai-model-releases` sat on a weekly newsletter and a feed with no dated entries in 45 days. This races candidates against each other and reports median hours behind the first publisher ([ADR-0031](docs/decisions/0031-a-race-decides-which-sources-are-early.md)). **Always pass `--against` with the beat's existing feeds** — a lag is measured against other sources, not in the abstract, and a thin pool produces "too few" for everything. Read the *stories* line before the table: if the tokens are not recognisable releases, the filters have drifted and the ranking below them is noise that will still look plausible. |
+| `pnpm rssfinder:check "<subject or domain>"` | **Read the output with `--verify` or not at all.** It queries a third party's index, which answers with feed URLs directly — the one thing [the gotchas](#gotchas) say never to accept from a search, because a wrong feed URL never errors. Measured 2026-08-06 on `ai images models`: 7 feeds returned, **3 alive** — two 404s, a 403 and a page that isn't a feed. Nothing here writes, calls no model and needs no `.env`; `checkFeed()` remains the sole authority on whether a URL is a feed. |
 | `pnpm telegram:check [bot]` | Run before debugging a missing tab. Reports whether BotFather's Threaded Mode is on — the one prerequisite no code can set — plus any profile field the next boot would push. Read-only, safe against a running bot. Covers **every** bot with no argument, because Threaded Mode is per token and a check that silently skipped one would be worse than none; name a bot (`newy`) to narrow it. |
 
 ## Invariants
@@ -263,6 +265,38 @@ doesn't wrap without adding a second Telegram library.
 - **Feeds serve their entire history.** Figma returns 437 entries, OpenAI 1051.
   `pipeline.maxItemAgeDays` exists for this reason; removing it means paying to
   rank years-old news.
+- **A prolific feed is a different problem from a historical one, and the age
+  window only solves the second.** arXiv `cs.AI` publishes 258–693 papers a day,
+  every one of them hours old, so all of them clear the window: 951 of 1,084
+  articles in a week, ~92% of ranking input tokens, for a **2% hit rate**.
+  `pipeline.maxItemsPerFeedRun` is the general bound and
+  `scopeArxivFeed()` narrows arXiv specifically, rewriting a category listing
+  into an API query built from the beat's subtopics — applied in **both** add
+  paths (`/addfeed` and discovery's `attach`), verified with `checkFeed()`, and
+  reverted to the plain category if the query returns nothing.
+- **Subtopics are ranking labels, not search terms, and they only sometimes
+  survive the change of job.** Measured 2026-08-06 on `computer-science`
+  (`ai-research`, `ai-models`): the scoped query returned 60 papers spanning
+  **38 days with 1 of 60 from that day's batch**, and the titles were not
+  visibly more on-beat than the unscoped 287. A label naming a *thing* works as
+  a phrase search (`figma`, `design systems`); one naming a *field* does not.
+  The cost saving is real either way — most results fall outside
+  `maxItemAgeDays` and never ingest — but do not read the reduction as evidence
+  that the right papers were chosen. `arxiv.uselessTerms` exists because
+  `benchmarks` and `capabilities` match a large slice of every AI category.
+- **A rubric mostly names no subjects, and the one time it looked like it did,
+  that was a bug.** `termsFromRubric` reads proper nouns out of the HIGH half.
+  Measured across all four live beats: it helps **one** — `design` yields
+  `google, ui, css` and goes from 0 to 16 papers inside the ingest window —
+  and yields *nothing* for `computer-science` and `ai-model-releases`, whose
+  rubrics describe the **shape** of news wanted ("actually shipped", "primary
+  sources outrank commentary") rather than any subject. That is the correct
+  answer for them, not a gap to paper over. The first implementation skipped only
+  the first word of each *line*, so `Primary` in "…benchmark delta. **Primary**
+  sources outrank commentary" was taken as a proper noun; it matched a fifth of
+  cs.AI and lifted `computer-science` from 9 usable papers to 40. **That looked
+  exactly like the feature working.** Sentence-initial capitals are skipped now
+  and the gain correctly vanished.
 - **drizzle-kit generates a `NOT NULL` add that only works on an empty table.**
   `ALTER TABLE … ADD COLUMN … NOT NULL` with no default is rejected by SQLite the
   moment the table has one row — "Cannot add a NOT NULL column with default value

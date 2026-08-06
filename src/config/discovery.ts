@@ -41,8 +41,21 @@ export const discovery = {
    * falls off with each re-run by construction, because the scout returns its
    * best guesses first: the third run on one subject proposed two law firms and
    * a PR agency. `/addfeed` is the deliberate way past this, not another sweep.
+   *
+   * **Raised from 8 to 12 on 2026-08-06**, on a measurement rather than a
+   * preference. `computer-science` was reading 9 feeds of which **arXiv produced
+   * 951 of 1,084 articles in one week — 88%** — so the beat was never short of
+   * *volume*, it was short of *variety*, and each further arXiv paper crowds the
+   * ranking batch without widening it. The four extra slots are roughly paid for
+   * by `pipeline.digestHours` going from three fires a day to two on the same
+   * date: a third fewer ranking runs.
+   *
+   * **Slots are not an instruction to the top-up to fill them.** The weekly
+   * review will fill them, and its later proposals are its worst ones. Choose
+   * sources with `pnpm finder:check` and attach them with `/addfeed` — that is
+   * what the extra room is for.
    */
-  maxFeedsPerBeat: 8,
+  maxFeedsPerBeat: 12,
 
   /**
    * Paths tried when a homepage declares no feed.
