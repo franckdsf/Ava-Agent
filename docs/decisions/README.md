@@ -49,6 +49,7 @@ something looks the way it does.
 | [0029](0029-six-ats-providers-probed-concurrently.md) | Six applicant-tracking providers, probed concurrently | Accepted |
 | [0030](0030-domains-as-vocabularies-a-search-names-its-field.md) | Domains as vocabularies, and a search names its own field | Accepted |
 | [0031](0031-a-race-decides-which-sources-are-early.md) | A race decides which sources are early, not a health check | Accepted |
+| [0032](0032-a-youtube-link-summarizes-itself.md) | A YouTube link summarizes itself — a tool on Newy, not a command | Accepted |
 
 **Reading 0001–0021:** they predate [0022](0022-ava-is-the-system-agents-have-names.md)
 and call the conversational agent *Ava*. That agent is now **Newy**; *Ava* is the

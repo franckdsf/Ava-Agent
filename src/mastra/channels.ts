@@ -339,6 +339,10 @@ export async function welcome(): Promise<string> {
     `\`/why\` is the one worth knowing about: every beat scores every article it sees and writes down what it made of it, so you can swipe something and ask why it arrived — or swipe one I skipped and see what it scored.`,
     `${Object.keys(TRANSLATIONS).map(command => `\`${command}\``).join(' and ')} answer in your own language, with the English kept in view, in the ${NEWY_TOPICS.translations.title} tab — a long article arrives as several messages over a few minutes.`,
     `\`${summary.command}\` answers here in ${NEWY_TOPICS.chat.title}, as one message: the article explained properly rather than compressed. It writes in ${summary.defaultLanguage} unless you name a language after it — \`${summary.command} fr\`, \`${summary.command} ru\`, or the language's own name.`,
+    // No command, on purpose — so it has to be said here or the reader never
+    // finds it. A capability with no verb attached is invisible in a command
+    // list, and this one is triggered by doing the thing you would do anyway.
+    `**YouTube links need no command at all** 🎬 — paste one here and I'll read its transcript and explain what's actually in it, in your language. It works on a two-hour talk as well as a five-minute one; if a video has no captions there's nothing I can read, and I'll say so rather than guess.`,
     `If you want something specific, just ask — search the archive, show me a recent article, or tell me what interests you 😉.`,
   ].join('\n\n')
 }

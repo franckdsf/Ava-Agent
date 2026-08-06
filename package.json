@@ -25,6 +25,7 @@
     "start": "node .mastra/output/index.mjs",
     "telegram:check": "tsx --env-file=.env scripts/check-telegram.ts",
     "typecheck": "tsc --noEmit",
+    "youtube:check": "tsx scripts/check-youtube.ts",
     "workflow:run": "tsx scripts/run-workflow.ts"
   },
   "devDependencies": {
@@ -43,6 +44,7 @@
     "drizzle-orm": "^0.45.2",
     "replicate": "^1.4.0",
     "rss-parser": "^3.13.0",
+    "youtube-caption-extractor": "^1.10.2",
     "zod": "^4.4.3"
   }
 }

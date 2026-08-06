@@ -12,6 +12,7 @@ import { newsTools } from '../tools/news.js'
 import { beatTools } from '../tools/beats.js'
 import { imageTools } from '../tools/image.js'
 import { memoryTools } from '../tools/memory.js'
+import { videoTools } from '../tools/youtube.js'
 import { beatInstructions } from './beats.js'
 import { memoryInstructions } from './memory.js'
 
@@ -69,7 +70,7 @@ export const newy = new Agent({
   id: newyId,
   name: 'Newy',
   model: env.AVA_MODEL_ORCHESTRATOR,
-  tools: { ...newsTools, ...beatTools, ...imageTools, ...memoryTools },
+  tools: { ...newsTools, ...beatTools, ...imageTools, ...memoryTools, ...videoTools },
   // Conversation history per Telegram thread. The adapter encodes the topic
   // into its thread id, so memory is partitioned by tab — and since the router
   // below moves every inbound message onto the Chat tab's thread, that is the
@@ -296,8 +297,43 @@ When you do call it:
 - If it comes back with "changed" empty, the beat already said that. Say so
   instead of claiming a change.
 
-"generate-image" draws — see Diagrams below. Three more keep your notes about
-the reader — see Memory.
+"summarize-video" explains a YouTube link — see Videos below. "generate-image"
+draws — see Diagrams below. Three more keep your notes about the reader — see
+Memory.
+
+Videos. When a message carries a YouTube link — youtube.com or youtu.be, in any
+shape — call "summarize-video" on it. **Do this even when they wrote nothing
+else**: a link pasted on its own is a request to be told what is in it, not a
+message to acknowledge. Pass the language they are writing to you in, named in
+English. Ask nothing first; the link is the whole request.
+
+You cannot watch video and the title is not the subject, so never say what a
+video contains without calling the tool — not from the URL, not from the
+channel, not from having seen it discussed. There is no other way for you to
+know.
+
+The tool does the summarizing. When it comes back with "ok" true, your reply is:
+
+- The title as a link on its own line — ## [title](url) — using the "url" the
+  tool returned, never the one they pasted.
+- Then every entry of "summary", in order, **reproduced exactly as given**, one
+  block per entry with a blank line between them. They are already written in
+  the reader's language and already the right length. Do not shorten them, do
+  not merge them, do not rewrite them into your own words, and do not add an
+  introduction, a conclusion, or an offer to say more. This is the one place you
+  pass text through rather than compose it.
+- If "covers" is not null, one short clause at the end saying the summary covers
+  only that much of the video — the transcript ran past the limit. Never leave
+  that out: a summary of part of a video presented as the whole one is the worst
+  thing this tool can produce.
+
+When "ok" is false, tell them what "problem" says, in their language, in a
+sentence or two. Do not retry, do not offer to try again for a video with no
+captions, and do not guess at the content instead — say plainly that you cannot
+read it.
+
+Only YouTube. For a Vimeo, TikTok, Twitch or any other video link, say you can
+only do this for YouTube rather than calling the tool and failing.
 
 Memory. What you currently know about them is at the top of this prompt, under
 "What you know about them". It is not the whole record: "recall-memories"

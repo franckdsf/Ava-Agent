@@ -5,13 +5,25 @@ import { env } from '../../config/env.js'
 import { summary } from '../../config/summary.js'
 
 /**
- * The summarizer behind `/summarize`.
+ * The summarizer behind `/summarize` and behind Newy's `summarize-video` tool.
  *
  * The fifth model call in the system and the third a human triggers directly —
  * Newy and the translator are the others. Like the translator it sits on the
  * conversational surface with no tools and no database access, reading nothing
  * but the text it is handed, so [invariant 8](../../../AGENTS.md#invariants) is
- * untouched. See [ADR-0018](../../../docs/decisions/0018-summarize-command.md).
+ * untouched. See [ADR-0018](../../../docs/decisions/0018-summarize-command.md)
+ * and [ADR-0032](../../../docs/decisions/0032-a-youtube-link-summarizes-itself.md).
+ *
+ * **Two sources, one agent, one prompt.** A video transcript wants different
+ * advice from an article — it has no punctuation, mishears names, and carries
+ * sponsor reads where a web page carries cookie banners — but that is a section
+ * of guidance, not a second persona, and every other rule here applies to both
+ * unchanged. The caller declares which it is in the message and the section
+ * below headed "If the source is a transcript" applies or doesn't. Keeping it in
+ * the *static* prompt rather than composing per-call is deliberate: this string
+ * stays byte-identical between calls and therefore remains a cacheable prefix,
+ * the same reason Newy's notes live in a second system message rather than
+ * concatenated into her first.
  *
  * **Not Newy, and the reason is structural rather than a preference.** A slash
  * command never reaches her — the adapter routes any message whose first entity
@@ -71,9 +83,13 @@ export const summarizer = new Agent({
   instructions: {
     role: 'system',
     content: `
-You explain one article to one reader who has asked for it. They have the
-article in front of them and asked for this anyway, so a summary that only
-restates the headline has wasted their time.
+You explain one thing to one reader who has asked for it — an article, or the
+transcript of a video. They have it in front of them and asked for this anyway,
+so a summary that only restates the title has wasted their time.
+
+The message tells you which of the two you were given. Everything below applies
+to both; the section headed "If the source is a transcript" applies only when it
+is one.
 
 **The language is named in the message.** It may be an ISO 639-1 code (\`fr\`,
 \`ru\`, \`de\`), an English name ("French", "Russian"), or the language's own
@@ -120,21 +136,23 @@ fragments is harder to read than prose and hides how the pieces relate.
 - **Do not invent.** Everything you write comes from the text you were given. If
   the article does not say how something works, say that it does not, or leave it
   out. No detail is worth a fabricated one.
-- **Never address the reader, and never write about the article.** Write about
-  the subject. Your first sentence is the first thing worth knowing, not a
-  sentence announcing what is about to be said. Every one of these has been
+- **Never address the reader, and never write about the article or the video.**
+  Write about the subject. Your first sentence is the first thing worth knowing,
+  not a sentence announcing what is about to be said. Every one of these has been
   produced here and every one is wrong:
 
     Cet article détaille une conversation avec l'équipe…
     Este resumo aborda um painel de discussão realizado…
     This article covers… / The author explains… / In this piece…
+    In this video… / Dans cette vidéo… / The speaker walks through…
+    The presenter begins by… / Nesta palestra…
 
   **The rule is about the sentence, not about the English words** — it holds in
   whatever language you are writing in, and it is broken most often when writing
   in something other than English. Delete the frame and start at the subject:
   not "This article details a conversation about how X changed", but "X has
   changed". No closing sentence offering to say more, either.
-- **Drop page furniture.** The text is extracted from a web page and the
+- **Drop page furniture.** An article's text is extracted from a web page and the
   extraction is imperfect, so it may carry navigation and "back to articles"
   links, share and upvote buttons, cookie or subscription notices, author and
   follow widgets, tag lists, comment counts, and stray markup or CSS fragments
@@ -170,6 +188,40 @@ fragments is harder to read than prose and hides how the pieces relate.
   press release, not to you. A technical article stays technical.
 - **One block is one entry** in what you return: a paragraph, a \`- \` list item,
   a \`### \` heading, or a fenced snippet.
+
+## If the source is a transcript
+
+Only when the message says the source is a video transcript. It is the spoken
+audio, and it reads nothing like an article.
+
+- **It has no structure and you must supply it.** No paragraphs, and often no
+  punctuation or capitalisation at all — automatic captions arrive as one
+  unbroken lowercase run. Read the whole thing, find where the subject actually
+  changes, and write the summary those sections deserve. This is the main work
+  on a long video.
+- **Speech repeats; prose should not.** A speaker makes the same point on the way
+  in, again in the middle, and once more in the summary at the end. That is one
+  point. Cut filler, false starts, asides to the audience, and thinking-aloud.
+- **Words are misheard, and technical ones most of all.** Captions render names,
+  libraries, commands and numbers phonetically. When the context makes the real
+  term obvious, write it correctly — "next JS" is \`Next.js\`, "pie torch" is
+  PyTorch, "kubernetes" may arrive in three spellings. When it does not, leave
+  the term out rather than guessing: a confidently wrong library name is worse
+  than a missing one. Never reproduce a mangled spelling as if it were correct.
+- **Numbers from audio are the least reliable thing in the transcript.** Give a
+  benchmark figure, a version or a price only when it is unambiguous. Do not
+  build a claim on a number you had to reconstruct.
+- **Drop what belongs to the channel rather than to the subject**: intros asking
+  for likes and subscriptions, sponsor and ad reads, discount codes, merch and
+  course plugs, "link in the description", patron shout-outs, outro music
+  markers like \`[Music]\` or \`[♪♪♪]\`, and housekeeping about the channel's
+  schedule. Leave it out silently, exactly as with page furniture — never
+  mention that you removed it.
+- **Say nothing about the recording.** Not its length, not its production, not
+  who is speaking to whom, not that the transcript is imperfect, and — when the
+  transcript stops before the video does — not that it stops. The reader is told
+  that separately, and a summary that hedges about its own source reads as a
+  failure. Summarize what is there and stop.
 `.trim(),
   },
 })
@@ -194,16 +246,32 @@ const summarySchema = z.object({
     ),
 })
 
-export type ArticleSummary = z.infer<typeof summarySchema>
+export type SourceSummary = z.infer<typeof summarySchema>
+
+/** What the model is reading, which decides one section of its prompt. */
+export type SummarySourceKind = 'article' | 'transcript'
+
+/** The banner that tells the model which kind it got. */
+const SOURCE_BANNER: Record<SummarySourceKind, string> = {
+  article: '--- ARTICLE ---',
+  transcript: '--- VIDEO TRANSCRIPT ---',
+}
 
 /**
- * Summarizes one article in one call.
+ * Summarizes one source in one call.
  *
  * **No chunking, unlike the translator.** A translation of part 3 is a valid
  * translation and can be sent on its own; a summary of part 3 is not a summary.
- * The whole body — already capped at `summary.maxSourceChars` — goes in one
- * call, which is also what lets the model decide for itself which parts of the
- * article were worth keeping.
+ * The whole body goes in one call, which is also what lets the model decide for
+ * itself which parts were worth keeping.
+ *
+ * That holds for a two-hour video too, and it is the reason nothing here does
+ * map-reduce over chunks. The cap that matters is the caller's —
+ * `summary.maxSourceChars` for an article, `youtube.maxTranscriptChars` for a
+ * transcript — and the second is fifteen times the first because
+ * `AVA_MODEL_SUMMARIZER` has the context to read it in one pass. Summarizing
+ * summaries would lose exactly what a reader wants from a long talk: the
+ * specifics.
  *
  * **And no retry.** The translator retries a degenerate result because it has a
  * measured failure mode: roughly one call in seven echoed the source instead of
@@ -212,14 +280,25 @@ export type ArticleSummary = z.infer<typeof summarySchema>
  * would double the reader's wait to guard something that may not exist. An empty
  * response throws and is reported; a thin one is the reader's to judge.
  */
-export async function summarizeArticle(
-  mastra: Mastra,
-  options: { text: string; language: string },
-): Promise<ArticleSummary> {
+export async function summarizeSource(
+  /**
+   * Narrowed to the one method this uses, rather than typed as `Mastra`.
+   *
+   * Not a stylistic preference — a tool's execution context carries
+   * `MastraUnion`, a mapped type over the same surface that is *not* assignable
+   * to the nominal class (it loses the private fields). Both callers reach the
+   * same registry; only the class does so through a nominal type. Widening here
+   * beats casting at the one call site that would need it.
+   */
+  mastra: Pick<Mastra, 'getAgent'>,
+  options: { text: string; language: string; kind?: SummarySourceKind },
+): Promise<SourceSummary> {
+  const kind = options.kind ?? 'article'
   const message = [
     `Write the summary in: ${options.language}`,
+    `The source is: ${kind === 'transcript' ? 'a video transcript' : 'an article'}`,
     '',
-    '--- ARTICLE ---',
+    SOURCE_BANNER[kind],
     options.text,
   ].join('\n')
 
@@ -228,7 +307,7 @@ export async function summarizeArticle(
   })
 
   // No parsed object, or nothing in it, is a failed call rather than an empty
-  // article — the caller has to be able to tell the reader that, since this
+  // source — the caller has to be able to tell the reader that, since this
   // command's whole output is the one message it did not manage to send.
   const paragraphs = response.object?.paragraphs.map(block => block.trim()).filter(Boolean) ?? []
   if (paragraphs.length === 0) {

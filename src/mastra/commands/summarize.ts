@@ -2,7 +2,7 @@ import type { Mastra } from '@mastra/core'
 import { summary } from '../../config/summary.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { newyTelegram } from '../../services/newy-telegram.js'
-import { summarizeArticle } from '../agents/summarizer.js'
+import { summarizeSource } from '../agents/summarizer.js'
 import {
   articleHeading,
   quotedArticleSource,
@@ -73,9 +73,10 @@ export async function runSummary(mastra: Mastra, event: SlashCommandEvent): Prom
   await newyTelegram.sendToTelegram(starting(source, requested), SUMMARY_TAB)
 
   try {
-    const result = await summarizeArticle(mastra, {
+    const result = await summarizeSource(mastra, {
       text: source.text,
       language: requested || summary.defaultLanguage,
+      kind: 'article',
     })
     await newyTelegram.sendToTelegram(renderSummary(source, result.paragraphs, result.language), SUMMARY_TAB)
   } catch (error) {

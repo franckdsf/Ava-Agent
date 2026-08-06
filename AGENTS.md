@@ -81,6 +81,7 @@ The full list is in the [README](README.md#commands). These three carry obligati
 | `pnpm finder:check "<topic>" [--against <url>…]` | **Run before adding a source to a beat that is meant to be timely.** `feeds:check` reports health, and a late blog is perfectly healthy — measured 2026-08-06, all 20 subscribed feeds passed while `ai-model-releases` sat on a weekly newsletter and a feed with no dated entries in 45 days. This races candidates against each other and reports median hours behind the first publisher ([ADR-0031](docs/decisions/0031-a-race-decides-which-sources-are-early.md)). **Always pass `--against` with the beat's existing feeds** — a lag is measured against other sources, not in the abstract, and a thin pool produces "too few" for everything. Read the *stories* line before the table: if the tokens are not recognisable releases, the filters have drifted and the ranking below them is noise that will still look plausible. |
 | `pnpm rssfinder:check "<subject or domain>"` | **Read the output with `--verify` or not at all.** It queries a third party's index, which answers with feed URLs directly — the one thing [the gotchas](#gotchas) say never to accept from a search, because a wrong feed URL never errors. Measured 2026-08-06 on `ai images models`: 7 feeds returned, **3 alive** — two 404s, a 403 and a page that isn't a feed. Nothing here writes, calls no model and needs no `.env`; `checkFeed()` remains the sole authority on whether a URL is a feed. |
 | `pnpm workflow:run <target>` | **The only script here that is not a dry run — read `--help` before the first use.** It starts a real scheduled workflow against a running `pnpm dev`: real feeds, real model calls, real Telegram messages, and for `jobs` the scoring call that is this system's single most expensive request. Every target's cost is printed before it fires. Three traps it exists to close, all documented in the [gotchas](#gotchas): the route takes the *registry key* while schedule rows take the workflow id; `initialState` is mandatory for `curateAll` alone; and **a 504 does not stop the run**, which is why the script supplies its own `runId` and polls rather than reading the response — re-firing is how two runs end up delivering at once. Exercise it with `news --beats <a slug that does not exist>`: `activeBeats` returns nothing, `ingest` returns early, and both notice guards are false, so it proves the whole path end to end while fetching nothing and sending nothing. |
+| `pnpm youtube:check [url]` | **Run first whenever Newy says she cannot read a video, and after any `pnpm update`.** It is the early-warning system for a dependency that scrapes another company: the caption route is behind anti-bot measures that move, and when they move the failure is total and silent — she simply starts refusing every video. Prints the parsed id for ten URL shapes (two of which *must* fail) and fetches five real transcripts covering each outcome: a 19-second clip, a 19m talk with manual captions, a 1h56m talk with auto captions, a music video that must come back `no-speech`, and a dead id that must come back `unavailable` rather than `no-captions`. Read-only, needs no `.env`, and **calls no model** — it stops at the transcript. Every video failing at once means the route is blocked, not that the videos changed; `pnpm update youtube-caption-extractor` is the first thing to try. |
 | `pnpm telegram:check [bot]` | Run before debugging a missing tab. Reports whether BotFather's Threaded Mode is on — the one prerequisite no code can set — plus any profile field the next boot would push. Read-only, safe against a running bot. Covers **every** bot with no argument, because Threaded Mode is per token and a check that silently skipped one would be worse than none; name a bot (`newy`) to narrow it. |
 
 ## Invariants
@@ -744,6 +745,34 @@ doesn't wrap without adding a second Telegram library.
   Adding a "drop page furniture" rule fixed that and produced a run whose first
   paragraph was a bulleted note listing what it had removed. Both rules are
   needed: drop it, **and** never describe the drop.
+- **A YouTube caption URL from the watch page answers 200 with an empty body.**
+  The page still advertises its `captionTracks` and every one of those URLs is
+  dead without a proof-of-origin token — a `200`, a `content-length` of zero, and
+  no error anywhere. The route that works is InnerTube's `player` endpoint called
+  with a **mobile client profile**, which is what `youtube-caption-extractor`
+  does. Measured 2026-08-06, of the three profiles it tries **only iOS is alive**:
+  Android VR answers `LOGIN_REQUIRED` and Web answers `UNPLAYABLE`. So its
+  "fallback chain" is one working profile, and the day that one goes, every video
+  fails at once. `pnpm youtube:check` is how that is noticed and
+  `pnpm update youtube-caption-extractor` is the fix — not this repo's code.
+  ([0032](docs/decisions/0032-a-youtube-link-summarizes-itself.md))
+- **A transcript is ten times the length of an article, and the article cap
+  silently truncates it into a plausible lie.** Speech runs ~940 characters a
+  minute, so `summary.maxSourceChars` (8,000) is the first *eight and a half
+  minutes* of a video. Measured: Karpathy's "Let's build GPT" is 1h56m and
+  **108,990 characters** — the article cap would have summarized 7% of it and
+  produced something that reads exactly like a correct summary. `youtube.maxTranscriptChars`
+  is a separate number (120,000) for this reason, and the two must never be
+  merged "for consistency". When it does bind, the tool reports the cut **in
+  video time** (`the first 2h07m of 2h45m`) and Newy is required to pass that on;
+  a percentage is not something a reader can act on.
+- **Only the summary's *relay* goes through Newy, and that is the one place she
+  copies text instead of writing it.** `summarize-video` returns finished blocks
+  from the summarizer, and her prompt tells her in blunt terms to reproduce them
+  verbatim. This deliberately re-enters the risk ADR-0018 avoided by keeping
+  `/summarize` off her — m3 closing `</think>` mid-answer truncates long replies —
+  so if a video summary ever arrives starting mid-word, that is the known cause
+  and the fallback is `postMessage` like the commands use, not an adapter change.
 - **A prompt rule written in English gets applied to English.** `/summarize`
   was told never to write about the article, only about its subject — the usual
   "no 'This article covers…'" rule. Four live runs on one article: both English
