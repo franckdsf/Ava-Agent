@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { jobPipeline } from '../../config/jobs.js'
 import { JOOB_TOPICS } from '../../config/joob-topics.js'
+import { runNotices } from '../../config/run-notices.js'
 import { activeSearches } from '../../db/job-searches.js'
 import {
   activeJobSources,
@@ -201,6 +202,22 @@ const ingest = createStep({
     }
 
     const sources = await activeJobSources()
+
+    // Announced after the CV, never before it. The two paths above return early
+    // with a message of their own — "I couldn't read your CV, so I've skipped
+    // this run" is a complete report, and a "looking for jobs now" in front of it
+    // would only contradict it. From here on the run really is happening, and it
+    // is about to spend minutes: the sonar leg is a model call plus a page fetch
+    // per lead, which is exactly the silence this notice covers.
+    mastra
+      .getLogger()
+      ?.info('Job run started', { runId, sources: sources.length, searches: wanted.length })
+    if (runNotices.jobs.start) {
+      await joobTelegram
+        .sendToTelegram(renderJobsStart(sources.length, wanted.length), 'chat')
+        .catch(() => {})
+    }
+
     const postings: NewJob[] = []
     const sourceErrors: string[] = []
     let fetched = 0
@@ -608,7 +625,7 @@ const report = createStep({
   inputSchema: z.array(deliveredSearch),
   outputSchema: runReport,
   stateSchema: runState,
-  execute: async ({ inputData, state }) => {
+  execute: async ({ inputData, state, mastra }) => {
     const totals = {
       considered: inputData.reduce((sum, entry) => sum + entry.considered, 0),
       scored: inputData.reduce((sum, entry) => sum + entry.scored, 0),
@@ -639,23 +656,7 @@ const report = createStep({
       })
     }
 
-    // A run that delivered nothing says so, in Chat rather than in the Jobs tab —
-    // a quiet week and a broken pipeline look identical otherwise, and that is
-    // exactly the question the counters exist to answer.
-    if (!state.skipped && totals.sent === 0) {
-      await joobTelegram
-        .sendToTelegram(
-          [
-            `Nothing new worth sending this time.`,
-            `I read ${state.fetched} postings, ${state.stored} of them new, and looked closely at ${totals.considered}. None cleared the bar.`,
-            `If that keeps happening, \`/targets\` shows what I'm filtering on.`,
-          ].join('\n\n'),
-          'chat',
-        )
-        .catch(() => {})
-    }
-
-    return {
+    const summary = {
       skipped: state.skipped,
       note: state.note,
       fetched: state.fetched,
@@ -665,8 +666,96 @@ const report = createStep({
       searches: inputData,
       ...totals,
     }
+
+    mastra.getLogger()?.info(state.skipped ? 'Job run skipped' : 'Job run finished', {
+      note: state.note || undefined,
+      fetched: summary.fetched,
+      stored: summary.stored,
+      considered: summary.considered,
+      scored: summary.scored,
+      sent: summary.sent,
+      sourceErrors: summary.sourceErrors.length,
+      sendErrors: summary.sendErrors.length,
+    })
+
+    // In Chat rather than in the Jobs tab — a quiet week and a broken pipeline
+    // look identical otherwise, and that is exactly the question the counters
+    // exist to answer. A gated firing says nothing: it did no work, `state.note`
+    // records why, and a message for it would be a message most days.
+    if (!state.skipped && runNotices.jobs.finish) {
+      await joobTelegram.sendToTelegram(renderJobsFinish(summary), 'chat').catch(() => {})
+    }
+
+    return summary
   },
 })
+
+/* ────────────────────────────────── notices ────────────────────────────────── */
+
+/**
+ * "I'm looking for jobs now."
+ *
+ * Exported unsent for the reason every rendered message in this repo is: it is
+ * pure, and a block structure that collapses into one run-on line is invisible
+ * in code and obvious through `adapter.formatConverter.toAst()`.
+ */
+export function renderJobsStart(sources: number, searches: number): string {
+  return (
+    `💼 **Looking for jobs now** — ${sources} source${sources === 1 ? '' : 's'} ` +
+    `for ${searches} search${searches === 1 ? '' : 'es'}.`
+  )
+}
+
+/**
+ * What the run came to.
+ *
+ * **This is also the "nothing worth sending" report**, which used to be its own
+ * message sent only when nothing cleared the bar. Folding them is the point: a
+ * run that delivered nothing and a run that delivered eight are the same event,
+ * and two mechanisms reporting one event is how a quiet run gets announced
+ * twice. The zero case keeps its old wording and its `/targets` hint, because
+ * that hint is the useful half of it — the counters say the pipeline is healthy,
+ * and the hint says where to look if it keeps saying so.
+ *
+ * Source errors are named here and nowhere else. They have been collected per
+ * run since the pipeline was written and reported only into a Studio run graph,
+ * so a board that has been 403ing for a fortnight looked exactly like a board
+ * with no vacancies.
+ */
+export function renderJobsFinish(report: z.infer<typeof runReport>): string {
+  const blocks: string[] =
+    report.sent === 0
+      ? [
+          `💼 **Nothing new worth sending this time.**`,
+          `I read ${report.fetched} posting${report.fetched === 1 ? '' : 's'}, ` +
+            `${report.stored} of them new, and looked closely at ${report.considered}. ` +
+            `None cleared the bar.`,
+          `If that keeps happening, \`/targets\` shows what I'm filtering on.`,
+        ]
+      : [
+          `💼 **Job run done** — read ${report.fetched} posting${report.fetched === 1 ? '' : 's'}, ` +
+            `${report.stored} new, judged ${report.considered}, ` +
+            `sent ${report.sent}.`,
+        ]
+
+  const problems = [...report.sourceErrors, ...report.sendErrors]
+  if (problems.length > 0) {
+    const shown = problems.slice(0, runNotices.maxErrorsShown)
+    const rest = problems.length - shown.length
+    // Two blocks, not one: a heading and its list separated by a single newline
+    // is a soft wrap and renders as one run-on line. The bullets themselves are
+    // single-newline separated, which is what makes them a list.
+    blocks.push(
+      `**${problems.length} problem${problems.length === 1 ? '' : 's'}:**`,
+      [
+        ...shown.map(problem => `- ${escapeMarkdown(problem)}`),
+        ...(rest > 0 ? [`- …and ${rest} more.`] : []),
+      ].join('\n'),
+    )
+  }
+
+  return blocks.join('\n\n')
+}
 
 export const findJobs = createWorkflow({
   id: 'find-jobs',

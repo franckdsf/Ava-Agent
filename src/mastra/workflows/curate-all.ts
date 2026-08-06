@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { memoryConfig } from '../../config/memory.js'
 import { pipeline } from '../../config/pipeline.js'
+import { runNotices } from '../../config/run-notices.js'
 import {
   insertDiscovered,
   isSharedFeedImage,
@@ -127,7 +128,7 @@ const ingest = createStep({
   inputSchema: runInput,
   outputSchema: z.array(beatRef),
   stateSchema: runState,
-  execute: async ({ inputData, setState }) => {
+  execute: async ({ inputData, setState, mastra }) => {
     const beats = await activeBeats(inputData.beats)
     if (beats.length === 0) {
       await setState({ feedsFetched: 0, discovered: 0, linked: 0, feedErrors: [] })
@@ -141,6 +142,25 @@ const ingest = createStep({
         source: subscription.source,
       })),
     )
+
+    // Announced here rather than at the top of the step, so the notice can name
+    // what the run is about to do instead of promising a run that turns out to
+    // have no beats and no feeds. The fetch below is the long part — feeds are
+    // parallel but `feedTimeoutMs` bounds a run at 20s — and everything after it
+    // is model calls, so this is the last cheap moment before the reader would
+    // otherwise be looking at nothing.
+    //
+    // `distinct.length > 0` is the same bar the closing notice applies, and the
+    // two have to agree: a run with beats but no live feeds between them fetches
+    // nothing and reports nothing, and announcing only the start of it would
+    // leave a run that looks like it never came back.
+    mastra.getLogger()?.info('News run started', { beats: beats.length, feeds: distinct.length })
+    if (runNotices.news.start && distinct.length > 0) {
+      await newyTelegram
+        .sendToTelegram(renderNewsStart(beats.length, distinct.length), 'chat')
+        .catch(() => {})
+    }
+
     const results = await fetchFeeds(distinct)
 
     // One story can arrive from two feeds in the same run. Collapsing here keeps
@@ -583,17 +603,98 @@ const report = createStep({
   inputSchema: z.array(deliveredBeat),
   outputSchema: runReport,
   stateSchema: runState,
-  execute: async ({ inputData, state }) => ({
-    feedsFetched: state.feedsFetched,
-    discovered: state.discovered,
-    linked: state.linked,
-    feedErrors: state.feedErrors,
-    scored: inputData.reduce((total, beat) => total + beat.scored, 0),
-    sent: inputData.reduce((total, beat) => total + beat.sent, 0),
-    sendErrors: inputData.flatMap(beat => beat.sendErrors),
-    beats: inputData,
-  }),
+  execute: async ({ inputData, state, mastra }) => {
+    const summary = {
+      feedsFetched: state.feedsFetched,
+      discovered: state.discovered,
+      linked: state.linked,
+      feedErrors: state.feedErrors,
+      scored: inputData.reduce((total, beat) => total + beat.scored, 0),
+      sent: inputData.reduce((total, beat) => total + beat.sent, 0),
+      sendErrors: inputData.flatMap(beat => beat.sendErrors),
+      beats: inputData,
+    }
+
+    mastra.getLogger()?.info('News run finished', {
+      feeds: summary.feedsFetched,
+      discovered: summary.discovered,
+      scored: summary.scored,
+      sent: summary.sent,
+      feedErrors: summary.feedErrors.length,
+      sendErrors: summary.sendErrors.length,
+    })
+
+    // A run that fetched nothing is a run `ingest` returned early from — no
+    // active beats, so no start notice either. A closing line on its own would
+    // be the only word about a run that never happened, which reads as a
+    // failure rather than as an empty schedule.
+    if (runNotices.news.finish && summary.feedsFetched > 0) {
+      await newyTelegram.sendToTelegram(renderNewsFinish(summary), 'chat').catch(() => {})
+    }
+
+    return summary
+  },
 })
+
+/* ────────────────────────────────── notices ────────────────────────────────── */
+
+/**
+ * "I'm reading the feeds now."
+ *
+ * Exported unsent, like every other message rendered in this repo: it is pure,
+ * and the failure worth catching offline is a block structure that collapses —
+ * `adapter.formatConverter.toAst(text)` answers that without sending anything.
+ *
+ * Neither notice escapes anything, and that is safe rather than an oversight:
+ * every value in both is a number this run counted. The one place reader data
+ * reaches these messages is the error list below, which does escape.
+ */
+export function renderNewsStart(beats: number, feeds: number): string {
+  return (
+    `📰 **Reading the news now** — ${feeds} feed${feeds === 1 ? '' : 's'} ` +
+    `across ${beats} beat${beats === 1 ? '' : 's'}.`
+  )
+}
+
+/**
+ * What the run came to.
+ *
+ * The counters are the four numbers that distinguish the failure modes from each
+ * other: no feeds read is a transport problem, feeds read but nothing new is a
+ * quiet day, articles scored but none sent is a threshold set too high.
+ *
+ * **The error lines are the reason this is worth more than a heartbeat.** Feed
+ * errors and send errors have been collected per run since the pipeline was
+ * written and reported nowhere — a feed that has 404'd for a month looks exactly
+ * like a feed with nothing to say. `maxItemsPerFeedRun` caps arrive on the same
+ * channel by design; they are not errors, but the entries they discard are gone
+ * for good, which is worth the same visibility.
+ */
+export function renderNewsFinish(report: z.infer<typeof runReport>): string {
+  const blocks: string[] = [
+    `📰 **News run done** — read ${report.feedsFetched} feed${report.feedsFetched === 1 ? '' : 's'}, ` +
+      `${report.discovered} new article${report.discovered === 1 ? '' : 's'}, ` +
+      `scored ${report.scored}, sent ${report.sent}.`,
+  ]
+
+  const problems = [...report.feedErrors, ...report.sendErrors]
+  if (problems.length > 0) {
+    const shown = problems.slice(0, runNotices.maxErrorsShown)
+    const rest = problems.length - shown.length
+    // Two blocks, not one: a heading and its list separated by a single newline
+    // is a soft wrap, and Telegram renders it as one run-on line. The bullets
+    // themselves are single-newline separated, which is what makes them a list.
+    blocks.push(
+      `**${problems.length} problem${problems.length === 1 ? '' : 's'}:**`,
+      [
+        ...shown.map(problem => `- ${escapeMarkdown(problem)}`),
+        ...(rest > 0 ? [`- …and ${rest} more.`] : []),
+      ].join('\n'),
+    )
+  }
+
+  return blocks.join('\n\n')
+}
 
 export const curateAll = createWorkflow({
   id: 'curate-all',
