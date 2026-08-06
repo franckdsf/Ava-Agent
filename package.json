@@ -24,7 +24,8 @@
     "sonar:check": "tsx --env-file=.env scripts/check-sonar.ts",
     "start": "node .mastra/output/index.mjs",
     "telegram:check": "tsx --env-file=.env scripts/check-telegram.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "workflow:run": "tsx scripts/run-workflow.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

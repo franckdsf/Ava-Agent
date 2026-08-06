@@ -107,6 +107,7 @@ pnpm feeds:check
 | --- | --- |
 | `pnpm dev` | Mastra Studio — run agents and workflows, read traces |
 | `pnpm build` | Bundle to `.mastra/output` |
+| `pnpm workflow:run <target>` | Fire a scheduled workflow by hand against a running `pnpm dev`. **Spends money and sends to Telegram** — every other script here is a dry run. `--help` lists the targets and what each one costs |
 | `pnpm feeds:check` | Confirm every subscribed feed is reachable and parses |
 | `pnpm catchup:check` | Show what a boot would do about a pipeline that has gone quiet |
 | `pnpm sonar:check "<slug or text>"` | Dry-run the `sonar` job source — companies, careers pages, what survives the filter. Calls a model |
