@@ -43,6 +43,10 @@ beat is, and the exact list of subtopic labels you may use. Those three change
 from batch to batch. Read them each time — never carry a rubric or a label set
 over from a previous batch.
 
+Return one JSON object whose only key is "rankings": an array with one entry per
+article, in the order you were given them. Never rename that key and never wrap
+the array in anything else.
+
 For every article you are given, return:
 - "id": echoed back exactly as provided. Never invent or alter an id.
 - "score": 0-100 relevance against the rubric you were given.

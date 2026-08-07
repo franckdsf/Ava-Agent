@@ -650,6 +650,21 @@ doesn't wrap without adding a second Telegram library.
   and `minimax` as *direct* providers too, so a bare `deepseek/deepseek-v4-flash`
   is valid — it just bills DeepSeek and demands a `DEEPSEEK_API_KEY`. `env.ts`
   rejects unprefixed IDs at startup; don't weaken that guard to "make it work".
+- **A JSON schema is a request to OpenRouter, not a guarantee.** `structuredOutput`
+  sends the schema as `response_format`, and the gateway routes to whichever
+  provider is cheapest — some of them answer with well-formed JSON under a key
+  of their own choosing. `deepseek-v4-flash` returned the ranker's whole batch,
+  every item correctly shaped, wrapped as `{"scores":[…]}` for a schema that
+  names `rankings` (2026-08-07), and Mastra threw the step. **Name the envelope
+  key in the prompt as well as in the schema** — the ranker's instructions do —
+  and keep the retry, because the key a provider picks varies per call.
+- **A model call that fails must leave its batch untouched, not settle it.**
+  `rankBeat` writes a zero verdict for every article the ranker did not score,
+  which is right for a cluster duplicate and catastrophic for a failed call: the
+  zeros are saved, the articles never re-enter the queue, and a beat silently
+  loses a run's worth of news. It now returns early when nothing usable comes
+  back, the same trade `scoreBatch` makes. "The model failed" and "none of these
+  are any good" must never be the same value.
 - **A memory is never rewritten, and that is not an oversight.** The obvious
   change to `memories` is to update a fact in place when it stops being true.
   Doing it deletes the only thing that makes the table more than a key-value
@@ -1467,9 +1482,10 @@ Three more things were found by running that reading could not have caught:
   covers a failed HTTP call and `structuredOutput.errorStrategy: 'fallback'`
   substitutes a value *without asking again* — so neither re-prompts a model that
   returned truncated JSON, which is the one thing worth doing about it, since the
-  truncation is stochastic. `withRetry` in `agents/job-scorer.ts` is the explicit
-  loop; `jobPipeline.modelAttempts` is 2. Proven by capping the writer at 40
-  output tokens: attempt 1 truncated, attempt 2 truncated, returned null and the
+  truncation is stochastic. `withRetry` in `services/structured-output.ts` is the
+  explicit loop, shared by both pipelines since the news ranker hit the same
+  wall; `jobPipeline.modelAttempts` and `pipeline.modelAttempts` are both 2.
+  Proven by capping the writer at 40 output tokens: attempt 1 truncated, attempt 2 truncated, returned null and the
   caller degraded to the scorer's own reason — and at the normal budget it
   succeeded on the first attempt.
 - **`.default([])` on a schema field is the wrong answer to a truncated

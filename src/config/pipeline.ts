@@ -40,6 +40,24 @@ export const pipeline = {
    */
   articleTimeoutMs: 10_000,
 
+  /**
+   * How many times a structured model call is attempted before giving up.
+   *
+   * Mastra's own `maxRetries` retries a failed *request*; this retries a
+   * malformed *answer*, and both failures measured here are per-call rather than
+   * permanent. The jobs pipeline hit a truncated JSON body; the ranker hit an
+   * answer wrapped under the wrong key — `{"scores":[…]}` for a schema that asks
+   * for `rankings`, from `deepseek-v4-flash` on 2026-08-07. OpenRouter routes to
+   * whichever provider is cheapest, and not all of them enforce a JSON schema,
+   * so the envelope is named in the prompt as well and this catches the rest.
+   *
+   * Two, matching `jobPipeline.modelAttempts`: a ranking call reads a whole
+   * beat's batch, so a third attempt costs more than the run is worth waiting
+   * for. Failing leaves the batch unranked for the next run rather than scoring
+   * it at zero.
+   */
+  modelAttempts: 2,
+
   /** Ceiling on items scored in one ranking pass, so a burst can't blow up a run. */
   maxItemsPerRankingRun: 250,
 

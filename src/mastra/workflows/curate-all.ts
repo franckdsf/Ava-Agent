@@ -22,6 +22,7 @@ import type { Article, ArticleRanking, BeatLink, DiscoveredArticle, PendingArtic
 import { articleBody, fetchOgImage, looksLikeSiteChrome } from '../../services/article.js'
 import { clusterItems, dedupeByCluster } from '../../services/cluster.js'
 import { dedupeFeeds, fetchFeeds } from '../../services/rss.js'
+import { withRetry } from '../../services/structured-output.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { newyTelegram } from '../../services/newy-telegram.js'
 import { articleWriterId, rankerId } from '../agents/curator.js'
@@ -352,31 +353,51 @@ const rankBeat = createStep({
       renderReaderProfile(),
     ])
 
-    const response = await agent.generate(
-      [
-        `## Beat: ${beat.title}`,
-        '',
-        '## Rubric',
-        beat.rubric,
-        '',
-        `## Subtopic labels (choose exactly one per article)`,
-        beat.subtopics.join(', '),
-        '',
-        '## Reader interest profile',
-        profile,
-        '',
-        '## What is known about the reader',
-        reader,
-        '',
-        `## Articles to score (${representatives.length})`,
-        renderArticlesForRanking(representatives),
-      ].join('\n'),
-      { structuredOutput: { schema: rankingSchema } },
+    const ranking = await withRetry<z.infer<typeof rankingSchema>>(
+      pipeline.modelAttempts,
+      () =>
+        agent.generate(
+          [
+            `## Beat: ${beat.title}`,
+            '',
+            '## Rubric',
+            beat.rubric,
+            '',
+            `## Subtopic labels (choose exactly one per article)`,
+            beat.subtopics.join(', '),
+            '',
+            '## Reader interest profile',
+            profile,
+            '',
+            '## What is known about the reader',
+            reader,
+            '',
+            `## Articles to score (${representatives.length})`,
+            renderArticlesForRanking(representatives),
+          ].join('\n'),
+          { structuredOutput: { schema: rankingSchema } },
+        ),
+      (attempt, error) =>
+        mastra
+          .getLogger()
+          ?.warn(`Beat ranker attempt ${attempt}/${pipeline.modelAttempts} failed for ${beat.slug}`, error),
     )
 
-    const returned = response.object?.rankings ?? []
     // Guard against a model echoing an id that wasn't in the batch.
-    const verdicts: ArticleRanking[] = returned.filter(ranking => representativeIds.has(ranking.id))
+    const verdicts: ArticleRanking[] = (ranking?.rankings ?? []).filter(verdict =>
+      representativeIds.has(verdict.id),
+    )
+
+    // Nothing usable came back, so nothing is written. Falling through to the
+    // zeroing below would settle the whole batch at zero and burn it — "the
+    // ranker failed" and "none of these are any good" must never be the same
+    // value. Left unranked, the next run picks the batch up whole.
+    if (verdicts.length === 0) {
+      mastra.getLogger()?.warn(`Beat ranker returned nothing for ${beat.slug}; batch left unranked`, {
+        pending: pending.length,
+      })
+      return { ...inputData, pending: pending.length, stories, scored: 0 }
+    }
 
     // Everything the model didn't score — cluster duplicates, plus any article it
     // silently dropped — is settled at zero so it never delivers and never
@@ -565,11 +586,21 @@ const deliverBeat = createStep({
     const messages = await Promise.all(
       winners.map(async winner => {
         const body = await articleBody(winner.article)
-        const response = await agent.generate(
-          renderArticleForWriter(beat, winner.article, winner.reason, body.text ?? winner.article.excerpt ?? ''),
-          { structuredOutput: { schema: summarySchema } },
-        )
-        const summary = response.object ?? { lede: response.text.trim(), points: [] }
+        // Retried, then degraded to the article's own excerpt. The alternative
+        // is a throw inside `Promise.all`, which loses every other message this
+        // beat won because one summary came back malformed.
+        const summary = (await withRetry<z.infer<typeof summarySchema>>(
+          pipeline.modelAttempts,
+          () =>
+            agent.generate(
+              renderArticleForWriter(beat, winner.article, winner.reason, body.text ?? winner.article.excerpt ?? ''),
+              { structuredOutput: { schema: summarySchema } },
+            ),
+          (attempt, error) =>
+            mastra
+              .getLogger()
+              ?.warn(`Article writer attempt ${attempt}/${pipeline.modelAttempts} failed`, error),
+        )) ?? { lede: winner.article.excerpt?.trim() || winner.article.title, points: [] }
         return {
           articleId: winner.article.id,
           text: renderMessage(beat, winner.article, winner.subtopic, summary),

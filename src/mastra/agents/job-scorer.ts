@@ -3,6 +3,7 @@ import { Agent } from '@mastra/core/agent'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { jobPipeline } from '../../config/jobs.js'
+import { withRetry } from '../../services/structured-output.js'
 
 /**
  * The two model calls in a job run, and they are deliberately two.
@@ -168,43 +169,6 @@ Rules that matter:
 })
 
 export const jobAgents = { [jobScorerId]: scorer, [jobWriterId]: writer }
-
-/**
- * Runs a structured generation, retrying before giving up.
- *
- * **Mastra retries requests, not malformed answers.** `modelSettings.maxRetries`
- * covers a failed HTTP call; `structuredOutput.errorStrategy: 'fallback'`
- * substitutes a value without asking again. Neither re-asks the model, and
- * re-asking is exactly the right response to a truncated JSON body — the
- * truncation is stochastic, so the same prompt usually succeeds on the next
- * attempt.
- *
- * `generate()` **throws** on a schema mismatch rather than returning a null
- * `object`, so the `?? fallback` pattern used elsewhere in this repo does not
- * catch it. That is what made a single bad writer response take down a whole
- * delivery step and lose every other posting in the batch.
- *
- * Returns null when every attempt failed. The caller decides what that means —
- * for the writer it is a degraded message, for the scorer it is a lost batch.
- */
-async function withRetry<T>(
-  attempts: number,
-  run: () => Promise<{ object?: unknown }>,
-  onAttemptFailed?: (attempt: number, error: unknown) => void,
-): Promise<T | null> {
-  let lastError: unknown
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      const response = await run()
-      if (response.object) return response.object as T
-      lastError = new Error('the model returned no parseable object')
-    } catch (error) {
-      lastError = error
-    }
-    onAttemptFailed?.(attempt, lastError)
-  }
-  return null
-}
 
 /** One posting as the batch scorer sees it. Deliberately compact — see below. */
 export function renderPostingForScoring(job: {
