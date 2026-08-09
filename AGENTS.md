@@ -923,7 +923,37 @@ doesn't wrap without adding a second Telegram library.
 
 ## Where work stopped
 
-*Last updated: 2026-08-06.*
+*Last updated: 2026-08-09.*
+
+**Duplicates are dropped before the scorer, not after it — `dedupe` in
+`src/mastra/workflows/find-jobs.ts`, `advertKey` in `job-identity.ts`,
+`employer()` in `job-fetch.ts`, `recentlyDelivered` in `db/jobs.ts`.** Two fixes
+for one report ("*I feel like I've seen jobs sent a few days ago*"): the cause,
+which is an ATS board filing postings under its token instead of the employer's
+name, and the guard, which is that a duplicate now loses its batch slot rather
+than a model call. See the two gotchas above for both rules.
+
+**Measured on the live database, 2026-08-09: 1,019 stored postings, 1,017
+distinct identities — identity alone was catching nothing.** The advert key drops
+**54** of them: 28 `ats-lever-3pillarglobal`, 16 `ats-ashby-owner`, 8
+`ats-ashby-peec`, one `jobicy` and one `remotive` (a genuine same-advert repeat
+within one board), plus 2 on identity. **Three had already reached the reader
+twice**; the other 51 were sitting undelivered, primed to go out twice. After the
+`employer()` fix all four live ATS boards agree with `sonar` on the employer name
+— `3Pillar Global`, `Owner.com`, `Peec AI`, `Vercel` — so those rows stop being
+*created*, and the dedupe is the guard for the next provider that disagrees.
+
+**The existing duplicate rows were deliberately left in place.** They are
+suppressed by the guard on the way to the scorer, so no cleanup migration runs
+over data the pipeline already handles correctly; `pruneJobs` clears them on its
+own schedule.
+
+**The ledger check moved and one stayed.** `assignBest` still checks
+`recentlyDelivered`, because `dedupe` runs per search and cannot see a pair split
+across two of them — that is exactly how the 2026-08-09 pair went out in the same
+second. `duplicates` is now a counter on the run report and is named in the
+finish notice, because a run that judged 12 of 90 looks like a thin week and may
+instead be one board arriving twice.
 
 **Domains are vocabularies now, and a search names its own field —
 `src/config/job-taxonomy.ts` (`DOMAINS`, `domainIds`, `isKnownDomain`),
@@ -990,6 +1020,38 @@ Workable, Recruitee and Personio join the original three. Verified end to end:
 **66 postings across four boards, zero with a body under 200 characters**, which
 is the bar the module exists to enforce. Four of six now publish the employer's
 own name, so `companyAgrees` covers Workable, Recruitee and Personio too.
+
+**A board token is not an employer name, and filing postings under one ships
+duplicates — `employer()` in `src/services/job-fetch.ts`.** Lever and Ashby
+publish no company name anywhere in their posting API, so `ats.ts` fills in
+`board.token`. That is a placeholder, not data: `sonar` discovers the employer as
+`3Pillar Global` and stores that as the source label, then the board it just
+discovered is polled directly and calls the same advert `3pillarglobal`.
+`normalizeCompany` cannot see those as one employer, so the two hash to two
+identities, and **the reader was sent three adverts twice — measured 2026-08-09**,
+two of them in the same second. A source row's `label` is the employer name; a
+provider's published name beats it, the token never does. **The old fallback was
+`posting.company || source.label`, and the `||` is precisely the bug** — the token
+is not empty, so the label never won.
+
+**Same URL is a one-way proof of sameness, and it is the only safe way to use a
+link in this pipeline — `advertKey` in `src/services/job-identity.ts`.**
+`jobIdentity` refuses to hash links because one role on five boards has five URLs
+([ADR-0024](docs/decisions/0024-joob-a-job-pipeline-beside-the-news-one.md)), and
+that argument runs one way only: different URLs prove nothing, but two rows at one
+URL *are* one advert. So `advertKey` is a second key, never a replacement — it
+catches what identity structurally cannot, including the token duplicates above
+and a cross-month repeat.
+
+**The title is in that key because a URL alone silently hides a job.** RemoteOK
+serves its own index page, `remoteok.com/remote-jobs/`, as the URL of any posting
+it has no permalink for, and two unrelated adverts were sitting behind it — a URL
+key alone would have dropped one. Requiring the titles to agree costs nothing: a
+duplicate arriving by two paths off one board carries one title, byte for byte.
+**`advertKey` returns null when the title normalizes to empty** and the caller
+must then skip it — both RemoteOK rows are in that state, their titles being Greek
+and Chinese, and a bare-URL fallback would merge exactly the pair this guard
+exists to keep apart.
 
 **The selection rule is the answer to "why not add ATS X", and it is not
 negotiable by list length.** Keyless, one request, full advert body. Nine

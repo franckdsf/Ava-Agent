@@ -22,6 +22,7 @@ import {
   recordSourceFetch,
   saveVerdicts,
   startJobRun,
+  type DeliveredRecently,
   type JobVerdict,
 } from '../../db/jobs.js'
 import type { Job, JobSearch, NewJob } from '../../db/schema.js'
@@ -29,7 +30,13 @@ import { joobTelegram } from '../../services/joob-telegram.js'
 import { fetchJobSource, type RawPosting } from '../../services/job-fetch.js'
 import { fetchSonarSource } from '../../services/job-scout.js'
 import { cvSkillTags, filterJobs, rankByCvOverlap } from '../../services/job-filter.js'
-import { jobId, jobIdentity, leadId, leadIdentity } from '../../services/job-identity.js'
+import {
+  advertKey,
+  jobId,
+  jobIdentity,
+  leadId,
+  leadIdentity,
+} from '../../services/job-identity.js'
 import { deriveTags } from '../../services/job-tags.js'
 import { fetchPortfolio, PortfolioError } from '../../services/portfolio.js'
 import { escapeMarkdown } from '../../services/telegram.js'
@@ -100,6 +107,8 @@ const scoredSearch = searchRef.extend({
   considered: z.number(),
   scored: z.number(),
   rejected: z.number(),
+  /** Postings dropped as the same advert as something else. See `dedupe`. */
+  duplicates: z.number(),
 })
 
 const assignedSearch = scoredSearch.extend({ jobIds: z.array(z.string()) })
@@ -116,6 +125,7 @@ const runReport = z.object({
   stored: z.number(),
   considered: z.number(),
   scored: z.number(),
+  duplicates: z.number(),
   sent: z.number(),
   sourceErrors: z.array(z.string()),
   sendErrors: z.array(z.string()),
@@ -360,7 +370,7 @@ const scoreSearch = createStep({
   outputSchema: scoredSearch,
   stateSchema: runState,
   execute: async ({ inputData, state, mastra }) => {
-    const idle = { ...inputData, considered: 0, scored: 0, rejected: 0 }
+    const idle = { ...inputData, considered: 0, scored: 0, rejected: 0, duplicates: 0 }
     const searches = await activeSearches()
     const search = searches.find(entry => entry.slug === inputData.searchSlug)
     if (!search || !state.cv) return idle
@@ -377,13 +387,22 @@ const scoreSearch = createStep({
     const { kept, rejected, tags } = filterJobs(pending, search)
     const rejectedCount = [...rejected.values()].reduce((total, count) => total + count, 0)
 
-    // Everything the filter rejected is settled at zero rather than left pending,
-    // so it never re-enters a later batch. The reason is kept — it is what makes
-    // "why didn't I see that?" answerable for a posting no model ever read.
+    const { unique, duplicates } = dedupe(kept, await recentlyDelivered())
+
+    // Everything the filter rejected or the dedupe dropped is settled at zero
+    // rather than left pending, so it never re-enters a later batch. The reason is
+    // kept — it is what makes "why didn't I see that?" answerable for a posting no
+    // model ever read.
+    const survived = new Set(unique.map(job => job.id))
     const settled: JobVerdict[] = []
     for (const job of pending) {
-      if (kept.includes(job)) continue
-      settled.push({ jobId: job.id, fit: 0, reason: 'Filtered out before scoring.', mismatches: [] })
+      if (survived.has(job.id)) continue
+      settled.push({
+        jobId: job.id,
+        fit: 0,
+        reason: duplicates.get(job.id) ?? 'Filtered out before scoring.',
+        mismatches: [],
+      })
     }
 
     // Ordered by how much of the reader's own stack a posting mentions, so the
@@ -392,13 +411,13 @@ const scoreSearch = createStep({
     // CV touches the deterministic path, and it can only reorder: a posting that
     // misses the cap is scored on a later run, where one wrongly filtered is
     // gone for good.
-    const batch = rankByCvOverlap(kept, cvSkillTags(state.cv), tags).slice(
+    const batch = rankByCvOverlap(unique, cvSkillTags(state.cv), tags).slice(
       0,
       jobPipeline.maxJobsPerScoringRun,
     )
     if (batch.length === 0) {
       await saveVerdicts(search.slug, settled)
-      return { ...idle, rejected: rejectedCount }
+      return { ...idle, rejected: rejectedCount, duplicates: duplicates.size }
     }
 
     // Retried inside `scoreBatch`, and an empty result means every attempt
@@ -439,9 +458,64 @@ const scoreSearch = createStep({
       considered: batch.length - missed,
       scored: verdicts.length,
       rejected: rejectedCount,
+      duplicates: duplicates.size,
     }
   },
 })
+
+/**
+ * Drops every posting that is the same advert as one the reader already has, or
+ * as another posting in this same batch.
+ *
+ * **Before the scorer, and that placement is the whole point.** The ledger check
+ * in `assignBest` already stopped a repeat *reaching* the reader, but it ran
+ * after the model had read it: a duplicate still consumed one of
+ * `maxJobsPerScoringRun` slots, which is the scarcest thing in this pipeline —
+ * a live search saturated that cap exactly, and the postings pushed out of the
+ * batch wait a whole run. Paying a model to judge a posting twice and then
+ * discarding the second answer is the thing this exists to stop.
+ *
+ * **Two keys, because identity alone let a pair through — measured 2026-08-09.**
+ * `sonar` found `3Pillar Global` and its Lever board; from the next run that board
+ * was polled directly, and Lever publishes no company name, so the same advert
+ * was stored twice under two spellings that hash differently. Both were sent, in
+ * the same second. `job-fetch.ts` now files an ATS board's postings under its
+ * source label so the identities agree — this is the guard for the next provider
+ * that disagrees about a name, and it is where a *cross-month* repeat of one
+ * identity is caught too.
+ *
+ * Returns the survivors in their incoming order, so `listUnscored`'s "newest
+ * posted date first" still decides which copy of a pair is the one kept.
+ */
+function dedupe(kept: Job[], seen: DeliveredRecently): {
+  unique: Job[]
+  /** Job id → the reason it was dropped, written onto its settled verdict. */
+  duplicates: Map<string, string>
+} {
+  const unique: Job[] = []
+  const duplicates = new Map<string, string>()
+  const identities = new Set<string>()
+  const adverts = new Set<string>()
+
+  for (const job of kept) {
+    // Null means the title carries nothing this key can use, so the advert half
+    // does not apply to this row and identity decides alone. See `advertKey`.
+    const advert = advertKey(job.url, job.title)
+    if (seen.identities.has(job.identity) || (advert !== null && seen.adverts.has(advert))) {
+      duplicates.set(job.id, 'Already sent — the reader has seen this advert.')
+      continue
+    }
+    if (identities.has(job.identity) || (advert !== null && adverts.has(advert))) {
+      duplicates.set(job.id, 'The same advert as another posting in this batch.')
+      continue
+    }
+    identities.add(job.identity)
+    if (advert !== null) adverts.add(advert)
+    unique.push(job)
+  }
+
+  return { unique, duplicates }
+}
 
 function renderSearchForScoring(search: JobSearch): string {
   const list = (values: string[]) => (values.length > 0 ? values.join(', ') : 'no preference stated')
@@ -491,15 +565,36 @@ const assignBest = createStep({
     if (candidates.length === 0) return inputData.map(entry => ({ ...entry, jobIds: [] }))
 
     // Everything the reader has already been shown, whichever search sent it.
-    const seen = await recentlyDelivered([...new Set(candidates.map(entry => entry.job.identity))])
+    const seen = await recentlyDelivered()
+
+    /**
+     * Adverts already claimed by a winner in *this* run, by both keys.
+     *
+     * `dedupe` runs per search and so cannot see across them: two searches each
+     * scoring one row of a duplicated pair both reach here with a row nothing has
+     * suppressed. That is not hypothetical — the 2026-08-09 pair was delivered in
+     * the same second, and this is the point at which one of them has to lose.
+     * Candidates arrive fit-descending, so the copy that survives is the better
+     * scored one.
+     */
+    const claimed = { identities: new Set<string>(), adverts: new Set<string>() }
 
     const wonBy = new Map<string, string>()
     for (const candidate of candidates) {
-      if (seen.has(candidate.job.identity)) continue
+      // Candidates arrive fit-descending, so the first verdict seen for a job is
+      // its best one and later ones are skipped. Checked before the claims below,
+      // or a job's own claim would read as a duplicate of itself.
+      if (wonBy.has(candidate.job.id)) continue
+      const { identity } = candidate.job
+      const advert = advertKey(candidate.job.url, candidate.job.title)
+      const dupOf = (set: { identities: Set<string>; adverts: Set<string> }) =>
+        set.identities.has(identity) || (advert !== null && set.adverts.has(advert))
+      if (dupOf(seen) || dupOf(claimed)) continue
       const threshold = thresholds.get(candidate.searchSlug)
       if (threshold === undefined || candidate.fit < threshold) continue
-      // Candidates arrive fit-descending, so the first verdict seen is the best.
-      if (!wonBy.has(candidate.job.id)) wonBy.set(candidate.job.id, candidate.searchSlug)
+      claimed.identities.add(identity)
+      if (advert !== null) claimed.adverts.add(advert)
+      wonBy.set(candidate.job.id, candidate.searchSlug)
     }
 
     const bySearch = new Map<string, string[]>()
@@ -629,6 +724,7 @@ const report = createStep({
     const totals = {
       considered: inputData.reduce((sum, entry) => sum + entry.considered, 0),
       scored: inputData.reduce((sum, entry) => sum + entry.scored, 0),
+      duplicates: inputData.reduce((sum, entry) => sum + entry.duplicates, 0),
       sent: inputData.reduce((sum, entry) => sum + entry.sent, 0),
     }
 
@@ -673,6 +769,7 @@ const report = createStep({
       stored: summary.stored,
       considered: summary.considered,
       scored: summary.scored,
+      duplicates: summary.duplicates,
       sent: summary.sent,
       sourceErrors: summary.sourceErrors.length,
       sendErrors: summary.sendErrors.length,
@@ -723,19 +820,29 @@ export function renderJobsStart(sources: number, searches: number): string {
  * with no vacancies.
  */
 export function renderJobsFinish(report: z.infer<typeof runReport>): string {
+  // Named, because a run that judged 12 of 90 looks like a thin week and may
+  // instead be one board arriving twice under two names — which is exactly how
+  // the duplicate this counter was added for went unnoticed for three days.
+  const repeats =
+    report.duplicates > 0
+      ? ` Set aside ${report.duplicates} I'd already found elsewhere.`
+      : ''
+
   const blocks: string[] =
     report.sent === 0
       ? [
           `💼 **Nothing new worth sending this time.**`,
           `I read ${report.fetched} posting${report.fetched === 1 ? '' : 's'}, ` +
             `${report.stored} of them new, and looked closely at ${report.considered}. ` +
-            `None cleared the bar.`,
+            `None cleared the bar.` +
+            repeats,
           `If that keeps happening, \`/targets\` shows what I'm filtering on.`,
         ]
       : [
           `💼 **Job run done** — read ${report.fetched} posting${report.fetched === 1 ? '' : 's'}, ` +
             `${report.stored} new, judged ${report.considered}, ` +
-            `sent ${report.sent}.`,
+            `sent ${report.sent}.` +
+            repeats,
         ]
 
   const problems = [...report.sourceErrors, ...report.sendErrors]

@@ -461,10 +461,41 @@ async function fetchAtsSource(source: JobSource): Promise<JobFetchResult> {
   const { postings, problem } = await fetchAtsBoard(board)
   return {
     sourceId: source.id,
-    postings: postings.map(posting => ({ ...posting, company: posting.company || source.label })),
+    postings: postings.map(posting => ({
+      ...posting,
+      company: employer(posting.company, board.token, source.label),
+    })),
     status: problem ? 'error' : '200',
     error: problem ?? undefined,
   }
+}
+
+/**
+ * Which name a board's postings are filed under — and therefore whether they
+ * dedupe against the same advert seen anywhere else.
+ *
+ * **The provider's own name when it publishes one, the source label otherwise,
+ * and the bare token never.** Lever and Ashby publish no company name anywhere in
+ * their posting API, so `ats.ts` files their postings under the board token —
+ * `3pillarglobal`, `owner`. The row already knows better: its label is the
+ * employer name the `sonar` lead that discovered the board carried, which is the
+ * name every aggregator prints too.
+ *
+ * **Falling back to the label only when the adapter returned *empty* was not
+ * enough, and the gap shipped duplicates — measured 2026-08-09.** The token is
+ * not empty, so it always won: the same Lever advert reached the reader once as
+ * `3Pillar Global` (via `sonar`) and once as `3pillarglobal` (via the board),
+ * because `normalizeCompany` has no way to see those as one employer. Comparing
+ * against the token is exact rather than heuristic — `ats.ts` fills in
+ * `board.token` verbatim, and only when it had nothing else.
+ *
+ * A published name still wins over the label where there is one, for the reason
+ * `job-identity.ts` gives for keying a lead on its URL: the label came from a
+ * model's phrasing, and the provider's came from the employer.
+ */
+function employer(company: string, token: string, label: string): string {
+  if (company && company !== token) return company
+  return label || company || token
 }
 
 async function fetchApiSource(source: JobSource): Promise<JobFetchResult> {

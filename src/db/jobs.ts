@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm'
 import { jobPipeline, jobScout } from '../config/jobs.js'
 import { SEED_JOB_SOURCES } from '../config/seed-job-sources.js'
+import { advertKey } from '../services/job-identity.js'
 import { db, migrate } from './client.js'
 import {
   jobDeliveries,
@@ -366,22 +367,47 @@ export async function listScoredUndelivered(
   }))
 }
 
+/** Everything the reader has already been shown, in both the forms that identify it. */
+export interface DeliveredRecently {
+  identities: Set<string>
+  /** `advertKey` of each delivered posting. See why below. */
+  adverts: Set<string>
+}
+
 /**
- * Identities delivered recently enough to suppress a re-send.
+ * What has been delivered recently enough to suppress a re-send.
  *
  * This is the guard that actually prevents a duplicate, rather than the ratio
  * between the ingest window and retention — see the note on `jobDeliveries` in
  * `schema.ts` for the hole it closes.
+ *
+ * **The advert set is the second key, and it is what identity alone could not
+ * catch.** Two rows for one advert under two spellings of the employer hash to
+ * two identities and cleared this guard twice — measured 2026-08-09, see
+ * `advertKey`. Same URL under the same title is a one-way proof of sameness, so
+ * checking both costs nothing and closes that class.
+ *
+ * Reads the whole window rather than filtering on a candidate list, because the
+ * advert half cannot be an `IN` — the stored URLs and titles have to be
+ * normalized in JS before they can be compared. The window is small by
+ * construction: at `maxJobsPerDelivery` per search per run it is low hundreds of
+ * rows.
  */
-export async function recentlyDelivered(identities: string[]): Promise<Set<string>> {
-  if (identities.length === 0) return new Set()
+export async function recentlyDelivered(): Promise<DeliveredRecently> {
   await migrate()
   const cutoff = Date.now() - jobPipeline.redeliveryGuardDays * 24 * 60 * 60 * 1000
   const rows = await db()
-    .select({ identity: jobDeliveries.identity })
+    .select({ identity: jobDeliveries.identity, url: jobDeliveries.url, title: jobDeliveries.title })
     .from(jobDeliveries)
-    .where(and(inArray(jobDeliveries.identity, identities), gte(jobDeliveries.deliveredAt, cutoff)))
-  return new Set(rows.map(row => row.identity))
+    .where(gte(jobDeliveries.deliveredAt, cutoff))
+  return {
+    identities: new Set(rows.map(row => row.identity)),
+    adverts: new Set(
+      rows
+        .map(row => advertKey(row.url, row.title))
+        .filter((key): key is string => key !== null),
+    ),
+  }
 }
 
 /**
