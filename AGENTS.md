@@ -920,6 +920,25 @@ doesn't wrap without adding a second Telegram library.
   hid the problem for two steps.
 - **`.history/` must stay gitignored.** An IDE extension snapshots `.env`
   verbatim into it.
+- **The scheduler replays missed fires on boot, and it will put two runs of one
+  workflow in flight.** [ADR-0025](docs/decisions/0025-a-boot-catch-up-for-a-stale-pipeline.md)
+  states that Mastra deliberately does not do cron catch-up on resume. **It
+  does** — one missed occurrence per schedule row, fired in the boot's own tick.
+  Measured 2026-08-16: a container off since the 14th came back at 13:21 and four
+  overdue schedules fired at once, **both digest schedules among them**, 146 ms
+  apart, so two `curate-all` runs ingested, ranked and delivered over the same
+  articles and the reader got the digest twice. The boot catch-up in
+  `src/mastra/boot-catchup.ts` is *not* this mechanism and was correct to stand
+  down (news 1.7 days stale against a seven-day bar) — do not start debugging
+  there, read `mastra_schedule_triggers` instead, where a replay is a row whose
+  `scheduled_fire_at` is days older than its `actual_fire_at`. The consequence
+  for any new code: **anything that must happen once per row has to be claimed in
+  the database, not recorded after the fact** — a guard evaluated after the side
+  effect protects the row and nothing else
+  ([ADR-0033](docs/decisions/0033-a-delivery-is-claimed-before-it-is-sent.md)).
+  `find-jobs` has always survived this because `job_runs.startedAt` gates it;
+  `curate-all` has no such gate and still does not — what it has is a claim at
+  the point of delivery, which covers the manual and 504 cases a gate would miss.
 
 ## Where work stopped
 

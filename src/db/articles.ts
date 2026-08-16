@@ -206,25 +206,64 @@ export async function listRankedUndelivered(
 }
 
 /**
- * Marks articles delivered, recording which beat sent them.
+ * Claims articles for delivery, recording which beat is sending them, and
+ * returns the ids this call actually won.
  *
  * Written on `articles` rather than on the link row because a story goes out
  * once: the losing beats keep their score and their reason, and the fact that
- * this article is spent is true for all of them at once. Guarded on
- * `deliveredAt is null` so a concurrent beat cannot double-send a story that
- * arbitration awarded elsewhere between the read and the write.
+ * this article is spent is true for all of them at once.
+ *
+ * **This is a claim taken before the send, not a receipt written after it**, and
+ * the difference is the whole point. `deliveredAt is null` makes the update
+ * itself the lock — SQLite serialises writers, so of two runs holding the same
+ * candidate exactly one update matches a row and the other matches nothing — and
+ * the ids returned here are permission to send. Stamping *after* the send
+ * instead left the guard protecting the row while the message had already gone
+ * out, which is how a boot that replayed two missed digest fires at once
+ * delivered the same stories twice on 2026-08-16
+ * ([ADR-0033](../../docs/decisions/0033-a-delivery-is-claimed-before-it-is-sent.md)).
+ *
+ * The caller must hand back what it does not send. `releaseDelivery` covers the
+ * failure that actually happens — a send that throws — and what remains is a
+ * process killed between two awaits, which loses a story rather than repeating
+ * one. That is the direction this pipeline would rather fail in.
  */
-export async function markDelivered(
+export async function claimForDelivery(
   ids: string[],
   beatSlug: string,
   kind: DeliveryKind,
-): Promise<void> {
+): Promise<string[]> {
+  if (ids.length === 0) return []
+  await migrate()
+  const claimed = await db()
+    .update(articles)
+    .set({ deliveredAt: Date.now(), deliveredBeat: beatSlug, deliveryKind: kind })
+    .where(and(inArray(articles.id, ids), isNull(articles.deliveredAt)))
+    .returning({ id: articles.id })
+  return claimed.map(row => row.id)
+}
+
+/**
+ * Hands a claim back after the send failed, putting the story in play again.
+ *
+ * Unguarded on purpose: the only ids that reach here are ones
+ * `claimForDelivery` just returned to this caller, and a claimed row is
+ * invisible to every other run until this clears it, so there is nothing left to
+ * race against.
+ *
+ * **A send that throws after Telegram accepted the message** — a timeout reading
+ * the response — puts the story back and it goes out again on a later run. That
+ * is the same duplicate this whole shape exists to prevent, now narrowed from
+ * "whenever two runs overlap" to "when the transport reported a failure that was
+ * not one".
+ */
+export async function releaseDelivery(ids: string[]): Promise<void> {
   if (ids.length === 0) return
   await migrate()
   await db()
     .update(articles)
-    .set({ deliveredAt: Date.now(), deliveredBeat: beatSlug, deliveryKind: kind })
-    .where(and(inArray(articles.id, ids), isNull(articles.deliveredAt)))
+    .set({ deliveredAt: null, deliveredBeat: null, deliveryKind: null })
+    .where(inArray(articles.id, ids))
 }
 
 /**

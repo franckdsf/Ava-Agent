@@ -50,6 +50,7 @@ something looks the way it does.
 | [0030](0030-domains-as-vocabularies-a-search-names-its-field.md) | Domains as vocabularies, and a search names its own field | Accepted |
 | [0031](0031-a-race-decides-which-sources-are-early.md) | A race decides which sources are early, not a health check | Accepted |
 | [0032](0032-a-youtube-link-summarizes-itself.md) | A YouTube link summarizes itself — a tool on Newy, not a command | Accepted |
+| [0033](0033-a-delivery-is-claimed-before-it-is-sent.md) | A delivery is claimed before it is sent, not stamped after | Accepted |
 
 **Reading 0001–0021:** they predate [0022](0022-ava-is-the-system-agents-have-names.md)
 and call the conversational agent *Ava*. That agent is now **Newy**; *Ava* is the

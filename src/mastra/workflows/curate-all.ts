@@ -5,12 +5,13 @@ import { memoryConfig } from '../../config/memory.js'
 import { pipeline } from '../../config/pipeline.js'
 import { runNotices } from '../../config/run-notices.js'
 import {
+  claimForDelivery,
   insertDiscovered,
   isSharedFeedImage,
   linkToBeats,
   listRankedUndelivered,
   listUnranked,
-  markDelivered,
+  releaseDelivery,
   saveClusters,
   saveImageUrl,
   saveRankings,
@@ -35,7 +36,7 @@ import { articleWriterId, rankerId } from '../agents/curator.js'
  * that lets a model choose its own control flow is how you get surprise bills and
  * duplicate messages ([invariant 2](../../../AGENTS.md#invariants)).
  *
- * Two things about this shape are not obvious and are load-bearing.
+ * Three things about this shape are not obvious and are load-bearing.
  *
  * **Ingest is above the fan-out, not inside it.** `feed_state` is keyed by URL
  * globally, so a feed two beats both subscribe to must be fetched exactly once
@@ -50,6 +51,12 @@ import { articleWriterId, rankerId } from '../agents/curator.js'
  * sent by exactly one — the highest scorer among those clearing their own
  * threshold — and no single beat's run can know it lost. Ranking every beat
  * first, then deciding, is the only ordering that produces a stable answer.
+ *
+ * **Delivery claims a story before it sends it**, because none of the above
+ * survives two of these runs overlapping — and they do overlap, whenever a boot
+ * replays more than one missed digest fire. Arbitration decides which beat wins
+ * a story *within* a run; `claimForDelivery` is what decides which run wins it
+ * ([ADR-0033](../../../docs/decisions/0033-a-delivery-is-claimed-before-it-is-sent.md)).
  *
  * `beats` on the input narrows the run to a named set. That is what makes this
  * testable: a workflow cannot be driven from a script (see the evented-engine
@@ -612,14 +619,32 @@ const deliverBeat = createStep({
     let sent = 0
     const sendErrors: string[] = []
     for (const message of messages) {
+      // Claim first, send second, and never the other way round. The claim is a
+      // single guarded UPDATE, which SQLite serialises, so of two runs holding
+      // this story exactly one gets a row back — and the one that gets none must
+      // not send. Marking after the send instead is what delivered a digest
+      // twice on 2026-08-16: the guard protected the row, and the message was
+      // already gone.
+      const claimed = await claimForDelivery([message.articleId], beat.slug, 'digest')
+      if (claimed.length === 0) {
+        // Not an error, and still worth a line: the only way here is another run
+        // holding the same story, which is the condition the claim exists for
+        // and is otherwise invisible.
+        mastra.getLogger()?.info(`${beat.slug}: ${message.articleId} claimed by another run, skipping`)
+        continue
+      }
+
       try {
         // Into this beat's own tab. `beat` is the whole row, which is what the
         // transport needs to create the tab the first time this beat wins
         // anything ([ADR-0021](../../../docs/decisions/0021-a-tab-per-beat.md)).
         await newyTelegram.sendArticle(message.text, message.imageUrl, beat)
-        await markDelivered([message.articleId], beat.slug, 'digest')
         sent += 1
       } catch (err) {
+        // Hand the claim back, or a bad minute on Telegram's side costs the
+        // story permanently — a lock nobody releases is a leak, and this one
+        // leaks silently because a claimed row simply stops being a candidate.
+        await releaseDelivery(claimed)
         sendErrors.push(`${message.articleId}: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
