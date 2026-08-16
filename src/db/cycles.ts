@@ -1,0 +1,86 @@
+import { and, eq, lt } from 'drizzle-orm'
+import { db, migrate } from './client.js'
+import { pipelineCycles } from './schema.js'
+
+/**
+ * Whether a pipeline may start a run right now — asked and answered in one
+ * write, so two runs cannot both be told yes.
+ *
+ * The old jobs gate read `job_runs` and, several awaits later, inserted into it.
+ * Between those two statements the database still said the last run was
+ * yesterday's, so two fires arriving together both passed. That is the same
+ * shape as the delivery bug it sat above
+ * ([ADR-0033](../../docs/decisions/0033-a-delivery-is-claimed-before-it-is-sent.md)),
+ * and the window is widest at boot, where `migrate()` runs on the first query
+ * and the replayed fires arrive milliseconds apart
+ * ([ADR-0034](../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)).
+ */
+
+export type CycleClaim =
+  /** This run owns the cycle and must proceed. */
+  | { claimed: true }
+  /** Another run owns it, or it is simply too soon. `lastStartedAt` is why. */
+  | { claimed: false; lastStartedAt: number }
+
+/**
+ * Claims the next cycle for `id` if the last one started more than `minGapMs`
+ * ago, returning whether this caller won it.
+ *
+ * Two statements, and the decision only ever comes out of a guarded one:
+ *
+ * - The `insert … onConflictDoNothing` is for the first run on a fresh volume,
+ *   where there is no row to update. Of two runs racing an empty table exactly
+ *   one insert lands; the loser falls through to the update, whose guard the
+ *   winner has just made false, and is correctly turned away.
+ * - The `update … where started_at < cutoff` is every run after that. SQLite
+ *   serialises writers, so of two runs holding the same cutoff exactly one
+ *   matches the row and the other matches nothing.
+ *
+ * `force` skips the guard but still stamps the row, because a hand-fired run
+ * spends the cycle exactly as a scheduled one does — it fetches the same
+ * sources and makes the same model calls. A forced run that left the marker
+ * untouched would let the next scheduled fire run again minutes later, which is
+ * the thing being prevented.
+ */
+export async function claimCycle(
+  id: string,
+  minGapMs: number,
+  options: { force?: boolean } = {},
+): Promise<CycleClaim> {
+  await migrate()
+  const now = Date.now()
+
+  if (options.force) {
+    await db()
+      .insert(pipelineCycles)
+      .values({ id, startedAt: now })
+      .onConflictDoUpdate({ target: pipelineCycles.id, set: { startedAt: now } })
+    return { claimed: true }
+  }
+
+  const inserted = await db()
+    .insert(pipelineCycles)
+    .values({ id, startedAt: now })
+    .onConflictDoNothing()
+    .returning({ id: pipelineCycles.id })
+  if (inserted.length > 0) return { claimed: true }
+
+  const claimed = await db()
+    .update(pipelineCycles)
+    .set({ startedAt: now })
+    .where(and(eq(pipelineCycles.id, id), lt(pipelineCycles.startedAt, now - minGapMs)))
+    .returning({ id: pipelineCycles.id })
+  if (claimed.length > 0) return { claimed: true }
+
+  // Only for the message. The decision was made above, by the write.
+  const [row] = await db()
+    .select({ startedAt: pipelineCycles.startedAt })
+    .from(pipelineCycles)
+    .where(eq(pipelineCycles.id, id))
+  return { claimed: false, lastStartedAt: row?.startedAt ?? now }
+}
+
+/** Hours since `lastStartedAt`, for the note a turned-away run reports. */
+export function hoursSince(lastStartedAt: number, now = Date.now()): number {
+  return (now - lastStartedAt) / 3_600_000
+}

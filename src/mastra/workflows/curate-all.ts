@@ -2,7 +2,7 @@ import { createStep, createWorkflow } from '@mastra/core/workflows'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { memoryConfig } from '../../config/memory.js'
-import { pipeline } from '../../config/pipeline.js'
+import { newsMinRunGapMs, pipeline } from '../../config/pipeline.js'
 import { runNotices } from '../../config/run-notices.js'
 import {
   claimForDelivery,
@@ -17,6 +17,7 @@ import {
   saveRankings,
 } from '../../db/articles.js'
 import { activeBeats, feedsForBeats, getBeat, type Beat } from '../../db/beats.js'
+import { claimCycle, hoursSince } from '../../db/cycles.js'
 import { recentFeedback, type FeedbackSignal } from '../../db/feedback.js'
 import { memoriesForCuration, type Memory } from '../../db/memories.js'
 import type { Article, ArticleRanking, BeatLink, DiscoveredArticle, PendingArticle } from '../../db/types.js'
@@ -69,6 +70,8 @@ const runInput = z.object({
     .array(z.string())
     .optional()
     .describe('Restrict the run to these beat slugs. Omit for every active beat.'),
+  /** Skips the overlap guard. For Studio and for a deliberately fired run. */
+  force: z.boolean().optional(),
 })
 
 /**
@@ -139,6 +142,30 @@ const ingest = createStep({
   execute: async ({ inputData, setState, mastra }) => {
     const beats = await activeBeats(inputData.beats)
     if (beats.length === 0) {
+      await setState({ feedsFetched: 0, discovered: 0, linked: 0, feedErrors: [] })
+      return []
+    }
+
+    // Below the beat check and above the fetch, which is the only placement that
+    // is both cheap and correct. Above it, a run narrowed to a slug that does
+    // not exist would spend the cycle and lock out the next real digest for
+    // hours; below the fetch, a duplicate run has already paid for the feeds and
+    // is about to pay for the ranker. Everything expensive is after this line.
+    //
+    // A boot replaying two missed digest fires starts them milliseconds apart
+    // ([ADR-0034](../../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)),
+    // so the guard is a single write and the loser is turned away here. It is
+    // the claim in `deliverBeat` that stops the reader seeing a story twice;
+    // this only stops the second run paying for one
+    // ([ADR-0033](../../../docs/decisions/0033-a-delivery-is-claimed-before-it-is-sent.md)).
+    const cycle = await claimCycle('news', newsMinRunGapMs(), { force: inputData.force })
+    if (!cycle.claimed) {
+      mastra
+        .getLogger()
+        ?.info(
+          `News run skipped: ${hoursSince(cycle.lastStartedAt).toFixed(1)}h since the last one started, ` +
+            `minimum is ${(newsMinRunGapMs() / 3_600_000).toFixed(1)}h`,
+        )
       await setState({ feedsFetched: 0, discovered: 0, linked: 0, feedErrors: [] })
       return []
     }
@@ -681,9 +708,10 @@ const report = createStep({
     })
 
     // A run that fetched nothing is a run `ingest` returned early from — no
-    // active beats, so no start notice either. A closing line on its own would
-    // be the only word about a run that never happened, which reads as a
-    // failure rather than as an empty schedule.
+    // active beats, or the overlap guard turning a second run away — so there
+    // was no start notice either. A closing line on its own would be the only
+    // word about a run that never happened, which reads as a failure rather than
+    // as an empty schedule or a duplicate correctly refused.
     if (runNotices.news.finish && summary.feedsFetched > 0) {
       await newyTelegram.sendToTelegram(renderNewsFinish(summary), 'chat').catch(() => {})
     }

@@ -4,6 +4,7 @@ import { env } from '../../config/env.js'
 import { jobPipeline } from '../../config/jobs.js'
 import { JOOB_TOPICS } from '../../config/joob-topics.js'
 import { runNotices } from '../../config/run-notices.js'
+import { claimCycle, hoursSince } from '../../db/cycles.js'
 import { activeSearches } from '../../db/job-searches.js'
 import {
   activeJobSources,
@@ -11,7 +12,6 @@ import {
   finishJobRun,
   insertJobs,
   knownAtsCompanies,
-  lastRunStartedAt,
   linkPendingToSearch,
   recordAtsBoards,
   listScoredUndelivered,
@@ -62,9 +62,16 @@ import {
  * **The schedule fires daily and `jobPipeline.intervalHours` decides whether a
  * firing works.** The gate stays even though the cadence is now daily too: a
  * missed schedule firing on boot has already put two runs in flight at once in
- * this repo, and `job_runs.startedAt` is what makes that impossible. It also
- * keeps the cadence a property of the data, so retuning it is one number here
- * rather than a cron expression that has to encode an interval.
+ * this repo. It also keeps the cadence a property of the data, so retuning it is
+ * one number here rather than a cron expression that has to encode an interval.
+ *
+ * **`job_runs.startedAt` was said to make that impossible, and it did not.** The
+ * gate read it and inserted the next run several awaits later, so two fires
+ * arriving together both read the same answer and both went — the read-then-write
+ * shape, one level above the delivery bug of the same kind. The interval is
+ * unchanged; what decides is now a single guarded write against
+ * `pipeline_cycles` ([ADR-0034](../../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)).
+ * `job_runs` stays what it always was underneath: the log, not the lock.
  *
  * **The filter runs before the model and is not an optimisation.** Scoring is one
  * batch call, so cutting the intake is what makes that call *possible*: the
@@ -154,12 +161,21 @@ const ingest = createStep({
       cv: '',
     }
 
-    // The gate. `startedAt`, not `finishedAt`: a run that crashed halfway still
-    // spent the cycle's fetches and model calls, and re-running it on tomorrow's
-    // fire would spend them again.
-    const last = await lastRunStartedAt()
-    const elapsedHours = last === null ? Infinity : (Date.now() - last) / 3_600_000
-    if (!inputData.force && elapsedHours < jobPipeline.intervalHours) {
+    // The gate, taken as a single guarded write rather than a read followed by
+    // one. `job_runs` is still the log, but it is no longer what decides: asking
+    // it "when did the last run start?" and inserting the answer several awaits
+    // later left a window in which two fires arriving together both read
+    // yesterday and both went. At boot — where `migrate()` runs on the first
+    // query and replayed fires land milliseconds apart — that window is at its
+    // widest ([ADR-0034](../../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)).
+    //
+    // The interval is unchanged. What changed is that only one caller can be
+    // told it has elapsed.
+    const cycle = await claimCycle('jobs', jobPipeline.intervalHours * 3_600_000, {
+      force: inputData.force,
+    })
+    if (!cycle.claimed) {
+      const elapsedHours = hoursSince(cycle.lastStartedAt)
       await setState({
         ...idle,
         note: `Only ${elapsedHours.toFixed(1)}h since the last run; the interval is ${jobPipeline.intervalHours}h.`,

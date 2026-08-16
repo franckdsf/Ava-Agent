@@ -845,6 +845,34 @@ export const telegramTopics = sqliteTable(
 
 export type TelegramTopicRow = typeof telegramTopics.$inferSelect
 
+/**
+ * One row per scheduled pipeline, holding the moment its last run was allowed to
+ * start. The lock that stops two runs of the same pipeline overlapping.
+ *
+ * **This is not a duplicate of `job_runs.startedAt`, and the split is the
+ * point.** `job_runs` is the log: one row per run, with counters, a finish time
+ * and a note, written so a run can be read back afterwards. This table is the
+ * permission to *become* one of those runs — a single row, overwritten, never
+ * read for reporting. Keeping the log as the lock is what the jobs gate did, and
+ * it could not be made safe: deciding from a `select` and then writing an
+ * `insert` leaves a gap in which a second run reads the same answer and starts
+ * too ([ADR-0034](../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)).
+ *
+ * Deliberately not keyed to a schedule or a fire time. The two runs that
+ * collided on 2026-08-16 were different occurrences of different schedules —
+ * the 14th's 20:00 and the 15th's 10:00 — so anything keyed by which fire it was
+ * would have given them separate keys and let both through. What has to be
+ * bounded is the gap between *starts*, whatever the runs believe they are.
+ */
+export const pipelineCycles = sqliteTable('pipeline_cycles', {
+  /** The pipeline, not the run: `news`, `jobs`. */
+  id: text('id').primaryKey(),
+  /** When the run holding this cycle was allowed to start. */
+  startedAt: integer('started_at').notNull(),
+})
+
+export type PipelineCycleRow = typeof pipelineCycles.$inferSelect
+
 export type Beat = typeof beats.$inferSelect
 export type NewBeat = typeof beats.$inferInsert
 export type BeatFeedRow = typeof beatFeeds.$inferSelect

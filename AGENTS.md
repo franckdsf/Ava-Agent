@@ -936,9 +936,15 @@ doesn't wrap without adding a second Telegram library.
   the database, not recorded after the fact** — a guard evaluated after the side
   effect protects the row and nothing else
   ([ADR-0033](docs/decisions/0033-a-delivery-is-claimed-before-it-is-sent.md)).
-  `find-jobs` has always survived this because `job_runs.startedAt` gates it;
-  `curate-all` has no such gate and still does not — what it has is a claim at
-  the point of delivery, which covers the manual and 504 cases a gate would miss.
+  Both pipelines now claim their cycle in one guarded write before doing any
+  work (`pipeline_cycles`, [ADR-0034](docs/decisions/0034-a-pipeline-claims-its-cycle.md)).
+  **`find-jobs` was believed to be safe here and was not** — its gate read
+  `job_runs.startedAt` and inserted the next run several awaits later, which is
+  the same read-then-write shape and passes two simultaneous fires. Two layers
+  now, and they answer different questions: the cycle claim stops the second run
+  *spending*, the delivery claim stops the reader *seeing* a story twice. Keep
+  both — the delivery claim is the one that still covers a hand-fired
+  `workflow:run --force` or a 504 retry, which no gate can.
 
 ## Where work stopped
 

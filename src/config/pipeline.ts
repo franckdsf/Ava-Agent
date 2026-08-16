@@ -211,3 +211,42 @@ export const pipeline = {
    */
   pruneHour: 4,
 } as const
+
+/**
+ * The tightest gap between two consecutive digest fires, in hours, wrap-around
+ * included.
+ *
+ * `[10, 20]` is 10 hours, not the 12 that "twice a day" suggests — the fires are
+ * unevenly spaced and the *smallest* gap is the only one that matters to
+ * anything guarding against a second run.
+ */
+export function minDigestGapHours(hours: readonly number[] = pipeline.digestHours): number {
+  const sorted = [...hours].sort((a, b) => a - b)
+  if (sorted.length < 2) return 24
+  const gaps = sorted.map((hour, index) =>
+    index === 0 ? sorted[0]! + 24 - sorted[sorted.length - 1]! : hour - sorted[index - 1]!,
+  )
+  return Math.min(...gaps)
+}
+
+/**
+ * How close together two news runs may start — half the tightest digest gap.
+ *
+ * **Derived rather than set, and that is the whole design.** A hand-written
+ * number here would be a third knob tied to `digestHours` with nothing enforcing
+ * the relationship, which is the trap `catchup.newsStaleAfterDays` already
+ * documents and `pnpm catchup:check` exists to catch. Add an 08:00 digest and
+ * the tightest gap becomes 2 hours; a hardcoded 9 would then silently swallow
+ * two digests a day, visible only as the reader receiving less news.
+ *
+ * **Half, because the guard must never turn away a fire that is merely late.**
+ * The runs it exists to stop start milliseconds apart, so any value above a few
+ * seconds catches them; everything above that is margin for a digest that fired
+ * behind schedule. Half the tightest gap spends that margin evenly — today it
+ * blocks a second run inside 5 hours and leaves a legitimate fire up to 5 hours
+ * of lateness before it would be refused
+ * ([ADR-0034](../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)).
+ */
+export function newsMinRunGapMs(): number {
+  return (minDigestGapHours() / 2) * 3_600_000
+}
