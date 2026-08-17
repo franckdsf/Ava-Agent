@@ -76,6 +76,7 @@ The full list is in the [README](README.md#commands). These three carry obligati
 | `pnpm review:check` | **Required** after touching `verdictForBeat` or `src/config/feed-review.ts`. It is the only exercise the weekly feed review gets: a guard with no case here is a guard that silently stops applying, and the failure is a beat quietly losing good sources. Also prints what a run *today* would do to the live beats. |
 | `pnpm jobs:check` | Run after touching a job source, an adapter, or `job-identity.ts`. Fetches every seeded board for real, prints per-source field coverage, and runs the identity function over everything so the cross-board dedupe is a measured number rather than an assumption. Writes nothing, calls no model. **Also required after touching `yieldOfSources`, `minYieldRate` or `minYieldSample`** — its YIELD block is the only preview of which sources the next run would archive, and that rule can switch off a *seeded* board the reader chose ([ADR-0035](docs/decisions/0035-a-source-is-judged-on-what-it-yields.md)). Read it before believing a source is healthy: a board answering 200 with nothing relevant is the failure this repo has already shipped twice, and field coverage alone cannot see it. |
 | `pnpm sonar:check "<slug or free text>"` | Run after touching the job scout's prompt, careers-page resolution or `jobScout`. Dry-runs the `sonar` source end to end — proposes companies, resolves and verifies every careers page, builds the rows ingest would store and runs the real filter over them — writing and sending nothing. **It calls a model, unlike `jobs:check`**, which is why it is a separate command. Read the FILTER block first: a lead survives only if its careers page carries the reader's must-haves in real text, so a low survival rate means the design is failing, not that the week is quiet. Run it **three times** — company sets vary run to run, and the ±10 discipline applies. Free text touches no database; a slug-shaped argument opens one and applies migrations. |
+| `pnpm models:check` | **Required before changing `AVA_MODEL_TRANSLATOR` or `AVA_MODEL_SUMMARIZER`.** Runs the real `translateChunk` and `summarizeSource` against stored article bodies with only the model swapped — the prompt and provider pinning come from the live agent via `getInstructions()`/`getDefaultOptions()` — and reports parse rate, latency, `$/call` and reasoning share per candidate. Calls models, writes nothing, sends nothing. **Read the `ok` column before the latency one**: a model that returns good prose in the wrong shape fails every call, and that has happened. Then read the transcripts it writes under `.data/model-bench/` — the table can disqualify a model but it cannot rank two that both work, and specificity is the whole difference between a useful summary and a vague one. Latency needs **ten draws, not two** (see the deepseek gotcha); `--concurrency 1` measures a lone reader, the default 8 measures the pool under load, and the honest answer for a model is the pair. |
 | `pnpm portfolio:check` | Run before believing anything about job scoring, and after any change to the portfolio endpoint. It is the one input to that scoring living outside this repo, and a wrong endpoint **never errors** — a protection wall answers 200 with an HTML login page, an empty deploy answers 200 with nothing. Prints the size, the estimated per-run token cost, the headings and the first lines. Read-only. |
 | `pnpm catchup:check` | **Required** after touching `decideCatchup`, `src/config/catchup.ts`, `pipeline.digestHours` or `jobPipeline.intervalHours` — the last two because the staleness bars are set against those cadences and nothing enforces the relationship. The boot catch-up runs once, unattended, on a path that is invisible when it decides right and expensive when it decides wrong. Every guard needs a case here. Also prints what a boot *right now* would do to both live pipelines. Read-only; fires nothing. |
 | `pnpm finder:check "<topic>" [--against <url>…]` | **Run before adding a source to a beat that is meant to be timely.** `feeds:check` reports health, and a late blog is perfectly healthy — measured 2026-08-06, all 20 subscribed feeds passed while `ai-model-releases` sat on a weekly newsletter and a feed with no dated entries in 45 days. This races candidates against each other and reports median hours behind the first publisher ([ADR-0031](docs/decisions/0031-a-race-decides-which-sources-are-early.md)). **Always pass `--against` with the beat's existing feeds** — a lag is measured against other sources, not in the abstract, and a thin pool produces "too few" for everything. Read the *stories* line before the table: if the tokens are not recognisable releases, the filters have drifted and the ranking below them is noise that will still look plausible. |
@@ -832,6 +833,37 @@ doesn't wrap without adding a second Telegram library.
   will tell you whatever you want to hear, in either direction; the first pair
   measured here said 68s/107s and nearly justified switching models on it. Don't
   quote a number for this model, and don't tune a timeout against one.
+- **The `0731` snapshot did not fix that, and it is not the model to put back on
+  a reader-facing call.** Re-measured 2026-08-17 with `pnpm models:check`, since
+  the numbers above were taken on the April `deepseek-v4-flash` and a newer
+  snapshot deserved its own reading. Ten translator draws on one 1500-character
+  chunk, eight in flight: 82.7s, 101.3s, 108.9s, 124.7s, 141.0s, 148.2s, 162.7s,
+  220.3s, 233.9s, 250.8s — median **148s** against `gemini-3.1-flash-lite`'s
+  **8.5s** (10/10, worst 11.3s) on the same chunk in the same run. Six summarizer
+  draws run **serially**, so contention explains nothing: 11.3s, 31.4s, 87.3s,
+  111.8s, 164.6s, 207.3s — median **112s** against gemini's **7.4s**. The spread
+  survived; what disappeared is the fast end. April produced draws under 30s and
+  `0731` produced one in sixteen, which is worse than it looks — a model that is
+  *reliably* slow cannot be rescued by a retry.
+- **A cheap output rate is not a cheap call when the model thinks more than it
+  writes.** `deepseek-v4-flash-0731` bills output at $0.28/M against
+  `gemini-3.1-flash-lite`'s $1.50 — 5.4× cheaper on paper — and measured **0.63×
+  per translator call**, because at `reasoning: { effort: 'low' }` it spends
+  **87%** of its output tokens on reasoning. Effort is a per-model dialect, not a
+  setting: on the same prompt gemini spent 81% and `solar-pro4` 95%. Two
+  consequences. Price a model on `$/call` from `pnpm models:check`, never on the
+  rate card. And read `reasoningTokens` before believing a latency figure — a
+  model emitting three thinking tokens per written one is slow for a structural
+  reason no endpoint change will fix.
+- **A model can pass every latency and price bar and still be unusable because it
+  ignores the schema.** `tencent/hy3` failed **5 of 10** translator calls on
+  2026-08-17 with `STRUCTURED_OUTPUT_SCHEMA_VALIDATION_FAILED`: it returns
+  `{"language":"French","translation":"…one long string…"}` where
+  `translationSchema` requires `paragraphs` as an array of blocks. The prose in
+  those strings was good, which is the trap — the failure is invisible in a
+  spot-check that only reads output, and `translateChunk` throws on it. Any
+  candidate for these two agents has to be measured on *parse rate first*;
+  `pnpm models:check` reports it as the `ok` column for that reason.
 - **`pnpm-workspace.yaml` is a build input, and the Dockerfile has to copy it.**
   pnpm 10+ refuses to run a dependency's install script unless it is approved in
   that file, and it **errors** rather than warning — `ERR_PNPM_IGNORED_BUILDS`,

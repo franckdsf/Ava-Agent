@@ -121,6 +121,7 @@ pnpm feeds:check
 | `pnpm finder:check "<topic>"` | Find candidate sources and measure **which of them break a story and which repeat it late**. `--against <url>` races them past feeds you already have |
 | `pnpm rssfinder:check "<subject or domain>"` | Ask rssfinder.app what feeds it knows about a subject or a site. Add `--verify` to fetch each one |
 | `pnpm youtube:check [url]` | Fetch real YouTube transcripts and report what the summarizer would be handed. The early warning for the caption route being blocked |
+| `pnpm models:check` | Compare candidate models for the translator and the summarizer on parse rate, latency and **`$/call` rather than rate card**, against stored articles with only the model swapped. Calls models, writes nothing. `--task`, `--models`, `--repeats`, `--concurrency`; transcripts land in `.data/model-bench/` |
 | `pnpm db:generate` | Emit a migration after editing `src/db/schema.ts` |
 | `pnpm db:studio` | Browse the database |
 | `pnpm typecheck` | `tsc --noEmit` |
