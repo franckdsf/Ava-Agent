@@ -10,13 +10,39 @@
  * validated core schema would make a script that only speaks HTTP demand an
  * `OPENROUTER_API_KEY` to print a usage line.
  */
+
+/**
+ * The port Mastra will listen on, decided the way Mastra decides it.
+ *
+ * `PORT` is the knob for both surfaces — `mastra dev` reads it after loading
+ * `.env`, and so does the built server behind `pnpm start` — so setting it once
+ * moves the server, and this module follows rather than leaving every terminal
+ * script pointed at a port nothing is on. That is also why `workflow:run`
+ * carries `--env-file-if-exists=.env` where the other pure-HTTP scripts carry
+ * nothing: `mastra dev` loads `.env` for itself, and a script that has to find
+ * that server needs the same file to learn where it went. `if-exists` because
+ * `--help` must keep working without a `.env`, and a shell `PORT=` still wins
+ * over the file's, so a one-off run needs no edit.
+ *
+ * The fallback mirrors the CLI's own rule rather than guessing: an unset or
+ * non-numeric `PORT` sends Mastra scanning 4111–4131 for the first free port,
+ * and 4111 is where that scan starts. It is a *first* choice, not a promise — a
+ * second dev server on this machine lands on 4112 and nothing in the
+ * environment says so, which is the case `PORT` exists to settle.
+ */
+function mastraPort(): string {
+  const port = process.env.PORT
+  return port && !Number.isNaN(Number(port)) ? port : '4111'
+}
+
 export const devServer = {
   /**
-   * Where `pnpm dev` listens. `AVA_DEV_SERVER_URL` overrides it for a container
-   * or a non-default port — read from the raw environment rather than through
-   * `env.ts` for the reason above.
+   * Where `pnpm dev` listens. Derived from `PORT` above; `AVA_DEV_SERVER_URL`
+   * overrides the whole URL for a server this process cannot reach on localhost
+   * — a container, another host — and is read from the raw environment rather
+   * than through `env.ts` for the reason above.
    */
-  baseUrl: process.env.AVA_DEV_SERVER_URL ?? 'http://localhost:4111',
+  baseUrl: process.env.AVA_DEV_SERVER_URL ?? `http://localhost:${mastraPort()}`,
 
   /**
    * How often a triggered run is polled for progress.

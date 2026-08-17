@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Personal Telegram AI orchestrator that curates RSS news via category-expert sub-agents",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12"
   },
   "packageManager": "pnpm@11.0.3",
   "scripts": {
@@ -26,7 +26,7 @@
     "telegram:check": "tsx --env-file=.env scripts/check-telegram.ts",
     "typecheck": "tsc --noEmit",
     "youtube:check": "tsx scripts/check-youtube.ts",
-    "workflow:run": "tsx scripts/run-workflow.ts"
+    "workflow:run": "tsx --env-file-if-exists=.env scripts/run-workflow.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

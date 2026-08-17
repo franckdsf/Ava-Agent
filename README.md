@@ -66,11 +66,17 @@ for re-ingest, and the ingest window is what stops a deleted story coming back
 ```bash
 pnpm install
 cp .env.example .env     # add OPENROUTER_API_KEY at minimum
-pnpm dev                 # Studio at http://localhost:4111
+pnpm dev                 # Studio at http://localhost:4111 (PORT= in .env moves it)
 ```
 
 Only `OPENROUTER_API_KEY` is required to start — Telegram variables are
 validated lazily, so the news pipeline is fully usable before the bot exists.
+
+`PORT` moves the server when 4111 is taken, and one variable is enough: Studio,
+the built server behind `pnpm start`, and the terminal scripts that drive it
+([`src/config/dev-server.ts`](src/config/dev-server.ts)) all read it. Docker is
+deliberately outside that — the image publishes 4111 whatever this machine does,
+because that is the container's own layout.
 
 On first boot the `beats` table is seeded from
 [`src/config/seed-beats.ts`](src/config/seed-beats.ts) so there is something to
