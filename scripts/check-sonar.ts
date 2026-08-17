@@ -94,6 +94,7 @@ if (stored) {
     suggestion: null,
     suggestedAt: null,
     createdAt: now,
+    criteriaChangedAt: now,
     archivedAt: null,
   }
 }

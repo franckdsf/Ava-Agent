@@ -74,7 +74,7 @@ The full list is in the [README](README.md#commands). These three carry obligati
 | `pnpm feeds:check` | Run after adding or changing a feed. It reads `beat_feeds`, so it needs `.env` now — it used to need nothing. |
 | `pnpm discovery:check "<subject>"` | Dry-runs `/follow` end to end — names the beat, searches, verifies every feed, renders the report — writing and sending nothing. Run before believing any change to the namer, the scout, or feed resolution. |
 | `pnpm review:check` | **Required** after touching `verdictForBeat` or `src/config/feed-review.ts`. It is the only exercise the weekly feed review gets: a guard with no case here is a guard that silently stops applying, and the failure is a beat quietly losing good sources. Also prints what a run *today* would do to the live beats. |
-| `pnpm jobs:check` | Run after touching a job source, an adapter, or `job-identity.ts`. Fetches every seeded board for real, prints per-source field coverage, and runs the identity function over everything so the cross-board dedupe is a measured number rather than an assumption. Writes nothing, calls no model. |
+| `pnpm jobs:check` | Run after touching a job source, an adapter, or `job-identity.ts`. Fetches every seeded board for real, prints per-source field coverage, and runs the identity function over everything so the cross-board dedupe is a measured number rather than an assumption. Writes nothing, calls no model. **Also required after touching `yieldOfSources`, `minYieldRate` or `minYieldSample`** — its YIELD block is the only preview of which sources the next run would archive, and that rule can switch off a *seeded* board the reader chose ([ADR-0035](docs/decisions/0035-a-source-is-judged-on-what-it-yields.md)). Read it before believing a source is healthy: a board answering 200 with nothing relevant is the failure this repo has already shipped twice, and field coverage alone cannot see it. |
 | `pnpm sonar:check "<slug or free text>"` | Run after touching the job scout's prompt, careers-page resolution or `jobScout`. Dry-runs the `sonar` source end to end — proposes companies, resolves and verifies every careers page, builds the rows ingest would store and runs the real filter over them — writing and sending nothing. **It calls a model, unlike `jobs:check`**, which is why it is a separate command. Read the FILTER block first: a lead survives only if its careers page carries the reader's must-haves in real text, so a low survival rate means the design is failing, not that the week is quiet. Run it **three times** — company sets vary run to run, and the ±10 discipline applies. Free text touches no database; a slug-shaped argument opens one and applies migrations. |
 | `pnpm portfolio:check` | Run before believing anything about job scoring, and after any change to the portfolio endpoint. It is the one input to that scoring living outside this repo, and a wrong endpoint **never errors** — a protection wall answers 200 with an HTML login page, an empty deploy answers 200 with nothing. Prints the size, the estimated per-run token cost, the headings and the first lines. Read-only. |
 | `pnpm catchup:check` | **Required** after touching `decideCatchup`, `src/config/catchup.ts`, `pipeline.digestHours` or `jobPipeline.intervalHours` — the last two because the staleness bars are set against those cadences and nothing enforces the relationship. The boot catch-up runs once, unattended, on a path that is invisible when it decides right and expensive when it decides wrong. Every guard needs a case here. Also prints what a boot *right now* would do to both live pipelines. Read-only; fires nothing. |
@@ -948,7 +948,48 @@ doesn't wrap without adding a second Telegram library.
 
 ## Where work stopped
 
-*Last updated: 2026-08-09.*
+*Last updated: 2026-08-17.*
+
+**A fourteen-day audit of the live job pipeline, and four fixes from it —
+[ADR-0035](docs/decisions/0035-a-source-is-judged-on-what-it-yields.md),
+[ADR-0036](docs/decisions/0036-a-source-may-declare-its-field-and-a-search-may-be-re-read.md),
+[ADR-0037](docs/decisions/0037-the-hiring-thread-as-a-source-kind.md).** The
+question was whether the pipeline could find better jobs or was simply waiting on
+the market. It was not waiting: ~110 new postings a day were arriving, and the
+budget was being spent in the wrong places.
+
+**Four findings, all measured over 4,685 verdicts rather than read off the code:**
+
+- **`job_searches.domain` was NULL on all three live searches**, because the
+  column was added by `ALTER TABLE` after they were created. The saving
+  `job-filter.ts` calls "the single biggest saving on a general board" had
+  therefore never fired once. Backfilling it keeps **all 112** postings that have
+  ever scored ≥60 and removes 16.3% of every scoring slot ever spent. `/retarget`
+  exists so this class of gap is fixable without hand-editing the database.
+- **The taxonomy could not place 50.7% of the corpus**, and the gaps were whole
+  professions — no `marketing`, no business `operations`, `help desk` without
+  `helpdesk`. Filling them took untagged to 43.4% with the same zero regressions.
+- **`jobicy` spent 32% of every scoring slot ever used and produced five postings
+  at 60 and none at 80**; `himalayas` spent 137 for two. Neither was ever quiet,
+  so no existing mechanism could ever have noticed — `atsIdleDays` and
+  `emptySince` only recognise silence.
+- **`founding-engineer-worldwide` saturates `maxJobsPerScoringRun` every single
+  run** (90/90 since 2026-08-06) at a 3.2% hit rate, against 20.7% and 26.2% for
+  the two stack-defined searches, and carries a 423-posting backlog. **A stack
+  `mustHave` is the wrong fix and was measured as such**: replayed over that
+  search's winners it deletes 13 of 31, including the two highest-scoring jobs
+  the pipeline has ever found and every posting whose title says *Founding
+  Engineer*. It is defined by company stage, not by stack.
+
+**Still open, and deliberately not fixed in that pass.**
+`founding-engineer-worldwide` remains the loosest search in the table — the
+domain filter bounds it but does not tighten it, and Hacker News will now fill
+its batch. Tightening it wants `seniority` and dealbreakers rather than a stack,
+and that is a decision about what the reader wants, not a bug. The `sonar` scout
+is also saturating: new ATS boards per run went `5, 4, 9, 4, 1, 5, 1, 4, 0` as
+`knownAtsCompanies()` grew, which is working as designed and still means the best
+source has a horizon.
+
 
 **Duplicates are dropped before the scorer, not after it — `dedupe` in
 `src/mastra/workflows/find-jobs.ts`, `advertKey` in `job-identity.ts`,

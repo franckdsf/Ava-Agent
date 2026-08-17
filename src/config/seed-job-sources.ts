@@ -47,6 +47,20 @@ import type { NewJobSource } from '../db/schema.js'
  * Every board here is free and needs no key. That is not a coincidence — it is
  * the constraint that picked them. Two of the four ask for attribution and a
  * link back to the posting's own URL, which every delivered message does.
+ *
+ * **`domain` is set on the We Work Remotely feeds and on nothing else**, and the
+ * split is the point. Those five are category feeds for programming roles — the
+ * board cannot serve a chemist through them whatever he searches for, so a run
+ * with no software search should not spend five requests on them. Jobicy,
+ * Himalayas and Remotive are general boards that publish accountants beside
+ * engineers, so they stay null and keep being fetched for every reader.
+ *
+ * `sonar` stays null for a different reason: it has no fixed catalogue at all —
+ * it asks about whatever each active search wants, so it is *already* per-domain
+ * and pinning it to one would be a straightforward bug. Discovered `ats` rows
+ * stay null too: an employer's own board carries every function that employer
+ * hires for, which is precisely why `atsMaxPostingsPerBoard` pulls sales roles
+ * off it.
  */
 
 const now = () => Date.now()
@@ -80,6 +94,7 @@ export const SEED_JOB_SOURCES: NewJobSource[] = [
   },
   {
     id: 'weworkremotely-fullstack',
+    domain: 'software',
     kind: 'rss',
     adapter: null,
     url: 'https://weworkremotely.com/categories/remote-full-stack-programming-jobs.rss',
@@ -88,6 +103,7 @@ export const SEED_JOB_SOURCES: NewJobSource[] = [
   },
   {
     id: 'weworkremotely-frontend',
+    domain: 'software',
     kind: 'rss',
     adapter: null,
     url: 'https://weworkremotely.com/categories/remote-front-end-programming-jobs.rss',
@@ -96,6 +112,7 @@ export const SEED_JOB_SOURCES: NewJobSource[] = [
   },
   {
     id: 'weworkremotely-backend',
+    domain: 'software',
     kind: 'rss',
     adapter: null,
     url: 'https://weworkremotely.com/categories/remote-back-end-programming-jobs.rss',
@@ -104,6 +121,7 @@ export const SEED_JOB_SOURCES: NewJobSource[] = [
   },
   {
     id: 'weworkremotely-programming',
+    domain: 'software',
     kind: 'rss',
     adapter: null,
     url: 'https://weworkremotely.com/categories/remote-programming-jobs.rss',
@@ -112,10 +130,43 @@ export const SEED_JOB_SOURCES: NewJobSource[] = [
   },
   {
     id: 'weworkremotely-devops',
+    domain: 'software',
     kind: 'rss',
     adapter: null,
     url: 'https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss',
     label: 'We Work Remotely',
+    addedAt: now(),
+  },
+  {
+    /**
+     * Hacker News's monthly "Ask HN: Who is hiring?" thread.
+     *
+     * **The one source here that is not an aggregator**, which is the whole
+     * argument for it. Every board above carries employers who pay to be listed
+     * or who have an HR function big enough to syndicate; this thread carries
+     * founders posting their own roles for free. Measured 2026-08-17 the August
+     * thread held 375 top-level comments, of which this parses 210 into postings
+     * — and roughly a dozen say "founding engineer" in the title, a population
+     * every other row in this table under-serves.
+     *
+     * `domain: 'software'` because it genuinely is: it is a software community's
+     * hiring thread and will never serve a chemist. That is a real claim of
+     * exclusivity rather than a convenience, which is the bar the column's note
+     * in `schema.ts` sets for setting it at all.
+     *
+     * **`url` is the search endpoint, not the thread.** The thread's id changes
+     * every month, so `job-hn.ts` resolves the current one by author before
+     * reading it — the same shape as `sonar`'s row, where the URL documents how
+     * the source is reached rather than naming a fixed document. Pinning a thread
+     * id here would make this source correct for four weeks and silently empty
+     * afterwards.
+     */
+    id: 'hn-whoishiring',
+    kind: 'hn',
+    adapter: null,
+    domain: 'software',
+    url: 'https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring',
+    label: 'Hacker News — Who is hiring?',
     addedAt: now(),
   },
   {

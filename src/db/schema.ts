@@ -492,6 +492,25 @@ export const jobSearches = sqliteTable(
     suggestedAt: integer('suggested_at'),
 
     createdAt: integer('created_at').notNull(),
+    /**
+     * When the *criteria* last changed, as opposed to when the search was made.
+     *
+     * `createdAt` deliberately survives a re-target — the reader has been looking
+     * for this since March, whatever words they used last — so it cannot answer
+     * the question `decayUnproductiveSources` has to ask: **how much of a
+     * source's record was earned against the rules in force today?**
+     *
+     * A board judged on its yield is judged against the reader's bar, so moving
+     * that bar invalidates the evidence. Retarget from software to chemistry and
+     * every software board's history becomes a measurement of a question nobody
+     * is asking any more; leaving it standing would archive good boards for
+     * failing a test they were never given. This timestamp is where their record
+     * restarts.
+     *
+     * Nullable only so the column could be added to rows that predate it, which
+     * `yieldWindowStart()` reads as "no reset yet" rather than as an error.
+     */
+    criteriaChangedAt: integer('criteria_changed_at'),
     archivedAt: integer('archived_at'),
   },
   table => [index('idx_job_searches_active').on(table.archivedAt)],
@@ -566,8 +585,31 @@ export const jobSources = sqliteTable(
      * SQLite does not enforce this list — it is a TypeScript-level enum over a
      * plain text column, so adding a kind needs no migration.
      */
-    kind: text('kind', { enum: ['rss', 'api', 'sonar', 'apify', 'ats'] }).notNull(),
+    kind: text('kind', { enum: ['rss', 'api', 'sonar', 'apify', 'ats', 'hn'] }).notNull(),
     url: text('url').notNull(),
+    /**
+     * The one field of work this source carries, or null for a general board.
+     *
+     * **Null is the default and means "everything", not "unknown".** Jobicy and
+     * Remotive publish accountants beside engineers, so they genuinely have no
+     * domain and must keep fetching whatever the reader is looking for. A value
+     * here is a *claim of exclusivity*: Hacker News's hiring thread and We Work
+     * Remotely's programming feeds carry software and nothing else, so a reader
+     * whose searches are all chemistry should not pay a request for them.
+     *
+     * Read by `activeJobSources()`, which drops a row whose domain matches no
+     * active search. That is a fetch-time saving on top of `filterJob`'s
+     * scoring-time one, and the two are deliberately different stages: the
+     * filter stops a posting reaching a *model*, this stops a board being
+     * *called at all*. Neither can replace the other — a general board still
+     * needs filtering, and a filter cannot un-spend an HTTP request.
+     *
+     * **Never set this on a board you have not read.** Wrong here is expensive
+     * and silent: the source stops being fetched, no error is raised, and the
+     * postings simply never exist. `filterJob` is the safe place to be wrong,
+     * because a rejection there is recorded with a reason.
+     */
+    domain: text('domain'),
     /** Attribution shown under a posting. */
     label: text('label').notNull(),
     /** Which normalizer reads this source's payload. Null for `rss`, which is generic. */

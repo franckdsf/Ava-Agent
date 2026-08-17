@@ -1,4 +1,6 @@
 import { SEED_JOB_SOURCES } from '../src/config/seed-job-sources.js'
+import { jobScout } from '../src/config/jobs.js'
+import { yieldOfSources } from '../src/db/jobs.js'
 import type { Job, JobSearch, JobSource } from '../src/db/schema.js'
 import { filterJobs } from '../src/services/job-filter.js'
 import { fetchJobSource } from '../src/services/job-fetch.js'
@@ -33,6 +35,7 @@ const sources: JobSource[] = SEED_JOB_SOURCES.filter(seed => seed.kind !== 'sona
   url: seed.url,
   label: seed.label,
   adapter: seed.adapter ?? null,
+  domain: seed.domain ?? null,
   addedAt: seed.addedAt,
   archivedAt: null,
   emptySince: null,
@@ -176,6 +179,7 @@ console.log(`\n${'='.repeat(70)}\nFILTER — what would reach the model`)
     suggestion: null,
     suggestedAt: null,
     createdAt: now,
+    criteriaChangedAt: now,
     archivedAt: null,
   }
 
@@ -226,4 +230,47 @@ console.log(`\nids carried by more than one posting: ${merged.length}`)
 for (const group of merged.slice(0, 10)) {
   console.log(`  "${group[0]?.title}" @ ${group[0]?.company}`)
   for (const posting of group) console.log(`    ← ${posting.sourceId}  (${posting.location ?? '—'})`)
+}
+
+/*
+ * What the archiving rule would do today.
+ *
+ * **This is the half of the script that reads the live database**, and it is here
+ * rather than in a command of its own because the decision it previews is made
+ * from the same table this script already reports on. A rule that switches
+ * sources off silently needs its evidence readable *before* it fires — the same
+ * argument `pnpm review:check` makes for the weekly feed review, and the lesson
+ * Remote OK taught: a source can look perfectly healthy while being the largest
+ * waste in the pipeline.
+ *
+ * Read-only and calls no model, like everything above it. It prints the verdict
+ * without applying it; only a run applies it.
+ */
+console.log(`\n${'='.repeat(70)}\nYIELD — what the archiving rule would do today`)
+{
+  const rows = await yieldOfSources()
+  if (rows.length === 0) {
+    console.log('  no scored postings yet, or no active search — nothing to judge.')
+  } else {
+    console.log(
+      `  bar: ${(jobScout.minYieldRate * 100).toFixed(0)}% of at least ` +
+        `${jobScout.minYieldSample} scored postings must clear the search's own threshold\n`,
+    )
+    console.log(
+      `  ${'source'.padEnd(28)}${'scored'.padStart(7)}${'cleared'.padStart(9)}${'rate'.padStart(8)}   verdict`,
+    )
+    for (const row of rows) {
+      const verdict =
+        row.rate === null
+          ? 'too few to judge'
+          : row.rate < jobScout.minYieldRate
+            ? '>>> WOULD ARCHIVE'
+            : 'keep'
+      const rate = row.rate === null ? '—' : `${(row.rate * 100).toFixed(1)}%`
+      console.log(
+        `  ${row.sourceId.padEnd(28)}${String(row.scored).padStart(7)}` +
+          `${String(row.cleared).padStart(9)}${rate.padStart(8)}   ${verdict}`,
+      )
+    }
+  }
 }

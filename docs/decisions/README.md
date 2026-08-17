@@ -52,6 +52,9 @@ something looks the way it does.
 | [0032](0032-a-youtube-link-summarizes-itself.md) | A YouTube link summarizes itself — a tool on Newy, not a command | Accepted |
 | [0033](0033-a-delivery-is-claimed-before-it-is-sent.md) | A delivery is claimed before it is sent, not stamped after | Accepted |
 | [0034](0034-a-pipeline-claims-its-cycle.md) | A pipeline claims its cycle in one write, rather than checking then starting | Accepted |
+| [0035](0035-a-source-is-judged-on-what-it-yields.md) | A source is judged on what it yields, not on whether it answers | Accepted |
+| [0036](0036-a-source-may-declare-its-field-and-a-search-may-be-re-read.md) | A source may declare its field, and a search may be re-read | Accepted |
+| [0037](0037-the-hiring-thread-as-a-source-kind.md) | Hacker News's hiring thread is a source kind, not an adapter | Accepted |
 
 **Reading 0001–0021:** they predate [0022](0022-ava-is-the-system-agents-have-names.md)
 and call the conversational agent *Ava*. That agent is now **Newy**; *Ava* is the

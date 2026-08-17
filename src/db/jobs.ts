@@ -1,8 +1,11 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
 import { jobPipeline, jobScout } from '../config/jobs.js'
 import { SEED_JOB_SOURCES } from '../config/seed-job-sources.js'
 import { advertKey } from '../services/job-identity.js'
 import { db, migrate } from './client.js'
+// `job-searches.ts` reaches only for the client and the schema, so this cannot
+// cycle back — the dependency runs one way, repository to repository.
+import { activeSearches } from './job-searches.js'
 import {
   jobDeliveries,
   jobMatches,
@@ -90,13 +93,41 @@ export async function knownAtsCompanies(): Promise<string[]> {
   return rows.map(row => row.label)
 }
 
+/**
+ * Every source worth fetching for the searches currently running.
+ *
+ * **Two reasons a row is skipped, and they are not the same thing.** Archived is
+ * permanent and is a judgement about the *source* — it died, or it produced
+ * nothing worth reading. The domain check is temporary and is a judgement about
+ * the *fit between this source and today's searches*: a software-only board is
+ * skipped while every active search is chemistry, and comes back the moment a
+ * software search does, with no row edited either way.
+ *
+ * That asymmetry is why this is computed per run rather than stored. A reader
+ * who retargets from software to chemistry and back would otherwise need every
+ * board un-archived by hand, and the archive would stop meaning "this source is
+ * bad" — which is the thing `decayAtsBoards` and `yieldOfSources` both rely on
+ * it meaning.
+ *
+ * **A null `domain` always survives**, because null means the board carries
+ * every field rather than an unknown one — see the column's note in `schema.ts`.
+ * So does every row when no search names a domain at all: an older search row
+ * with a null domain must not silently switch off half the table, which is the
+ * same bias toward keeping that `filterJob` follows throughout.
+ */
 export async function activeJobSources(): Promise<JobSource[]> {
   await migrate()
-  return db()
+  const rows = await db()
     .select()
     .from(jobSources)
     .where(isNull(jobSources.archivedAt))
     .orderBy(asc(jobSources.id))
+
+  const wanted = new Set(
+    (await activeSearches()).map(search => search.domain).filter((d): d is string => Boolean(d)),
+  )
+  if (wanted.size === 0) return rows
+  return rows.filter(row => !row.domain || wanted.has(row.domain))
 }
 
 /** Records what a fetch did, so a source that quietly stops returning is visible. */
@@ -137,6 +168,166 @@ export async function recordSourceFetch(
         : {}),
     })
     .where(eq(jobSources.id, sourceId))
+}
+
+/**
+ * The verdict stored for a posting the deterministic filter or the dedupe threw
+ * out, so no model ever read it.
+ *
+ * A constant rather than a literal because two places have to agree on it and
+ * they are in different files: `scoreSearch` writes it, and `yieldOfSources`
+ * excludes it so a source is judged on the slots it *spent* rather than on the
+ * ones it was refused. A typo in either would not fail — it would quietly change
+ * which sources get archived.
+ */
+export const FILTERED_BEFORE_SCORING = 'Filtered out before scoring.'
+
+/** One source's record against the reader's current bar. */
+export interface SourceYield {
+  sourceId: string
+  label: string
+  /** Postings a model actually read. Pre-filtered ones are excluded — see below. */
+  scored: number
+  /** Of those, how many cleared their own search's delivery threshold. */
+  cleared: number
+  /** `cleared / scored`, or null when the sample is too small to mean anything. */
+  rate: number | null
+}
+
+/**
+ * When each source's record starts counting.
+ *
+ * The latest criteria change across the active searches — retarget one and every
+ * source's history restarts, not just the boards that search happened to touch.
+ * Blunt on purpose: sources are shared by every search, so "which boards did
+ * this search's change invalidate?" has no honest answer short of all of them.
+ * Erring toward a longer amnesty is the safe direction, because the cost of
+ * waiting is a few cheap requests and the cost of being wrong is a good board
+ * switched off.
+ */
+async function yieldWindowStart(): Promise<number> {
+  const searches = await activeSearches()
+  return searches.reduce((latest, search) => Math.max(latest, search.criteriaChangedAt ?? 0), 0)
+}
+
+/**
+ * What each active source has produced since the reader last changed what they
+ * want.
+ *
+ * **Counted over postings a model actually read, not over postings fetched.** A
+ * source that returns a thousand adverts the deterministic filter rejects has
+ * cost almost nothing — one HTTP request and some regex — and judging it on that
+ * volume would archive a broad board that also carries good roles. What is
+ * scarce is `maxJobsPerScoringRun`, so the denominator is slots consumed, and
+ * this measures the only thing the pipeline actually spends.
+ *
+ * Exported so `pnpm jobs:check` can print the table the archiving decision is
+ * made from. A rule that silently switches sources off needs its evidence
+ * readable *before* it fires, which is the lesson `verdictForBeat` and
+ * `pnpm review:check` already record on the news side.
+ */
+export async function yieldOfSources(): Promise<SourceYield[]> {
+  await migrate()
+  const since = await yieldWindowStart()
+  const searches = await activeSearches()
+  const bar = new Map(
+    searches.map(search => [
+      search.slug,
+      search.fitThreshold ?? jobPipeline.defaultFitThreshold,
+    ]),
+  )
+  if (bar.size === 0) return []
+
+  const rows = await db()
+    .select({
+      sourceId: jobs.sourceId,
+      label: jobSources.label,
+      searchSlug: jobMatches.searchSlug,
+      fit: jobMatches.fit,
+    })
+    .from(jobMatches)
+    .innerJoin(jobs, eq(jobs.id, jobMatches.jobId))
+    .innerJoin(jobSources, eq(jobSources.id, jobs.sourceId))
+    .where(
+      and(
+        isNull(jobSources.archivedAt),
+        isNotNull(jobMatches.fit),
+        gte(jobMatches.scoredAt, since),
+        // The verdict `saveVerdicts` writes for a posting no model ever read.
+        // Including these would make the denominator "postings we declined to
+        // pay for", which is the opposite of what this measures.
+        ne(jobMatches.reason, FILTERED_BEFORE_SCORING),
+        inArray(jobMatches.searchSlug, [...bar.keys()]),
+      ),
+    )
+
+  const tally = new Map<string, SourceYield>()
+  for (const row of rows) {
+    const entry = tally.get(row.sourceId) ?? {
+      sourceId: row.sourceId,
+      label: row.label,
+      scored: 0,
+      cleared: 0,
+      rate: null,
+    }
+    entry.scored += 1
+    if ((row.fit ?? 0) >= (bar.get(row.searchSlug) ?? jobPipeline.defaultFitThreshold)) {
+      entry.cleared += 1
+    }
+    tally.set(row.sourceId, entry)
+  }
+
+  return [...tally.values()]
+    .map(entry => ({
+      ...entry,
+      rate: entry.scored >= jobScout.minYieldSample ? entry.cleared / entry.scored : null,
+    }))
+    .sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1))
+}
+
+/**
+ * Switches off sources that keep costing scoring slots and returning nothing.
+ *
+ * **The gap `decayAtsBoards` leaves open, and the larger of the two.** That
+ * mechanism recognises a *silent* board. This one recognises a *loud and useless*
+ * one, which is the failure mode that actually cost this pipeline: Remote OK
+ * served 100 entries of scraped page furniture and looked perfectly healthy for
+ * two runs, and jobicy spent a third of every scoring window for a year's worth
+ * of nothing. Neither was ever quiet, so neither was ever a candidate for
+ * `emptySince`.
+ *
+ * Marked `unproductive` rather than `idle`, and the distinction matters for the
+ * same reason `idle` matters: `decayAtsBoards` deletes an `idle` row after
+ * `atsForgetDays` so the employer becomes discoverable again. A board switched
+ * off here must **not** be swept up by that — being bad at serving this reader is
+ * not a fact with a shelf life the way "not hiring" is, and re-discovering jobicy
+ * in four months to re-learn the same lesson is exactly the loop that rule exists
+ * to prevent. A different status keeps it out of that DELETE.
+ *
+ * Applies to every kind, not just `ats`. A seeded board is not privileged here —
+ * the seed is nine rows a human chose once, and three of them are measurably the
+ * problem. The reader can always re-add one; `setSourceArchived` is one call.
+ */
+export async function decayUnproductiveSources(): Promise<SourceYield[]> {
+  await migrate()
+  const doomed = (await yieldOfSources()).filter(
+    entry => entry.rate !== null && entry.rate < jobScout.minYieldRate,
+  )
+  if (doomed.length === 0) return []
+
+  await db()
+    .update(jobSources)
+    .set({ archivedAt: Date.now(), lastStatus: 'unproductive' })
+    .where(
+      and(
+        isNull(jobSources.archivedAt),
+        inArray(
+          jobSources.id,
+          doomed.map(entry => entry.sourceId),
+        ),
+      ),
+    )
+  return doomed
 }
 
 /**

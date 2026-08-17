@@ -156,6 +156,42 @@ export const jobPipeline = {
 } as const
 
 /**
+ * The `hn` source kind — Hacker News's monthly "Who is hiring?" thread.
+ *
+ * Its own block rather than a few more keys on `jobPipeline`, for the reason
+ * `jobScout` is one: this is a *source* with a shape nothing else shares, and
+ * folding its knobs into the pipeline's would make them look like they applied
+ * to every board.
+ */
+export const jobHiringThread = {
+  /**
+   * Comments pulled from one thread.
+   *
+   * The August 2026 thread carried 375 top-level postings, so this takes the lot
+   * with room to spare — and unlike `atsMaxPostingsPerBoard` there is no reason
+   * to cap it lower. That cap exists because one employer's board would otherwise
+   * become the whole run; here the 375 are 375 *different* employers, which is
+   * the opposite problem and the thing that makes this source worth having.
+   *
+   * The cost is one request. Algolia pages at 1000, and the ingest window then
+   * discards last month's thread if it is still being returned.
+   */
+  maxPostingsPerThread: 500,
+
+  /**
+   * Longest a header field may be before the parse is judged to have failed.
+   *
+   * The convention puts a company name and a role title in the first two fields,
+   * and both are short. A "company" of 200 characters means the poster wrote a
+   * paragraph with a pipe in it, and taking that as an employer name would put a
+   * sentence in the dedupe key and in the reader's message. Rejecting is right:
+   * `unparsed` counts it, so a month where the convention shifts shows up as a
+   * number rather than as a tab full of nonsense.
+   */
+  maxFieldChars: 80,
+} as const
+
+/**
  * The `sonar` source kind — reaching past the boards, one query per search.
  *
  * The boards this repo can use for free are thin and skewed: Remotive's free
@@ -392,6 +428,52 @@ export const jobScout = {
    * single cheap request a day. Six weeks of silence is a real answer.
    */
   atsIdleDays: 45,
+
+  /**
+   * The share of a source's scored postings that must reach the reader's bar.
+   *
+   * **The counterweight `atsIdleDays` could not be.** That mechanism only ever
+   * recognised *silence* — a board returning nothing for six weeks. It has no
+   * opinion about a board returning fifty postings a day that are all wrong, and
+   * measured on 2026-08-17 that was the pipeline's largest single waste: jobicy
+   * spent **427 scoring slots, 32% of everything the model has ever read**, and
+   * produced five postings at 60 and none at 80. Himalayas spent 137 for two.
+   * Neither would ever have been switched off, because neither was ever quiet.
+   *
+   * **A rate, not a count, and that distinction is measured rather than tidy.**
+   * The obvious rule — "archive a source that has never produced a good posting"
+   * — was tested against the real table and gets both halves wrong. It spares
+   * jobicy, which has two postings at 70 out of 427 and so passes. And it
+   * archives `ats-lever-3pillarglobal`, `ats-ashby-owner`,
+   * `weworkremotely-backend` and `weworkremotely-devops`, all four of which have
+   * *delivered jobs to the reader*. As a rate the separation is unambiguous and
+   * needs no careful threshold: the good sources sit at 11.5–13.2% and the bad
+   * ones at 0.5–0.7%, a sixteenfold gap with nothing in between.
+   *
+   * Three percent, so it sits in that gap rather than near either edge.
+   *
+   * **Measured against each search's own bar, never a second hardcoded number.**
+   * `search.fitThreshold ?? defaultFitThreshold` is what decides delivery, so it
+   * is what decides yield too. A separate constant here would be free to drift
+   * above the delivery bar, and the pipeline would then archive sources for
+   * producing postings it was at the same moment sending to the reader.
+   */
+  minYieldRate: 0.03,
+
+  /**
+   * Scored postings a source must have before its yield rate means anything.
+   *
+   * Without a floor the rule is noise at small n: `ats-ashby-posthog` has three
+   * scored postings and two of them cleared 80, and a board with one bad posting
+   * would read as a 0% source and be archived on its first day. Fifty is roughly
+   * a week of a mid-sized board, and comfortably more than a single run's batch.
+   *
+   * This is the *only* thing protecting a newly discovered board, which is why
+   * it is a count of scored postings rather than a number of days: a board that
+   * returns four postings a week deserves the same sample as a busy one, not the
+   * same calendar.
+   */
+  minYieldSample: 50,
 
   /**
    * How long an idled board is remembered before the row is deleted.

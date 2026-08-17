@@ -66,7 +66,13 @@ export async function getSearch(slug: string): Promise<JobSearch | undefined> {
  */
 export async function saveSearch(search: NewJobSearch): Promise<void> {
   await migrate()
-  const values = { ...search, suggestion: null, suggestedAt: null }
+  // Stamped here rather than by the caller, on both the insert and the update
+  // paths, because every route into this function is a criteria change by
+  // definition — `/target`, `/retarget` and the advisor's applied suggestion all
+  // land here. A caller that had to remember would eventually forget, and the
+  // failure is silent: source yield would go on being measured against a bar
+  // that had moved.
+  const values = { ...search, suggestion: null, suggestedAt: null, criteriaChangedAt: Date.now() }
   await db()
     .insert(jobSearches)
     .values(values)

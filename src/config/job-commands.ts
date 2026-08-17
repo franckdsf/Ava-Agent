@@ -47,6 +47,35 @@ export const JOB_COMMANDS = {
     help: 'stop looking for one of them. Nothing already sent is lost. `/untarget frontend`.',
     usage: '`/untarget <slug>` — `/targets` lists the slugs.',
   },
+  /**
+   * **Re-parses an existing search in place, and the "in place" is the point.**
+   *
+   * `/target` already upserts, so saying the same thing again *usually* updates
+   * the row — but only if the model produces the same slug from the new wording,
+   * and it is under no obligation to. When it doesn't, the reader gets a second
+   * row competing for the same postings and the old one keeps running with the
+   * criteria they were trying to change. Naming the slug removes the guess.
+   *
+   * The reason it exists at all is a real failure this repo already had: the
+   * `domain` column was added after three searches were created, so all three
+   * held null and the filter's largest saving silently never fired. A parser
+   * that gains a field cannot reach a row already written, and without this
+   * command the only fix is hand-editing the database — which is how the fix
+   * gets skipped the second time.
+   *
+   * Argument optional on purpose. With no new wording it re-parses the request
+   * already stored, which is exactly the backfill case; with new wording it
+   * replaces the criteria and keeps the row's identity and history.
+   */
+  '/retarget': {
+    description: 'Re-read one of my searches, optionally with new wording',
+    help:
+      're-read one of my searches with the current parser, keeping its name and history. ' +
+      '`/retarget frontend` re-reads what you already said; `/retarget frontend senior only, no agencies` replaces it.',
+    usage:
+      '`/retarget <slug> [new wording]` — `/targets` lists the slugs. ' +
+      'Leave the wording out to just re-read the existing request.',
+  },
 } as const satisfies Record<string, JobCommandDefinition>
 
 export type JobCommand = keyof typeof JOB_COMMANDS

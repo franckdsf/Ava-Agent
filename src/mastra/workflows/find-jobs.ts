@@ -1,7 +1,7 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
-import { jobPipeline } from '../../config/jobs.js'
+import { jobPipeline, jobScout } from '../../config/jobs.js'
 import { JOOB_TOPICS } from '../../config/joob-topics.js'
 import { runNotices } from '../../config/run-notices.js'
 import { claimCycle, hoursSince } from '../../db/cycles.js'
@@ -9,6 +9,9 @@ import { activeSearches } from '../../db/job-searches.js'
 import {
   activeJobSources,
   decayAtsBoards,
+  decayUnproductiveSources,
+  FILTERED_BEFORE_SCORING,
+  type SourceYield,
   finishJobRun,
   insertJobs,
   knownAtsCompanies,
@@ -416,7 +419,7 @@ const scoreSearch = createStep({
       settled.push({
         jobId: job.id,
         fit: 0,
-        reason: duplicates.get(job.id) ?? 'Filtered out before scoring.',
+        reason: duplicates.get(job.id) ?? FILTERED_BEFORE_SCORING,
         mismatches: [],
       })
     }
@@ -755,6 +758,19 @@ const report = createStep({
       // the counterweight to `recordAtsBoards` above — without it the table this
       // run adds to only ever grows. Its failure must not lose the run's counters.
       await decayAtsBoards().catch(() => ({ idled: 0, forgotten: 0 }))
+
+      // And the other half of the same job: a board that is loud rather than
+      // silent, costing scoring slots and returning nothing the reader wants.
+      // Reported rather than swallowed — `decayAtsBoards` idles a board nobody
+      // chose, but this can switch off a *seeded* source the reader is expecting
+      // to hear from, and a source disappearing with no explanation is the kind
+      // of silence this pipeline's notices exist to prevent.
+      const unproductive = await decayUnproductiveSources().catch(() => [])
+      if (unproductive.length > 0) {
+        await joobTelegram
+          .sendToTelegram(renderUnproductiveSources(unproductive), 'chat')
+          .catch(() => {})
+      }
     }
 
     if (state.runId) {
@@ -905,3 +921,37 @@ export const findJobs = createWorkflow({
 
 /** Named for the tab its output lands in, so a reader of `index.ts` can tell. */
 export const JOB_DELIVERY_TAB = JOOB_TOPICS.jobs.slug
+
+/**
+ * "I've stopped reading these boards, and here's the evidence."
+ *
+ * **A report, not a courtesy, and the reason it exists is asymmetry with
+ * `decayAtsBoards`.** An idled ATS board was discovered by a scout the reader
+ * never saw pick it; nobody is waiting to hear from it, so it is switched off in
+ * silence. A source archived here may be one of the nine seeded boards the
+ * reader chose by hand, and a board they chose going quiet with no explanation
+ * is indistinguishable from the pipeline breaking — which is precisely the
+ * failure Remote OK produced for two runs.
+ *
+ * The numbers are shown rather than summarised because they are the argument. A
+ * reader who disagrees needs to see the sample size to disagree usefully, and
+ * re-adding a source is one `/target`-shaped decision they are entitled to make
+ * against the evidence rather than against a verdict.
+ */
+export function renderUnproductiveSources(dropped: readonly SourceYield[]): string {
+  const bar = Math.round(jobScout.minYieldRate * 100)
+  return [
+    `🧹 **Switched off ${dropped.length} source${dropped.length === 1 ? '' : 's'}** — ` +
+      `${dropped.length === 1 ? 'it was' : "they were"} costing me scoring slots and returning nothing you'd want.`,
+    dropped
+      .map(
+        entry =>
+          `- **${escapeMarkdown(entry.label)}** (\`${entry.sourceId}\`) — ` +
+          `${entry.cleared} of ${entry.scored} judged postings cleared your bar ` +
+          `(${((entry.rate ?? 0) * 100).toFixed(1)}%, and I need ${bar}%).`,
+      )
+      .join('\n'),
+    `Nothing already found is lost. If you want one back, say so and I'll re-add it — ` +
+      `and retargeting a search resets every source's record, since the bar it was measured against has moved.`,
+  ].join('\n\n')
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `job_sources` ADD `domain` text;

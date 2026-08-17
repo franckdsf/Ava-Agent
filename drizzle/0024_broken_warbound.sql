@@ -1,0 +1,1 @@
+ALTER TABLE `job_searches` ADD `criteria_changed_at` integer;

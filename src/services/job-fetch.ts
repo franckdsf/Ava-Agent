@@ -3,6 +3,7 @@ import { jobPipeline } from '../config/jobs.js'
 import type { JobRemote, JobSource } from '../db/schema.js'
 import { detectAtsBoard, fetchAtsBoard } from './ats.js'
 import { htmlToText } from './article.js'
+import { fetchHiringThread } from './job-hn.js'
 
 /**
  * Fetching job sources, and normalizing whatever comes back into one shape.
@@ -389,6 +390,31 @@ function fromRss(items: JobFeedItem[], source: JobSource): RawPosting[] {
 }
 
 /**
+ * Hacker News's hiring thread.
+ *
+ * Thin, because the work is in `job-hn.ts` — this is the adapter between that
+ * module's result and the `JobFetchResult` every source returns. The `unparsed`
+ * count is folded into `error` rather than dropped: a month where the thread's
+ * convention drifts would otherwise look like a quiet month, which is the exact
+ * silent-degradation failure Remote OK produced.
+ */
+async function fetchHnSource(source: JobSource): Promise<JobFetchResult> {
+  const { postings, thread, unparsed, error } = await fetchHiringThread()
+  if (error) return { sourceId: source.id, postings: [], status: 'error', error }
+
+  // Only when the parse failed on most of what it read. Some comments in every
+  // thread are genuinely not adverts — "great thread, thanks" — so a low count is
+  // the healthy state and reporting it every month would train the reader to
+  // ignore the line.
+  const mostlyUnreadable =
+    unparsed > postings.length
+      ? `read ${postings.length} of ${postings.length + unparsed} comments in thread ${thread}`
+      : undefined
+
+  return { sourceId: source.id, postings, status: '200', error: mostlyUnreadable }
+}
+
+/**
  * Fetches one source and normalizes it, never throwing.
  *
  * A failure is a *result* rather than an exception, for the reason
@@ -404,6 +430,7 @@ export async function fetchJobSource(source: JobSource): Promise<JobFetchResult>
     if (source.kind === 'rss') return await fetchRssSource(source)
     if (source.kind === 'api') return await fetchApiSource(source)
     if (source.kind === 'ats') return await fetchAtsSource(source)
+    if (source.kind === 'hn') return await fetchHnSource(source)
     // `sonar` is wired, but not here: it needs a model handle and the reader's
     // active searches, which a function taking only a row cannot have. `findJobs`
     // routes it to `fetchSonarSource` in `services/job-scout.ts`. Reaching this

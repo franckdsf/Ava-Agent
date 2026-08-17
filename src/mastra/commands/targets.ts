@@ -64,6 +64,7 @@ async function reply(mastra: Mastra, event: SlashEvent, command: JobCommand): Pr
 
   if (command === '/targets') return renderSearches(await activeSearches())
   if (command === '/untarget') return untarget(argument)
+  if (command === '/retarget') return retarget(mastra, argument)
   return target(mastra, argument)
 }
 
@@ -260,6 +261,112 @@ function renderSearches(searches: JobSearch[]): string {
     ...(remaining > 0 ? [`…and ${remaining} more.`] : []),
     '`/untarget <slug>` stops one. Re-run `/target` with the same idea to replace one.',
   ].join('\n\n')
+}
+
+/**
+ * Re-parses one existing search, keeping its slug, its `createdAt` and its history.
+ *
+ * **The slug is taken from the reader, never from the model**, which is the
+ * whole difference from `/target`. There the model names the search, and a
+ * re-worded request can name it something new — producing a second row rather
+ * than an edit. Here the row is chosen first and the parse is written into it,
+ * so "change this search" cannot turn into "add another one".
+ *
+ * Two modes, and the empty one is the reason this was written. With no new
+ * wording it re-runs today's parser over the request already stored: that is how
+ * a search written before the parser gained a field acquires that field, which
+ * is not a hypothetical — three live searches held a null `domain` for two weeks
+ * because the column arrived after they did, and the filter's largest saving
+ * silently did nothing the whole time.
+ *
+ * The before-and-after is shown for the reason `/target` echoes its parse: these
+ * are deterministic filters, a model wrote them, and a wrong `mustHave` throws
+ * postings away before anything reads them. A diff makes a bad re-parse visible
+ * in the one moment the reader is looking.
+ */
+async function retarget(mastra: Mastra, argument: string): Promise<string> {
+  const [slug = '', ...words] = argument.split(/\s+/).filter(Boolean)
+  if (!slug) return usage('/retarget')
+  if (!jobCommands.slugPattern.test(slug)) {
+    return `\`${escapeMarkdown(slug)}\` isn't a slug I could have made. ${JOB_COMMANDS['/retarget'].usage}`
+  }
+
+  const existing = await getSearch(slug)
+  if (!existing) return `I have no search called \`${escapeMarkdown(slug)}\`. \`/targets\` lists them.`
+
+  const wording = words.join(' ').trim()
+  if (wording.length > jobCommands.requestMaxChars) {
+    return `That's ${wording.length} characters, and I cap a target at ${jobCommands.requestMaxChars}.`
+  }
+  const request = wording || existing.request
+
+  const parsed = await parseTarget(mastra, request)
+  // The parse's own slug is **discarded**. It is a name for a search that already
+  // has one, and honouring it here would reintroduce exactly the duplicate-row
+  // problem this command exists to remove.
+  await saveSearch({
+    slug: existing.slug,
+    label: parsed.label,
+    request,
+    domain: parsed.domain,
+    locations: parsed.locations,
+    remote: parsed.remote,
+    seniority: parsed.seniority,
+    contractTypes: parsed.contractTypes,
+    mustHave: parsed.mustHave,
+    dealbreakers: parsed.dealbreakers,
+    minCompensation: parsed.minCompensation,
+    currency: parsed.currency,
+    notes: parsed.notes || null,
+    // Deliberately preserved rather than re-read from the parse: a threshold the
+    // reader tuned by hand is not something a re-parse of their *wording* knows
+    // about, and silently resetting it would undo a decision they never mentioned.
+    fitThreshold: existing.fitThreshold,
+    createdAt: existing.createdAt,
+  })
+
+  const changed = describeChanges(existing, parsed)
+  return [
+    wording
+      ? `Re-read **${escapeMarkdown(parsed.label)}** (\`${existing.slug}\`) with your new wording.`
+      : `Re-read **${escapeMarkdown(parsed.label)}** (\`${existing.slug}\`) with what you'd already told me.`,
+    renderCriteria(parsed),
+    changed.length > 0
+      ? [`**What moved:**`, ...changed.map(line => `- ${line}`)].join('\n')
+      : '_Nothing changed_ — the parser reads it the same way it did before.',
+    // Said because it is a real consequence the reader would otherwise discover
+    // as a surprise: `decayUnproductiveSources` measures a board against the
+    // reader's bar, and this just moved the bar.
+    `Every source's record starts again from here — they're judged on what they find for *this*, and this just changed.`,
+  ].join('\n\n')
+}
+
+/** Which filters a re-parse actually moved. Empty when it read the same. */
+function describeChanges(before: JobSearch, after: ParsedTarget): string[] {
+  const lines: string[] = []
+  const list = (values: string[]): string => (values.length > 0 ? values.join(', ') : 'any')
+
+  if ((before.domain ?? null) !== (after.domain ?? null)) {
+    lines.push(
+      `Field — ${before.domain ? domainLabel(before.domain) : 'any'} → ` +
+        `**${after.domain ? domainLabel(after.domain) : 'any'}**`,
+    )
+  }
+  const pairs: [string, string[], string[]][] = [
+    ['Where', before.locations, after.locations],
+    ['Level', before.seniority, after.seniority],
+    ['Contract', before.contractTypes, after.contractTypes],
+    ['Must mention', before.mustHave, after.mustHave],
+    ['Rules out', before.dealbreakers, after.dealbreakers],
+  ]
+  for (const [label, was, now] of pairs) {
+    if (was.join('|') !== now.join('|')) lines.push(`${label} — ${list(was)} → **${list(now)}**`)
+  }
+  if (before.remote !== after.remote) lines.push(`Remote — ${before.remote} → **${after.remote}**`)
+  if ((before.minCompensation ?? null) !== (after.minCompensation ?? null)) {
+    lines.push(`Pay floor — ${before.minCompensation ?? 'unstated'} → **${after.minCompensation ?? 'unstated'}**`)
+  }
+  return lines.map(escapeMarkdown)
 }
 
 async function untarget(slug: string): Promise<string> {

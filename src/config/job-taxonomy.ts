@@ -251,7 +251,68 @@ const sales: DomainVocabulary = {
       'contact center',
       'contact centre',
       'help desk',
+      // The one-word spellings, and the generic role nouns. `help desk` alone
+      // missed *Helpdesk Support Agent* on live intake — a term is only as good
+      // as the spellings a board actually uses, and boards use both.
+      'helpdesk',
+      'service desk',
+      'technical support',
+      'support agent',
+      'support specialist',
+      'support operations',
     ],
+  },
+}
+
+/**
+ * Marketing and communications.
+ *
+ * **Measured, not guessed.** Of 864 postings this file could place in no domain
+ * at all on 2026-08-17, `marketing` appeared in 41 titles, `content` in 14,
+ * `communications` in 8 and `growth` in 21 — and every one of them was reaching
+ * the scorer, because an untagged posting is deliberately kept. This is the
+ * largest single gap the vocabulary had.
+ *
+ * `growth` is the term to be careful with: "Growth Engineer" is a real software
+ * title and appears on this pipeline's own delivered list. It is safe here only
+ * because of the intersection rule — that posting matches software's `engineer`
+ * too, holds both domains, and is kept by a search in either. Listing bare
+ * `growth` on its own, without a role noun after it, would not be.
+ */
+const marketing: DomainVocabulary = {
+  label: 'marketing',
+  disciplines: {
+    content: ['content marketing', 'content strategist', 'content writer', 'copywriter', 'seo'],
+    brand: ['brand manager', 'brand strategist', 'creative strategist'],
+    growth: ['growth marketing', 'demand generation', 'demand gen', 'growth marketer'],
+    product: ['product marketing'],
+    social: ['social media', 'community manager', 'influencer'],
+    comms: ['public relations', 'communications manager', 'communications specialist', 'press officer'],
+  },
+}
+
+/**
+ * Business operations, programme management and consulting.
+ *
+ * The second-largest gap: `operations` in 65 untagged titles, `program` in 37,
+ * `consultant` in 42, `strategy` in 15, `partnerships` in 12.
+ *
+ * **Every term here carries a role noun, and that is not stylistic.** Bare
+ * `operations` matches *Platform Operations Engineer*; bare `strategy` matches
+ * an engineering advert describing the company's strategy. Both would be tagged
+ * from the title under this domain and — for a title the software vocabulary
+ * happens not to recognise — rejected outright for a software search. The
+ * disciplines below therefore name the *job*, never the subject matter, which is
+ * the same discipline `chemistry` follows.
+ */
+const operations: DomainVocabulary = {
+  label: 'business operations',
+  disciplines: {
+    programme: ['program manager', 'programme manager', 'project manager', 'project coordinator'],
+    business: ['business operations', 'operations manager', 'operations coordinator', 'chief of staff'],
+    strategy: ['strategy consultant', 'management consultant', 'strategy analyst', 'business analyst'],
+    partnerships: ['partnerships lead', 'partnerships manager', 'partner manager', 'alliances manager'],
+    admin: ['executive assistant', 'office manager', 'administrative assistant', 'receptionist'],
   },
 }
 
@@ -260,6 +321,10 @@ const legal: DomainVocabulary = {
   disciplines: {
     practice: ['paralegal', 'attorney', 'lawyer', 'solicitor', 'barrister', 'notary'],
     inhouse: ['legal counsel', 'general counsel', 'contract manager'],
+    // Compliance sits here rather than in `finance` because a compliance officer
+    // in a bank and one in a software company do the same job, and only the
+    // first is financial. Nine untagged titles on live intake.
+    compliance: ['compliance analyst', 'compliance manager', 'compliance officer', 'regulatory compliance'],
   },
 }
 
@@ -303,7 +368,7 @@ const people: DomainVocabulary = {
   // a sentence after "a", and "a HR role" is what the short form produced.
   label: 'people operations',
   disciplines: {
-    recruiting: ['recruiter', 'talent acquisition', 'sourcer'],
+    recruiting: ['recruiter', 'recruiting', 'talent acquisition', 'sourcer'],
     hr: ['human resources', 'hr manager', 'hr business partner', 'people operations'],
   },
 }
@@ -328,6 +393,8 @@ export const DOMAINS: Record<string, DomainVocabulary> = {
   trades,
   logistics,
   people,
+  marketing,
+  operations,
 }
 
 /** The ids a search's `domain` may hold. */
