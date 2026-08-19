@@ -57,9 +57,9 @@ export const youtube = {
    * one, and nothing in the output would have looked wrong.
    *
    * 120,000 covers ~2h07m, which is past every measured case. It is affordable
-   * because of what reads it: `AVA_MODEL_SUMMARIZER` is `gemini-3.1-flash-lite`,
-   * roughly a million tokens of context, and a full 120k-character transcript is
-   * ~30k input tokens — about a third of a US cent per video. Raising this costs
+   * because of what reads it: `AVA_MODEL_SUMMARIZER` is `gpt-5.6-luna`, roughly
+   * a million tokens of context, and a full 120k-character transcript is ~30k
+   * input tokens — a little over half a US cent per video. Raising this costs
    * money linearly and buys nothing until someone pastes a longer stream; the
    * number to check before raising it is the model's context, not the price.
    *

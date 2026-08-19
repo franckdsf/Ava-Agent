@@ -61,7 +61,7 @@ const coreSchema = z.object({
    * It is also the only model call a reader waits on synchronously, which makes
    * a slow model expensive in a way the ranker's slowness never is.
    */
-  AVA_MODEL_TRANSLATOR: gatewayModelId.default('openrouter/google/gemini-3.1-flash-lite'),
+  AVA_MODEL_TRANSLATOR: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
   /**
    * `/summarize`: explains one article at length, in whatever language the
    * reader named.
@@ -75,7 +75,7 @@ const coreSchema = z.object({
    * the `</think>` truncation documented in AGENTS.md, and a summary that starts
    * mid-word is this command's worst failure.
    */
-  AVA_MODEL_SUMMARIZER: gatewayModelId.default('openrouter/google/gemini-3.1-flash-lite'),
+  AVA_MODEL_SUMMARIZER: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
 
   /**
    * `/follow`: turns the subject the reader typed into an English beat
@@ -186,7 +186,7 @@ const coreSchema = z.object({
    * output a human actually reads — so it is tuned like `AVA_MODEL_SUMMARIZER`
    * rather than like the scorer. It never sees the CV.
    */
-  AVA_MODEL_JOB_WRITER: gatewayModelId.default('openrouter/google/gemini-3.1-flash-lite'),
+  AVA_MODEL_JOB_WRITER: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
 
   /**
    * Durable state: Mastra memory/workflows/scores plus the app's own tables.

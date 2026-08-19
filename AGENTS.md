@@ -864,6 +864,28 @@ doesn't wrap without adding a second Telegram library.
   spot-check that only reads output, and `translateChunk` throws on it. Any
   candidate for these two agents has to be measured on *parse rate first*;
   `pnpm models:check` reports it as the `ok` column for that reason.
+- **The thinking share is where the money was, and it is the one number the rate
+  card cannot show you.** `gpt-5.6-luna` replaced `gemini-3.1-flash-lite` on the
+  translator and the summarizer on 2026-08-19, measured with `pnpm models:check
+  --models luna --fixtures 1 --repeats 10`. Parse rate **10/10 on both tasks**,
+  which is the bar `tencent/hy3` failed above and the one to clear first.
+  Translator: median **6.7s** against **8.8s**, `$0.00130` against `$0.00468` —
+  **0.28×**. Summarizer: median **7.3s** against **7.8s**, `$0.00162` against
+  `$0.00448` — **0.36×**. The rate card predicted 1.25×, so nearly all of the
+  real 3.6× came from somewhere else: luna spent **25%** of its output tokens on
+  reasoning where gemini spent **82%** (translator), and **8%** against **73%**
+  (summarizer). Same prompt, same `reasoning: { effort: 'low' }`, same provider
+  pinning — a reminder that effort is a per-model dialect and the cheap call is
+  the one that thinks less, not the one with the lower posted rate.
+- **Fewer bullets and fewer backticks was the model obeying the prompt, not
+  losing detail.** The same run moved the summarizer from 4.3 bullets per
+  summary to 2.0, which reads like a regression in the table and is not one:
+  the prompt asks for bullets only "where the article really is a list of
+  specifics" and warns against turning the whole summary into them. Read the
+  transcripts before believing a shape metric — luna's prose carried the
+  saturation-versus-brightness measurement that gemini's bulleted version
+  dropped, and emitted zero code spans against gemini's two, on the same
+  proper-noun-backticking failure documented above.
 - **`pnpm-workspace.yaml` is a build input, and the Dockerfile has to copy it.**
   pnpm 10+ refuses to run a dependency's install script unless it is approved in
   that file, and it **errors** rather than warning — `ERR_PNPM_IGNORED_BUILDS`,

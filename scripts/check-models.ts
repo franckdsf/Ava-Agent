@@ -51,12 +51,13 @@ import { capText, chunkText } from '../src/services/article.js'
  */
 const FIELD = [
   'openrouter/google/gemini-3.1-flash-lite',
+  'openrouter/openai/gpt-5.6-luna',
   'openrouter/deepseek/deepseek-v4-flash-0731',
   'openrouter/tencent/hy3',
   'openrouter/upstage/solar-pro4',
 ] as const
 
-const INCUMBENT = 'openrouter/google/gemini-3.1-flash-lite'
+const INCUMBENT = 'openrouter/openai/gpt-5.6-luna'
 
 interface Options {
   repeats: number
