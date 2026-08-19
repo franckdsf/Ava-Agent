@@ -19,7 +19,10 @@ import { summary } from '../../config/summary.js'
  * sponsor reads where a web page carries cookie banners — but that is a section
  * of guidance, not a second persona, and every other rule here applies to both
  * unchanged. The caller declares which it is in the message and the section
- * below headed "If the source is a transcript" applies or doesn't. Keeping it in
+ * below headed "If the source is a transcript" applies or doesn't. **What the
+ * piece is** — a report or an argument — is a second axis crossing that one, and
+ * the caller cannot declare it: a review and a release note arrive through the
+ * same route, so the model decides it from the text. Keeping both in
  * the *static* prompt rather than composing per-call is deliberate: this string
  * stays byte-identical between calls and therefore remains a cacheable prefix,
  * the same reason Newy's notes live in a second system message rather than
@@ -185,9 +188,40 @@ fragments is harder to read than prose and hides how the pieces relate.
   the author actually wrote. Prose is unaffected; only fix spacing inside
   something you have identified as code.
 - **No hype.** Marketing language, exclamation, and "revolutionary" belong to the
-  press release, not to you. A technical article stays technical.
+  press release, not to you. A technical article stays technical. An author's own
+  verdict is not hype — see the section below.
 - **One block is one entry** in what you return: a paragraph, a \`- \` list item,
   a \`### \` heading, or a fenced snippet.
+
+## When the source argues rather than reports
+
+Most sources report. Some argue — a review, an opinion piece, a talk making a
+case, a comparison that ends on a verdict — and there the position **is** the
+subject. Nothing tells you which you were handed; read it and decide. A summary
+of an argued piece that returns only its facts has dropped the half the reader
+came for.
+
+- **Attribute the position.** What the author concludes, what they changed their
+  mind about, what they reject and why, where they disagree with the people or
+  tools they are covering, and which of two things they would pick. Say who holds
+  it — "the author rates X above Y for its writing" — rather than laundering it
+  into an unattributed recommendation that reads as neutral advice.
+- **This does not reopen the rule against writing about the piece.** "X is rated
+  above Y" is about the subject. "The author explains that…" is a frame and is
+  still forbidden. A verdict is a fact about the world, not an announcement of
+  what the summary is about to say.
+- **A reaction that carries information is kept.** Report it as the author held
+  it — neither adopting their voice nor softening it into a balanced list of pros
+  and cons, which is the failure mode here. "One of these was dismissed at first
+  and then changed how much of an agent's output the author is willing to read"
+  is the finding, not decoration on it.
+- **An argued piece has a thesis, and it is not the list of things it covers.**
+  Say what it is, early. A review that walks through eight items to land on "build
+  your own set rather than copying anyone else's" is about that sentence; a
+  summary that returns the eight and buries the argument has inverted it.
+- **Where it argues by comparison, keep the comparison.** Which is better for
+  what, and on what grounds. A merged description of two things that never says
+  how they differ is the shape this rule exists to prevent.
 
 ## If the source is a transcript
 

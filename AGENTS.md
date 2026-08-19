@@ -820,6 +820,23 @@ doesn't wrap without adding a second Telegram library.
   languages it will actually run in**; an English pass proves nothing about the
   others, and this is the same class of failure as the reasons-must-be-English
   rule in the ranker, seen from the other side.
+- **The rule that kills "This article covers…" also kills the author.** On a
+  video *review* of two skill collections, `/summarize` returned a correct,
+  well-organised, completely voiceless summary: the tools were described, and
+  every verdict was gone — what the reviewer dismissed at first, what changed
+  their mind, which of the two sets they preferred and why, the complaint about
+  the writing in one of them. The closing argument, which the whole video builds
+  to, arrived as unattributed advice. `kind` does not help, because it switches
+  only a section about caption defects — nothing in the prompt knew the piece was
+  arguing rather than reporting, and three rules were actively flattening it:
+  "write about the subject, never about the piece" (for a review, the reviewer's
+  position *is* the subject), "no hype" (a genuine strong reaction is
+  indistinguishable from a press release under that rule), and a body rubric
+  written for a findings piece. The prompt now carries a second axis the caller
+  never declares — **what the piece is**, decided by the model from the text —
+  saying that a verdict is a fact about the subject rather than a frame, and that
+  an author's view is not hype. Not yet re-measured across languages; the
+  English-rule lesson above says an English pass would not settle it anyway.
 - **"Code goes in backticks" over-applies to proper nouns.** The same command
   came back with `Claude Code`, `Claude Tag` and `Fable` fenced as code
   throughout, which reads like a config file. Adding an explicit "a name is not
