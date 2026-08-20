@@ -928,3 +928,293 @@ export type MemoryRow = typeof memories.$inferSelect
 export type DeliveryKind = NonNullable<Article['deliveryKind']>
 export type Vote = FeedbackRow['vote']
 export type MemoryTier = MemoryRow['tier']
+
+// ---------------------------------------------------------------------------
+// Leads — the prospecting pipeline
+// ([ADR-0038](../../docs/decisions/0038-leads-a-prospecting-pipeline-in-joobs-chat.md)).
+//
+// Its own tables beside the job ones, sharing everything below them. Nothing
+// here is read or written by the job pipeline, and the leads workflow reads
+// `jobs` **read-only**, as a signal source.
+// ---------------------------------------------------------------------------
+
+/**
+ * What the reader sells, and who should buy it. The lead-side counterpart to
+ * `job_searches`, and deliberately much smaller.
+ *
+ * ADR-0038 recorded why this is not a `job_searches` row with a mode flag: four
+ * of that table's columns flip meaning here and two go dead. `domain` is the one
+ * that settles it — on a search it is the *role's* field, and a reader selling a
+ * horizontal service (visuals, copy, photography) wants clients in **every**
+ * industry, so the column would have to mean the buyer's sector here and the
+ * role's field there.
+ *
+ * Written by `/client` and `/reclient`, which
+ * [invariant 8](../../AGENTS.md#invariants) permits for the same reason it
+ * permits `/target`: configuration a *future* run reads, never anything a run
+ * produced.
+ */
+export const clientProfiles = sqliteTable(
+  'client_profiles',
+  {
+    slug: text('slug').primaryKey(),
+    /** Names this profile in the footer of every lead it wins. */
+    label: text('label').notNull(),
+    /** Verbatim, in the reader's own language — what they typed. */
+    request: text('request').notNull(),
+
+    /**
+     * What the reader sells, in one line, as the targeter understood it.
+     *
+     * Separate from `request` because the request is one sentence about buyers
+     * *and* offer, and the scorer needs the offer on its own. The portfolio is
+     * still the rubric; this is the label on it.
+     */
+    offer: text('offer').notNull(),
+
+    /**
+     * Buyer industries worth pitching. **Empty means any**, and empty is the
+     * common, correct answer for a horizontal service.
+     *
+     * Free-form as the reader said them, not a taxonomy key. There is no
+     * vocabulary of buyer industries in this repo, and inventing one would repeat
+     * the mistake ADR-0028 had to undo: a curated list deciding which customers
+     * the reader is allowed to want.
+     */
+    industries: text('industries', { mode: 'json' }).$type<string[]>().notNull(),
+    /** Free-form place names. Empty means anywhere. */
+    locations: text('locations', { mode: 'json' }).$type<string[]>().notNull(),
+    /**
+     * Which signal kinds count for this profile — a subset of
+     * `LEAD_SIGNAL_KINDS`. Empty means all of them.
+     *
+     * This is the profile's main lever, and it is a *source-side* one on purpose.
+     * ADR-0038: lead intake is unbounded, so the cap belongs on what is fetched
+     * and considered rather than on a criterion applied afterwards.
+     */
+    signalKinds: text('signal_kinds', { mode: 'json' }).$type<string[]>().notNull(),
+    /** Terms that reject a lead outright, whatever else it says. */
+    dealbreakers: text('dealbreakers', { mode: 'json' }).$type<string[]>().notNull(),
+    /** Smallest engagement worth the reader's time, in `currency`. Null means unstated. */
+    minDealSize: integer('min_deal_size'),
+    currency: text('currency'),
+
+    /** Everything a filter cannot express. Read by the scorer, not by the filter. */
+    notes: text('notes'),
+    /** 0–100. Null means `leadPipeline.defaultFitThreshold`. */
+    fitThreshold: integer('fit_threshold'),
+
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    /** Set to stop prospecting for this profile without losing its history. */
+    archivedAt: integer('archived_at'),
+  },
+  table => [index('idx_client_profiles_active').on(table.archivedAt)],
+)
+
+/**
+ * A company that might need what the reader sells.
+ *
+ * **The primary key is the normalized host, stored readable rather than hashed**
+ * — see `lead-identity.ts`. A lead is a company, and the host is the only thing
+ * about a company that code establishes; every other attribute here arrives as a
+ * model's phrasing or a page's marketing copy, which ADR-0026 measured to be
+ * unusable as a key.
+ *
+ * Note what is *not* on this row: a fit score. Scores live on `lead_matches`,
+ * because a company can be a strong lead for one client profile and a waste of a
+ * message for another — exactly as `job_matches` splits a posting's fit per
+ * search.
+ */
+export const leads = sqliteTable(
+  'leads',
+  {
+    /** The normalized host. `acme.com`, or `acme.myshopify.com` on a platform. */
+    id: text('id').primaryKey(),
+    /** As last seen. Display only — never part of the key. */
+    company: text('company').notNull(),
+    /** Free-form, as a page or a model gave it. Used by the clustering pass. */
+    location: text('location'),
+    /** Where the company lives. The canonical https form of the host. */
+    url: text('url').notNull(),
+
+    /**
+     * Text pulled from the company's own page, capped at
+     * `leadPipeline.maxPageChars`.
+     *
+     * This is what the filter and the text scorer actually read, and it is
+     * **evidence off a page rather than prose from a model** — the rule ADR-0026
+     * established when a lead described only by a model's one-line "why" was
+     * rejected by every `mustHave` there was, so the source delivered nothing
+     * while every counter said it ran.
+     */
+    pageText: text('page_text'),
+    /** When that page was last read, so a stale lead can be refreshed. */
+    pageFetchedAt: integer('page_fetched_at'),
+
+    /**
+     * What the vision model said about the company's visuals, and when.
+     *
+     * **Stored so it is paid for once per company rather than once per signal.**
+     * Vision is the most expensive call in the system and a company's site does
+     * not change weekly; it is re-run after `leadPipeline.visionStaleDays`, or
+     * when a signal implies the visuals moved.
+     *
+     * A judgement, never evidence. It may weigh in a fit score and it may shape
+     * the outreach line; it may never be read by a filter, because a hard filter
+     * reading model-written text lets a lead pass on invented grounds.
+     */
+    visionVerdict: text('vision_verdict'),
+    visionAt: integer('vision_at'),
+
+    discoveredAt: integer('discovered_at').notNull(),
+    /** Bumped by every new signal. What retention is measured from. */
+    lastSignalAt: integer('last_signal_at').notNull(),
+  },
+  table => [index('idx_leads_last_signal').on(table.lastSignalAt)],
+)
+
+/**
+ * One dated public event that makes a company worth contacting *now*.
+ *
+ * The signal is what bounds an otherwise unbounded universe: every company on
+ * the web is a candidate client, and "they raised on Tuesday" is what makes the
+ * set finite. It is also the entire content of the reader's opening line, which
+ * is why the source URL and the date are kept rather than summarized away.
+ *
+ * `id = hash(leadId + kind + canonicalSourceUrl)` — the **date is deliberately
+ * not in the key**, because feeds disagree by hours about the same announcement
+ * and including it would re-split what this exists to merge.
+ */
+export const leadSignals = sqliteTable(
+  'lead_signals',
+  {
+    id: text('id').primaryKey(),
+    leadId: text('lead_id').notNull(),
+    /** `hiring` | `funding` | `launch` | `rebrand`. A closed set — see `leads.ts`. */
+    kind: text('kind').notNull(),
+    /** Where it was seen. Canonicalized, so three feeds carrying it are one row. */
+    sourceUrl: text('source_url').notNull(),
+    /** Which source produced it — a job source id, a feed url, `jobs-table`. */
+    origin: text('origin').notNull(),
+    /** The event's own date. What recency is judged on. */
+    occurredAt: integer('occurred_at').notNull(),
+    /** One line of what happened, for the message. */
+    summary: text('summary').notNull(),
+    discoveredAt: integer('discovered_at').notNull(),
+  },
+  table => [
+    index('idx_lead_signals_lead').on(table.leadId, table.occurredAt),
+    index('idx_lead_signals_recent').on(table.occurredAt),
+  ],
+)
+
+/**
+ * How well one lead fits one client profile, for one signal.
+ *
+ * Keyed on the signal rather than only on the lead, because the *reason to make
+ * contact* is what is being scored: the same company is a weak lead on a routine
+ * hire and a strong one the week it raises. That is also what makes re-surfacing
+ * possible at all — see `lead_deliveries`.
+ */
+export const leadMatches = sqliteTable(
+  'lead_matches',
+  {
+    leadId: text('lead_id').notNull(),
+    signalId: text('signal_id').notNull(),
+    profileSlug: text('profile_slug').notNull(),
+
+    /** 0–100. Null until the text scorer has seen it. */
+    fit: integer('fit'),
+    /** At most 20 words, concrete. Written for winners and near-misses alike. */
+    reason: text('reason'),
+    /** Named gaps — budget, timing, fit, reachability — so `/why` can answer. */
+    mismatches: text('mismatches', { mode: 'json' }).$type<string[]>(),
+    /**
+     * The opening the writer proposed, kept so the reader can ask for it again
+     * without a second model call.
+     */
+    angle: text('angle'),
+    scoredAt: integer('scored_at'),
+  },
+  table => [
+    primaryKey({ columns: [table.leadId, table.signalId, table.profileSlug] }),
+    index('idx_lead_matches_unscored').on(table.profileSlug, table.scoredAt),
+    index('idx_lead_matches_fit').on(table.profileSlug, table.fit),
+  ],
+)
+
+/**
+ * Every lead actually delivered. **Never pruned.**
+ *
+ * **Keyed `(leadId, signalId)`, and that is the sharpest difference from
+ * `job_deliveries`** — which is keyed on identity alone and exists so a company
+ * never arrives twice. That rule is wrong here: a company passed over in March
+ * that raised a Series A in August is the best lead of the month, and a ledger
+ * built to suppress it would suppress the thing the pipeline is for.
+ *
+ * What bounds it instead is `leadPipeline.cooldownDays`, enforced against the
+ * lead's most recent delivery regardless of signal — so a company that raises,
+ * launches and hires in one week arrives once, carrying whichever signal scored
+ * best.
+ */
+export const leadDeliveries = sqliteTable(
+  'lead_deliveries',
+  {
+    leadId: text('lead_id').notNull(),
+    signalId: text('signal_id').notNull(),
+    company: text('company').notNull(),
+    url: text('url').notNull(),
+    profileSlug: text('profile_slug').notNull(),
+    signalKind: text('signal_kind').notNull(),
+    deliveredAt: integer('delivered_at').notNull(),
+  },
+  table => [
+    primaryKey({ columns: [table.leadId, table.signalId] }),
+    index('idx_lead_deliveries_lead').on(table.leadId, table.deliveredAt),
+  ],
+)
+
+/**
+ * One leads run, and the reason its schedule can fire daily.
+ *
+ * The same shape and the same argument as `job_runs`: `startedAt` is what makes
+ * the cadence, not the cron, because a day-of-month step double-fires across
+ * month boundaries and a missed schedule fires on boot.
+ *
+ * `visionCalls` is counted separately from `scored` because it is the number that
+ * costs money. A run where it equals `leadPipeline.maxVisionCallsPerRun` hit the
+ * cap, which is the signal that a filter or a threshold is letting too much
+ * through — visible here rather than only on an invoice.
+ */
+export const leadRuns = sqliteTable(
+  'lead_runs',
+  {
+    id: text('id').primaryKey(),
+    startedAt: integer('started_at').notNull(),
+    /** Null while in flight. A row that never finishes is a crashed run. */
+    finishedAt: integer('finished_at'),
+    /** Signals seen from all sources, before dedupe. */
+    fetched: integer('fetched').notNull().default(0),
+    /** Signals that were new, and the leads they resolved to. */
+    stored: integer('stored').notNull().default(0),
+    /** Leads that survived the deterministic filter and reached the text scorer. */
+    considered: integer('considered').notNull().default(0),
+    scored: integer('scored').notNull().default(0),
+    visionCalls: integer('vision_calls').notNull().default(0),
+    delivered: integer('delivered').notNull().default(0),
+    /** The one-line reason a run did nothing, so quiet and broken look different. */
+    note: text('note'),
+  },
+  table => [index('idx_lead_runs_started').on(table.startedAt)],
+)
+
+export type ClientProfile = typeof clientProfiles.$inferSelect
+export type NewClientProfile = typeof clientProfiles.$inferInsert
+export type Lead = typeof leads.$inferSelect
+export type NewLead = typeof leads.$inferInsert
+export type LeadSignal = typeof leadSignals.$inferSelect
+export type NewLeadSignal = typeof leadSignals.$inferInsert
+export type LeadMatchRow = typeof leadMatches.$inferSelect
+export type LeadDeliveryRow = typeof leadDeliveries.$inferSelect
+export type LeadRunRow = typeof leadRuns.$inferSelect

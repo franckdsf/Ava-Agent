@@ -3,8 +3,8 @@ import type { TopicDefinition, TopicList } from './topics.js'
 /**
  * The tabs in Joob's chat.
  *
- * Two, against Newy's three, and the gap is the interesting part: Joob has no
- * per-search tab. Beats are different subjects and earn one each
+ * Three, and none of them per-search: Joob has no per-search or per-profile tab.
+ * Beats are different subjects and earn one each
  * ([ADR-0021](../../docs/decisions/0021-a-tab-per-beat.md)); searches are slices
  * of one field, and a strip of eleven near-identical tabs is worse than one good
  * one ([ADR-0024](../../docs/decisions/0024-joob-a-job-pipeline-beside-the-news-one.md)).
@@ -36,6 +36,30 @@ export const JOOB_TOPICS = {
     slug: 'jobs',
     emoji: '💼',
     title: 'Jobs',
+    iconCustomEmojiId: null,
+  },
+  /**
+   * Push-only. Companies that might want to *hire* the reader, rather than roles
+   * the reader might apply for
+   * ([ADR-0038](../../docs/decisions/0038-leads-a-prospecting-pipeline-in-joobs-chat.md)).
+   *
+   * A third tab rather than a third bot, and the test was whether these are two
+   * agents or one agent with two concerns. A job, a freelance mission and a
+   * client who should be hiring the reader are three shapes of *find me paid
+   * work* — same person, same cadence, same portfolio — so
+   * [ADR-0023](../../docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md)'s
+   * split does not apply, while invariant 9's *one tab, one kind of traffic*
+   * plainly does.
+   *
+   * It stays separate from Jobs because the two are read in different moods and
+   * demand different actions: a job is something to apply to, a lead is someone
+   * to write to. Mixing them would make the Jobs tab unreadable in exactly the
+   * way a tab per beat was invented to prevent.
+   */
+  leads: {
+    slug: 'leads',
+    emoji: '🎯',
+    title: 'Leads',
     iconCustomEmojiId: null,
   },
 } as const satisfies Record<string, TopicDefinition>

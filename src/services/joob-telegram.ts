@@ -18,7 +18,7 @@ export const joobTelegram: TelegramTransport<JoobTopicSlug> =
   createTelegramTransport(JOOB_BOT)
 
 /**
- * What Joob may be asked to send to: one of its two tabs.
+ * What Joob may be asked to send to: one of its three tabs.
  *
  * `SendTarget` also admits a `BeatTab`, which Joob never has — beats are Newy's,
  * and Joob's searches deliberately share one tab

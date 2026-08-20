@@ -19,6 +19,17 @@ formerly called Ava, renamed 2026-08-03
 and its own chat ([ADR-0023](docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md),
 [ADR-0024](docs/decisions/0024-joob-a-job-pipeline-beside-the-news-one.md)).
 
+**Joob carries two pipelines, not one.** Jobs — roles the reader could apply
+for — and **leads**, companies that should be hiring *them*
+([ADR-0038](docs/decisions/0038-leads-a-prospecting-pipeline-in-joobs-chat.md)).
+Two pipelines, two table sets, two tabs (💼 Jobs, 🎯 Leads), one bot. That was a
+decision rather than an omission: a job, a freelance mission and a client who
+should be buying are three shapes of *find me paid work*, for one person, on one
+cadence, against one portfolio — so ADR-0023's bot split does not apply, while
+invariant 9's *one tab, one kind of traffic* does. **The condition for splitting
+Joob into a third bot is written down**: when the Leads command surface starts
+confusing the Jobs one. Watch for it rather than waiting to be told.
+
 The rule for reading this repo, and for naming anything new in it:
 
 - **Lowercase `ava` in a path, an identifier, an env var or a volume is the
@@ -83,6 +94,8 @@ The full list is in the [README](README.md#commands). These three carry obligati
 | `pnpm rssfinder:check "<subject or domain>"` | **Read the output with `--verify` or not at all.** It queries a third party's index, which answers with feed URLs directly — the one thing [the gotchas](#gotchas) say never to accept from a search, because a wrong feed URL never errors. Measured 2026-08-06 on `ai images models`: 7 feeds returned, **3 alive** — two 404s, a 403 and a page that isn't a feed. Nothing here writes, calls no model and needs no `.env`; `checkFeed()` remains the sole authority on whether a URL is a feed. |
 | `pnpm workflow:run <target>` | **The only script here that is not a dry run — read `--help` before the first use.** It starts a real scheduled workflow against a running `pnpm dev`: real feeds, real model calls, real Telegram messages, and for `jobs` the scoring call that is this system's single most expensive request. Every target's cost is printed before it fires. Three traps it exists to close, all documented in the [gotchas](#gotchas): the route takes the *registry key* while schedule rows take the workflow id; `initialState` is mandatory for `curateAll` alone; and **a 504 does not stop the run**, which is why the script supplies its own `runId` and polls rather than reading the response — re-firing is how two runs end up delivering at once. Exercise it with `news --beats <a slug that does not exist>`: `activeBeats` returns nothing, `ingest` returns early, and both notice guards are false, so it proves the whole path end to end while fetching nothing and sending nothing. |
 | `pnpm youtube:check [url]` | **Run first whenever Newy says she cannot read a video, and after any `pnpm update`.** It is the early-warning system for a dependency that scrapes another company: the caption route is behind anti-bot measures that move, and when they move the failure is total and silent — she simply starts refusing every video. Prints the parsed id for ten URL shapes (two of which *must* fail) and fetches five real transcripts covering each outcome: a 19-second clip, a 19m talk with manual captions, a 1h56m talk with auto captions, a music video that must come back `no-speech`, and a dead id that must come back `unavailable` rather than `no-captions`. Read-only, needs no `.env`, and **calls no model** — it stops at the transcript. Every video failing at once means the route is blocked, not that the videos changed; `pnpm update youtube-caption-extractor` is the first thing to try. |
+| `pnpm leads:check` | The leads pipeline's deterministic half, offline — no network, no model, no database. Every case in it is one [ADR-0038](docs/decisions/0038-leads-a-prospecting-pipeline-in-joobs-chat.md) argues about, so a failure is a regression against a recorded decision rather than against a guess. **The platform-host cases are the ones to care about**: reducing `acme.myshopify.com` to its registrable domain merges every store on that platform into one lead, silently, and it already caught exactly that bug once (`slice(0, -1)` on an exact match returns a truthy `"myshopify.co"`). Run it after touching identity, the filter, image extraction, or the message template. |
+| `pnpm leads:yield` | How many leads the free source actually yields, against the **live** table — read-only, no model. Answers one question with a number: *is the `jobs` table a real lead source or a theoretical one?* Measured 2026-08-19: 2,229 postings in 21 days produced **39 companies, 37 of them from `sonar`** and two from ATS boards whose careers pages sit on the employer's own domain; every board source produced zero, because a board's posting URL carries the board's host. Run it before concluding the pipeline is quiet — a low number here is a sourcing fact, not a bug. |
 | `pnpm telegram:check [bot]` | Run before debugging a missing tab. Reports whether BotFather's Threaded Mode is on — the one prerequisite no code can set — plus any profile field the next boot would push. Read-only, safe against a running bot. Covers **every** bot with no argument, because Threaded Mode is per token and a check that silently skipped one would be worse than none; name a bot (`newy`) to narrow it. |
 
 ## Invariants
@@ -104,21 +117,48 @@ changing any of them.
    - **A classifier over a fixed row set** — fixed control flow, a set handed to
      it, and the answer validated against that set on the way back. The news
      ranker, the digest writer, the weekly memory reviewer, the job scorer and
-     the job writer. Every one of them discards an id it was not given.
+     the job writer, plus the lead scorer, the lead vision call and the lead
+     writer ([0038](docs/decisions/0038-leads-a-prospecting-pipeline-in-joobs-chat.md)).
+     Every one of them discards an id it was not given.
    - **A search whose every answer is verified before it is stored** — a bounded
      loop over rows, a model that proposes, and *code* that establishes whether
      what it proposed is real. The feed scout behind the weekly top-up
-     ([0020](docs/decisions/0020-feed-discovery-from-a-subject.md)) and the job
+     ([0020](docs/decisions/0020-feed-discovery-from-a-subject.md)), the job
      scout behind the `sonar` source
-     ([0026](docs/decisions/0026-sonar-as-a-job-source.md)). Neither may write a
-     URL it was handed: `checkFeed()` decides there, careers-page resolution
-     decides here, and an unverifiable proposal is dropped.
+     ([0026](docs/decisions/0026-sonar-as-a-job-source.md)), and the lead scout
+     behind prospecting
+     ([0039](docs/decisions/0039-a-lead-scout-with-its-own-budget.md)). None may
+     write a URL it was handed: `checkFeed()` decides for feeds, careers-page
+     resolution for jobs, and for leads the company's own page must answer with
+     real text **and name the company** — a model that invents a domain lands on a
+     parked page that passes a length floor and fails a name test. An unverifiable
+     proposal is dropped.
 
    What is actually forbidden is a scheduled job that lets an LLM choose its own
    control flow, because that is what produces surprise bills and duplicate
    messages. **A search shape therefore needs a bound in config**, or its loop is
-   only fixed until the reader adds another row — `jobScout.maxSearchesPerRun` is
-   that bound, and it is load-bearing rather than a tuning knob.
+   only fixed until the reader adds another row — `jobScout.maxSearchesPerRun` and
+   `leadScout.maxProfilesPerRun` are those bounds, and both are load-bearing
+   rather than tuning knobs. **They are two variables on purpose.** Until
+   [0039](docs/decisions/0039-a-lead-scout-with-its-own-budget.md), prospecting
+   reach was a function of the *job* scout's cap — a number chosen for a different
+   pipeline's cost, in a config file about jobs, silently governing how many
+   companies the reader could ever be shown. A cap shared across pipelines is a
+   cap nobody chose for one of them.
+
+   **A classifier shape needs one too when its row set is unbounded, and the
+   leads pipeline is the first place that bites.** Job intake is bounded by what
+   boards published; lead intake is bounded by nothing — every company on the web
+   is a candidate client — and the last stage before delivery is
+   `AVA_MODEL_LEAD_VISION`, the most expensive call in this repo. Three bounds
+   hold it, all load-bearing: a lead exists only because a **dated signal** put it
+   inside `leadPipeline.signalWindowDays`; vision runs **only on leads that
+   already cleared the text score**, one call each, never on the batch; and
+   `leadPipeline.maxVisionCallsPerRun` is a hard stop with `lead_runs.vision_calls`
+   recording how close a run came to it. A run at the cap is a filter regression
+   reporting itself before the invoice does. Moving vision earlier — scoring with
+   images, or filtering on a visual judgement — breaks this invariant even though
+   nothing about the control flow looks different.
 
    Ingest, dedupe, cluster and delivery remain deterministic. Inbound,
    human-triggered calls are a separate category governed by invariant 8 instead —

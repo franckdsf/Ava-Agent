@@ -189,6 +189,116 @@ const coreSchema = z.object({
   AVA_MODEL_JOB_WRITER: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
 
   /**
+   * `/client`: turns a sentence about who the reader sells to into a
+   * `client_profiles` row
+   * ([ADR-0038](../../docs/decisions/0038-leads-a-prospecting-pipeline-in-joobs-chat.md)).
+   *
+   * The lead-side twin of `AVA_MODEL_JOB_TARGETER` — but **not** tuned
+   * identically, and the difference was measured rather than assumed.
+   *
+   * It started on `deepseek-v4-flash` like the job targeter. Two live runs on
+   * 2026-08-19 parsed one sentence in **9.0s and 232.8s** — the same 25× spread
+   * `AVA_MODEL_TRANSLATOR` already documents for that model, and the reason that
+   * variable no longer points at it. `/client` is a command a reader is *waiting
+   * on*, so a four-minute parse is not a slow background step; it is a bot that
+   * looks broken, and they will type it again and get a second row.
+   *
+   * `/client` now also acknowledges after `leadPipeline.ackAfterMs` when a parse
+   * runs long, so the reader is never left watching nothing — which makes this
+   * variable a **cost/quality** choice rather than a UX one. It stays on the
+   * faster model anyway: the call runs once per profile the reader ever creates,
+   * so the saving from a cheaper model is a rounding error against a command
+   * someone is sitting and waiting for.
+   *
+   * The job targeter is left alone deliberately: it has the same exposure, but
+   * changing it is a decision about the job pipeline and belongs to whoever
+   * measures that one.
+   */
+  AVA_MODEL_LEAD_TARGETER: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
+  /**
+   * Scores a batch of leads against the portfolio, on text alone.
+   *
+   * The same shape as `AVA_MODEL_JOB_SCORER` — one call, the whole batch, the
+   * portfolio in the prompt once — over a smaller batch with less text per item,
+   * since a lead carries a page excerpt rather than a full advert.
+   *
+   * **This is the cheap stage on purpose.** It exists so the expensive one below
+   * only ever sees leads that already cleared a bar.
+   *
+   * Must support schema-constrained output — the step reads `.object`.
+   */
+  AVA_MODEL_LEAD_SCORER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
+  /**
+   * The `sonar` lead source: which companies recently raised, launched or
+   * rebranded such that they now need what the reader sells
+   * ([ADR-0039](../../docs/decisions/0039-a-lead-scout-with-its-own-budget.md)).
+   *
+   * **The third model here that needs the open web**, and the same rule applies
+   * as to the other two: it must actually search, or it names companies that
+   * raised in 2023 and the failure is silent.
+   *
+   * `sonar-reasoning-pro` rather than plain `sonar`, following the job scout's
+   * measurement rather than re-deriving it — that comparison scored *verified*
+   * careers pages and found 16/18 against 11, with plain `sonar` returning
+   * substantially the same six small names every run. Name variety is exactly
+   * what a prospecting source lives on, so the failure mode it avoids matters
+   * more here than it did there.
+   *
+   * **Nothing it returns is stored unverified.** Code fetches the company's own
+   * site, requires real text back *and* the company's name on the page, and
+   * fetches the announcement it cites. A lead that resolves nothing is dropped —
+   * an unverifiable lead is precisely the one most likely to have been invented,
+   * and "does this company need better visuals" is checkable against nothing,
+   * unlike "is this company hiring".
+   *
+   * Cost is capped by `leadScout.maxProfilesPerRun` in `src/config/leads.ts`, not
+   * by this variable.
+   */
+  AVA_MODEL_LEAD_SCOUT: gatewayModelId.default('openrouter/perplexity/sonar-reasoning-pro'),
+  /**
+   * **Looks at a lead's own images and says whether the reader could improve
+   * them.** The most expensive call in this repo, per call and by a distance.
+   *
+   * It exists because the leads pipeline serves people whose work is visual — an
+   * ad creator, a product photographer — and for them the qualifying evidence is
+   * *what the company's images look like*, which every other stage of this system
+   * is structurally blind to: `mustHave` scans text, `htmlToText` discards
+   * images, `minPageChars` is a text floor.
+   *
+   * `minimax-m3` reads images well and costs accordingly. Three rules bound it,
+   * and all three are load-bearing rather than tuning:
+   *
+   * 1. It runs **only on leads that already cleared the text score**, one call
+   *    each — the writer's side of the line, never the scorer's batch.
+   * 2. `leadPipeline.maxVisionCallsPerRun` is a hard stop per run. Lead intake is
+   *    unbounded in a way job intake is not, so this is the difference between a
+   *    proportional bill and an unwatched one.
+   * 3. Its verdict is cached on the lead row and re-run only after
+   *    `leadPipeline.visionStaleDays`. A company's site does not change weekly.
+   *
+   * **Its output may never reach a hard filter.** ADR-0026's rule, unamended:
+   * the model supplies prose, the web supplies facts. A filter reading
+   * model-written text lets a lead pass on invented evidence.
+   *
+   * Note this is the same model as `AVA_MODEL_ORCHESTRATOR`, and it is the one
+   * with the `</think>` truncation documented in AGENTS.md — which is why the
+   * vision call is schema-constrained rather than free prose. A truncated
+   * judgement inside a JSON field is a short judgement; a truncated message is a
+   * sentence that stops mid-word.
+   */
+  AVA_MODEL_LEAD_VISION: gatewayModelId.default('openrouter/minimax/minimax-m3'),
+  /**
+   * Writes the short brief and the opening line for each lead that cleared the
+   * bar.
+   *
+   * Tuned like `AVA_MODEL_JOB_WRITER` — a handful of calls a run over one lead
+   * each, and the only lead-side output a human reads. It never sees the
+   * portfolio in full; it is given the verdict and the signal and turns them into
+   * something readable.
+   */
+  AVA_MODEL_LEAD_WRITER: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
+
+  /**
    * Durable state: Mastra memory/workflows/scores plus the app's own tables.
    * `file:` for local dev, `libsql://…` (Turso) in production so the container
    * stays stateless and needs no volume.

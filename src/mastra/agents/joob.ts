@@ -4,7 +4,7 @@ import type { AgentChannels } from '@mastra/core/channels'
 import { Memory } from '@mastra/memory'
 import { JOOB_BOT } from '../../config/bots.js'
 import { env, telegramChannelEnv } from '../../config/env.js'
-import { JOOB_TOPICS } from '../../config/joob-topics.js'
+import { JOOB_TOPICS, type JoobTopicSlug } from '../../config/joob-topics.js'
 import { joobTelegram } from '../../services/joob-telegram.js'
 import { routeToChatTab, type ChatSurface } from '../chat-surface.js'
 import { memoryTools } from '../tools/memory.js'
@@ -46,7 +46,7 @@ const channel = telegramChannelEnv(JOOB_BOT)
 /** Assigned right after construction, for the reason `newyChannels` is. */
 let joobChannels: AgentChannels | null = null
 
-export const JOOB_SURFACE: ChatSurface<'chat' | 'jobs'> = {
+export const JOOB_SURFACE: ChatSurface<JoobTopicSlug> = {
   bot: JOOB_BOT,
   transport: joobTelegram,
   chatTab: 'chat',

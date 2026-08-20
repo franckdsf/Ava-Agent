@@ -8,6 +8,9 @@ import { memoryReviewer, memoryReviewerId } from './agents/memory.js'
 import { jobAgents } from './agents/job-scorer.js'
 import { jobScoutAgents } from './agents/job-scout.js'
 import { jobTargeterAgents } from './agents/job-targeter.js'
+import { leadAgents } from './agents/lead-scorer.js'
+import { leadScoutAgents } from './agents/lead-scout.js'
+import { leadTargeterAgents } from './agents/lead-targeter.js'
 import { scoutAgents } from './agents/scout.js'
 import { summarizer, summarizerId } from './agents/summarizer.js'
 import { translator, translatorId } from './agents/translator.js'
@@ -17,6 +20,7 @@ import { registerJoobCommands } from './joob-channels.js'
 import { storage } from './storage.js'
 import { curateAll } from './workflows/curate-all.js'
 import { findJobs } from './workflows/find-jobs.js'
+import { findLeads } from './workflows/find-leads.js'
 import { discoverFeedsWorkflow } from './workflows/discover-feeds.js'
 import { pruneArticles } from './workflows/prune-articles.js'
 import { reviewFeedsWorkflow } from './workflows/review-feeds.js'
@@ -43,6 +47,13 @@ export const mastra = new Mastra({
     ...jobTargeterAgents,
     ...jobAgents,
     ...jobScoutAgents,
+    // The prospecting side ([ADR-0038]). Registered here like every other model
+    // call so they resolve through `mastra.getAgent` and show up in Studio —
+    // which matters most for the vision agent, the one call in this repo whose
+    // cost is worth watching per invocation.
+    ...leadTargeterAgents,
+    ...leadAgents,
+    ...leadScoutAgents,
     [newyId]: newy,
     [joobId]: joob,
     [memoryReviewerId]: memoryReviewer,
@@ -56,6 +67,7 @@ export const mastra = new Mastra({
   workflows: {
     curateAll,
     findJobs,
+    findLeads,
     discoverFeeds: discoverFeedsWorkflow,
     pruneArticles,
     reviewFeeds: reviewFeedsWorkflow,

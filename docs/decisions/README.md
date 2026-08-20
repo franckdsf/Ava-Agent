@@ -55,6 +55,8 @@ something looks the way it does.
 | [0035](0035-a-source-is-judged-on-what-it-yields.md) | A source is judged on what it yields, not on whether it answers | Accepted |
 | [0036](0036-a-source-may-declare-its-field-and-a-search-may-be-re-read.md) | A source may declare its field, and a search may be re-read | Accepted |
 | [0037](0037-the-hiring-thread-as-a-source-kind.md) | Hacker News's hiring thread is a source kind, not an adapter | Accepted |
+| [0038](0038-leads-a-prospecting-pipeline-in-joobs-chat.md) | Leads — a prospecting pipeline in Joob's chat, keyed on a company | Accepted |
+| [0039](0039-a-lead-scout-with-its-own-budget.md) | A lead scout with its own budget, and a verification the job scout does not need | Accepted |
 
 **Reading 0001–0021:** they predate [0022](0022-ava-is-the-system-agents-have-names.md)
 and call the conversational agent *Ava*. That agent is now **Newy**; *Ava* is the
