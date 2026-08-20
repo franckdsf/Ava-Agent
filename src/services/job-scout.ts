@@ -12,6 +12,7 @@ import {
 } from './ats.js'
 import { htmlToText } from './article.js'
 import type { JobFetchResult, RawPosting } from './job-fetch.js'
+import { fetchPage as fetchWebPage, type PageFetchResult } from './page-fetch.js'
 import { proposeCompanies, type JobLead } from '../mastra/agents/job-scout.js'
 
 /**
@@ -67,21 +68,20 @@ export interface LeadResolution {
  * sits behind the same kind of CDN. An unreachable homepage is a result rather
  * than an exception, because the well-known paths are still worth trying against
  * a page that 403s.
+ *
+ * The fetch itself moved to `page-fetch.ts` when the leads pipeline
+ * ([ADR-0038](../../docs/decisions/0038-leads-a-prospecting-pipeline-in-joobs-chat.md))
+ * needed the same primitive. **This wrapper is what keeps that shared and still
+ * inert here:** the scout's two knobs are read on this side, so a lead resolver
+ * choosing a longer timeout or a different agent cannot move the scout's
+ * behaviour, and neither can a future edit to the shared module — it takes both
+ * as arguments and reads no configuration at all.
  */
-async function fetchPage(url: string): Promise<{ html: string; ok: boolean }> {
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'user-agent': jobPipeline.userAgent,
-        accept: 'text/html,application/xhtml+xml',
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(jobScout.pageTimeoutMs),
-    })
-    return response.ok ? { html: await response.text(), ok: true } : { html: '', ok: false }
-  } catch {
-    return { html: '', ok: false }
-  }
+async function fetchPage(url: string): Promise<PageFetchResult> {
+  return fetchWebPage(url, {
+    userAgent: jobPipeline.userAgent,
+    timeoutMs: jobScout.pageTimeoutMs,
+  })
 }
 
 /**
