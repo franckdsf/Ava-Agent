@@ -710,6 +710,23 @@ export const jobs = sqliteTable(
      */
     derivedTags: text('derived_tags', { mode: 'json' }).$type<string[]>().notNull(),
 
+    /**
+     * For a sonar *lead*, how many individual adverts its careers page linked to.
+     * **Null on every advert**, which is every other row — the question does not
+     * apply to a posting that already is one.
+     *
+     * `0` is the row this column exists for: a verified careers page belonging to
+     * a real company, carrying no opening anybody can apply for. It is stored
+     * rather than dropped because `hiringSignalsFromJobs` reads this table and
+     * turns a company-domain URL into a lead — so the row is how the company
+     * reaches the Leads tab. `filterJob` refuses to *send* it, which is the whole
+     * split: **stored as a lead, never delivered as a job.**
+     *
+     * The reader's complaint that produced it: a job link that opened a careers
+     * page with nothing on it.
+     */
+    listedRoles: integer('listed_roles'),
+
     /** The source's own date. Null when it ships none — see the id note above. */
     postedAt: integer('posted_at'),
     discoveredAt: integer('discovered_at').notNull(),

@@ -43,6 +43,15 @@ export interface RawPosting {
    * and deliver the reader a link to the board instead of to the job.
    */
   keyedAs?: 'posting' | 'lead'
+  /**
+   * For a `lead`, how many individual adverts its careers page linked to.
+   *
+   * **Absent on every board's postings, and that is the honest value rather than
+   * a zero.** A board's row *is* one advert — the question this answers does not
+   * apply to it, and answering it with `0` would make the filter rule below read
+   * "this board posting lists no openings" of a perfectly good advert.
+   */
+  listedRoles?: number
 }
 
 export interface JobFetchResult {

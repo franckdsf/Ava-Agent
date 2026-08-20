@@ -46,6 +46,20 @@ export interface PageFetchOptions {
 export interface PageFetchResult {
   html: string
   ok: boolean
+  /**
+   * Where the response actually came from, after every redirect.
+   *
+   * **Not the same thing as the URL that was requested, and the difference is a
+   * bug this returned nothing about for two months.** `redirect: 'follow'` is
+   * right — a careers page behind a 301 is still a careers page — but the caller
+   * was left believing it had read the URL it asked for. A site that redirects
+   * `/careers` to `/` therefore stored *the homepage* as a verified careers page,
+   * with the homepage's own text as the evidence that verified it, and the reader
+   * got a job link to a marketing front page.
+   *
+   * Falls back to the requested URL when there was no response to read one off.
+   */
+  finalUrl: string
 }
 
 /**
@@ -70,8 +84,14 @@ export async function fetchPage(url: string, options: PageFetchOptions): Promise
       redirect: 'follow',
       signal: AbortSignal.timeout(options.timeoutMs),
     })
-    return response.ok ? { html: await response.text(), ok: true } : { html: '', ok: false }
+    // `response.url` is the final URL after redirects — empty only in exotic
+    // cases, so the requested URL stands in rather than an empty string reaching
+    // a caller that is about to store it.
+    const finalUrl = response.url || url
+    return response.ok ?
+        { html: await response.text(), ok: true, finalUrl }
+      : { html: '', ok: false, finalUrl }
   } catch {
-    return { html: '', ok: false }
+    return { html: '', ok: false, finalUrl: url }
   }
 }

@@ -45,6 +45,24 @@ function mentions(job: Job, terms: string[]): boolean {
  * most decisive checks come first so the common rejections are also the fastest.
  */
 export function filterJob(job: Job, search: JobSearch, tags: string[] = jobTags(job)): FilterVerdict {
+  // Not an advert at all. A sonar lead is a careers page, and `listedRoles === 0`
+  // means that page offered nowhere to apply — the reader follows the link and
+  // finds nothing, which is the failure this rule was written for.
+  //
+  // **The row is kept in the table on purpose**, so this is the only rejection
+  // here that is not a discard: `hiringSignalsFromJobs` reads `jobs` and turns a
+  // company-domain URL into a `hiring` signal, so the company still reaches the
+  // Leads tab with its careers page as the evidence. A company that is hiring but
+  // publishes nothing is a *prospect*, not a job — the two pipelines already
+  // disagree about that, and this is where the disagreement gets decided.
+  //
+  // A count above zero passes, and it passes even when the model's claimed role
+  // is not among them: a page with real openings is worth opening whether or not
+  // it holds the exact one that was promised.
+  if (job.listedRoles === 0) {
+    return { keep: false, reason: 'a careers page with no openings on it — kept as a lead instead' }
+  }
+
   // A different field of work entirely — and only ever a rejection when **both**
   // sides name a field. Three ways this declines to fire, and each one is a
   // deliberate bias toward keeping:

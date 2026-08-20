@@ -266,6 +266,25 @@ export const jobScout = {
   careersLinkHints: /\b(careers?|jobs?|hiring|join[- ]?us|work[- ]?with[- ]?us|vacancies|open[- ]?roles|opportunities)\b/i,
 
   /**
+   * A link *path* that leads to an individual advert rather than to the list.
+   *
+   * Matched against the resolved pathname only — never the anchor's markup, which
+   * is the mistake `careersLinkHints` had to be paired with `looksLikeCareers` to
+   * survive. What makes a posting link a posting link is the segment *after* the
+   * job-ish one: `/careers` is the page we are already on, `/careers/senior-dev`
+   * is somewhere to apply.
+   *
+   * `o` and `j` are here because two applicant-tracking providers shorten to
+   * them — Recruitee serves `/o/<slug>` and Workable `/j/<id>` — and those are
+   * among the pages most likely to be the real thing.
+   *
+   * Used only to answer *"did this page offer anywhere to go"*, so it is tuned to
+   * over-count rather than to be precise. See `listedRoleLinks`.
+   */
+  postingLinkHints:
+    /\/(jobs?|careers?|vacanc(?:y|ies)|positions?|openings?|opportunit(?:y|ies)|roles?|stellen|offres?|o|j)\/[^/?#]{2,}/i,
+
+  /**
    * Applicant-tracking hosts, which are careers pages by definition.
    *
    * A resolved URL normally has to *look* like a careers page — see

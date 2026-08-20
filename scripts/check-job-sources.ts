@@ -119,6 +119,8 @@ for (const source of sources) {
         contractType: posting.contractType,
         tags: posting.tags,
         derivedTags,
+        // Boards only — a board's advert is never a careers page.
+        listedRoles: null,
         postedAt: posting.postedAt,
         discoveredAt: now,
         deliveredAt: null,

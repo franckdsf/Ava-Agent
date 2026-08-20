@@ -1059,7 +1059,39 @@ doesn't wrap without adding a second Telegram library.
 
 ## Where work stopped
 
-*Last updated: 2026-08-17.*
+*Last updated: 2026-08-20.*
+
+**A reader's bug report closed two defects in the job scout —
+[ADR-0040](docs/decisions/0040-a-careers-page-with-nothing-on-it-is-a-lead.md).**
+The report: *a job arrives, the link opens the company's site, there is no such
+opening.* Both halves were real, from unrelated causes.
+
+- **`page-fetch` discarded the final URL after redirects.** It stored the URL it
+  requested while holding the bytes it was redirected to, so a site answering
+  `/careers` with a 301 to `/` had its **homepage** stored as a verified careers
+  page. Live on 2026-08-20: `doctolib.fr/careers` → 200, final URL `doctolib.fr/`,
+  1.6M characters of homepage, comfortably past `minPageChars`. Ten of the eleven
+  `careersPaths` are guesses, so this fired constantly. `fetchPage` now returns
+  `finalUrl` and the scout re-tests it with `looksLikeCareers`.
+- **Nothing asked whether the careers page had jobs on it.** ADR-0026's gates
+  prove a page exists, is reachable and carries text — never that anybody can
+  apply. `listedRoleLinks` now counts the links to individual adverts into
+  `jobs.listed_roles`; `0` is stored but never delivered, which hands the company
+  to the Leads tab through the harvest that already exists. Do not "fix" that by
+  writing `lead_signals` from the jobs workflow — the whole point is that
+  `hiringSignalsFromJobs` already reads this table.
+
+**Measured over three `pnpm sonar:check` runs the same day** — the table is in the
+ADR. It is not a blanket cull: the third run rejected nothing, six of six pages
+listed roles. What it moves to Leads is the client-rendered listing page —
+`swile.co/careers` (209k characters, no advert links), `careers.doctolib.fr`
+(1.77M, same), `monks.com/careers` and `softwaremind.com/careers/`, both of which
+link only to an anchor on themselves.
+
+**`listed_roles` is a boolean wearing a number's clothes.** Nothing compares it to
+a threshold — only to zero — and the count deliberately over-counts to stay on the
+keep side of *"did this page offer anywhere to go"*. Introducing a "needs at least
+N roles" rule would be a different decision from ADR-0040, not a tuning of it.
 
 **A fourteen-day audit of the live job pipeline, and four fixes from it —
 [ADR-0035](docs/decisions/0035-a-source-is-judged-on-what-it-yields.md),

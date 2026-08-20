@@ -43,7 +43,7 @@ something looks the way it does.
 | [0023](0023-a-bot-per-agent-two-tokens-two-chats.md) | A bot per agent — two tokens, two chats, one process | Accepted |
 | [0024](0024-joob-a-job-pipeline-beside-the-news-one.md) | Joob — a job pipeline beside the news one, sharing everything but the tables | Accepted |
 | [0025](0025-a-boot-catch-up-for-a-stale-pipeline.md) | A boot fires a pipeline that has stopped running, on its own cadence | Accepted |
-| [0026](0026-sonar-as-a-job-source.md) | Sonar as a job source, keyed on the page it resolves | Accepted |
+| [0026](0026-sonar-as-a-job-source.md) | Sonar as a job source, keyed on the page it resolves | Extended by [0040](0040-a-careers-page-with-nothing-on-it-is-a-lead.md) |
 | [0027](0027-ats-boards-as-discovered-sources.md) | Real postings off applicant-tracking boards, and the boards become sources | Partly superseded by [0029](0029-six-ats-providers-probed-concurrently.md) |
 | [0028](0028-a-search-decides-what-counts-as-a-job.md) | A search decides what counts as a job, not the taxonomy | Extended by [0030](0030-domains-as-vocabularies-a-search-names-its-field.md) |
 | [0029](0029-six-ats-providers-probed-concurrently.md) | Six applicant-tracking providers, probed concurrently | Accepted |
@@ -57,6 +57,7 @@ something looks the way it does.
 | [0037](0037-the-hiring-thread-as-a-source-kind.md) | Hacker News's hiring thread is a source kind, not an adapter | Accepted |
 | [0038](0038-leads-a-prospecting-pipeline-in-joobs-chat.md) | Leads — a prospecting pipeline in Joob's chat, keyed on a company | Accepted |
 | [0039](0039-a-lead-scout-with-its-own-budget.md) | A lead scout with its own budget, and a verification the job scout does not need | Accepted |
+| [0040](0040-a-careers-page-with-nothing-on-it-is-a-lead.md) | A careers page with nothing on it is a lead, not a job | Accepted |
 
 **Reading 0001–0021:** they predate [0022](0022-ava-is-the-system-agents-have-names.md)
 and call the conversational agent *Ava*. That agent is now **Newy**; *Ava* is the

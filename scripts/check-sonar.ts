@@ -122,7 +122,12 @@ for (const result of resolutions) {
       ? `   OK   ${result.lead.company}\n` +
         `          [${result.via}] ${result.careersUrl}\n` +
         `          ${result.pageText?.length.toLocaleString('en-US')} chars of text` +
-        (result.pageText && result.pageText.length >= jobScout.maxPageChars ? ' (capped)' : '')
+        (result.pageText && result.pageText.length >= jobScout.maxPageChars ? ' (capped)' : '') +
+        // The gate ADR-0040 added. Printed here because it is invisible
+        // everywhere else until a job silently stops being sent: zero means the
+        // page verified fine and still has nothing anybody can apply for, so the
+        // company goes to Leads rather than to the reader as a job.
+        `\n          ${result.listedRoles} role links${result.listedRoles === 0 ? '  → a lead, not a job' : ''}`
       : `   miss ${result.lead.company}  (${result.problem})`,
   )
 }
@@ -152,6 +157,7 @@ for (const resolution of resolutions) {
     contractType: posting.contractType,
     tags: posting.tags,
     derivedTags: deriveTags(posting),
+    listedRoles: posting.listedRoles ?? null,
     postedAt: posting.postedAt,
     discoveredAt: now,
     deliveredAt: null,

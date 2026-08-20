@@ -302,6 +302,8 @@ const ingest = createStep({
           contractType: posting.contractType,
           tags: posting.tags,
           derivedTags: deriveTags(posting),
+          // Null for a board's advert, a count for a sonar lead. See the column.
+          listedRoles: posting.listedRoles ?? null,
           postedAt: posting.postedAt,
           discoveredAt: firstSeenAt,
         })

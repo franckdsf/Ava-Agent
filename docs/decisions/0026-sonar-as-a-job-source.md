@@ -1,6 +1,6 @@
 # ADR-0026: Sonar as a job source, keyed on the page it resolves
 
-- **Status:** Accepted
+- **Status:** Accepted — extended by [ADR-0040](0040-a-careers-page-with-nothing-on-it-is-a-lead.md), which adds the gate this one lacks: a resolved careers page must list something.
 - **Date:** 2026-08-05
 
 ## Context

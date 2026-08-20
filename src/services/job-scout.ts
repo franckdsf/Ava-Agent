@@ -56,6 +56,18 @@ export interface LeadResolution {
   pageHtml: string | null
   /** How it was found, for the report. Null when nothing was. */
   via: 'linked' | 'well-known' | null
+  /**
+   * How many individual adverts the page linked to — see `listedRoleLinks`.
+   *
+   * **Zero is a resolution, not a failure.** A careers page with nothing on it is
+   * still a verified page belonging to a real company that a model said is
+   * hiring; what it is *not* is an advert, so it must not be delivered as one.
+   * `find-jobs` stores it anyway and the filter declines to send it, which is what
+   * hands the company to the leads pipeline — `hiringSignalsFromJobs` reads the
+   * `jobs` table, so a row that stays is a lead and a row that never existed is
+   * nothing at all.
+   */
+  listedRoles: number
   /** Why nothing was found. Null on success. */
   problem: string | null
 }
@@ -166,15 +178,110 @@ function usableText(html: string): string | null {
   return text.slice(0, jobScout.maxPageChars)
 }
 
-/** The first candidate that answers with usable text, or null. */
+/**
+ * How many individual adverts a careers page links to.
+ *
+ * **The question the resolver never asked.** Everything above establishes that a
+ * page exists, belongs to the company and carries text; none of it establishes
+ * that anybody can *apply* for anything on it. A "we're always looking for great
+ * people" page passes every earlier gate, and it reached the reader as a job —
+ * the complaint that motivated this: follow the link, find no opening.
+ *
+ * Counted from links rather than from prose, because prose is what a marketing
+ * page has plenty of. A listing page points at its listings; a page with nothing
+ * to list has nothing to point at.
+ *
+ * **Biased toward over-counting**, deliberately and in line with the filter's own
+ * keep-on-ambiguity rule: `/careers/engineering` is a department page rather than
+ * an advert and is counted anyway. The number is only ever read as "did this page
+ * offer anywhere to go", so a page that offers a department to browse is on the
+ * right side of that line — the reader can find a role from there, which is
+ * exactly the case for not throwing it away.
+ *
+ * The page's own URL never counts, and neither do links a browser would not
+ * follow to an advert. Counted distinct, because a card whose title and whose
+ * "Apply" button both link to the same posting is one opening.
+ *
+ * **A careers page that hands off to a careers *site* counts as one**, and that
+ * case was measured rather than imagined. Brillio's `/careers/` draws its
+ * listings client-side, so it links to no advert and read as zero — while
+ * carrying a link to `careers.brillio.com/job-listing/`, which is exactly where a
+ * reader would go and find one. The rule this whole gate serves is "does this
+ * page offer anywhere to go", and that page does.
+ *
+ * The hand-off must be **off-host**, which is what keeps it honest: a same-host
+ * `#jobs` anchor or a self-link to `/careers/` is the page pointing at itself,
+ * and Monks and Software Mind both do precisely that. `excludedHosts` is
+ * subtracted for the reason that list exists — Brillio also links to
+ * `linkedin.com/company/brillio/jobs/`, and a marketplace's listings are other
+ * people's jobs on someone else's terms, not the employer's own board.
+ */
+export function listedRoleLinks(html: string, pageUrl: string): string[] {
+  let page: URL
+  try {
+    page = new URL(pageUrl)
+  } catch {
+    return []
+  }
+  const onHost = page.hostname.replace(/^www\./, '').toLowerCase()
+
+  const found = new Set<string>()
+  for (const match of html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi)) {
+    const href = match[1]
+    if (!href) continue
+    try {
+      const resolved = new URL(href.replace(/&amp;/g, '&'), pageUrl)
+      if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') continue
+      resolved.hash = ''
+      if (resolved.toString() === pageUrl) continue
+
+      const host = resolved.hostname.replace(/^www\./, '').toLowerCase()
+      const offHost = host !== onHost
+      if (offHost && jobScout.excludedHosts.some(bad => host === bad || host.endsWith(`.${bad}`))) {
+        continue
+      }
+      // An advert anywhere, or a careers *destination* somewhere else. The
+      // second only counts off-host — on-host it is the page linking to itself.
+      if (!jobScout.postingLinkHints.test(resolved.pathname) && !(offHost && looksLikeCareers(resolved))) {
+        continue
+      }
+      found.add(resolved.toString())
+    } catch {
+      // A relative href against a base we can't parse points at nothing.
+    }
+  }
+  return [...found]
+}
+
+/**
+ * The first candidate that answers with usable text, or null.
+ *
+ * **The URL returned is where the response came from, not where the request
+ * went**, and that is the fix for the worst shape this resolver produced. Ten of
+ * the eleven `careersPaths` are guesses; a site that answers `/careers` with a
+ * 301 to `/` used to have its *homepage* stored as a verified careers page,
+ * because the requested URL was recorded and the homepage's text was long enough
+ * to pass the floor. Re-testing the final URL with `looksLikeCareers` catches
+ * that in one line — a redirect to `/en/careers` still passes, a redirect to the
+ * front page does not — and it now guards the linked route as well, where a
+ * careers link that quietly redirects home had the same effect.
+ */
 async function firstUsable(
   candidates: readonly string[],
-): Promise<{ url: string; text: string; html: string } | null> {
+): Promise<{ url: string; text: string; html: string; listed: number } | null> {
   for (const candidate of candidates) {
-    const { html } = await fetchPage(candidate)
+    const { html, finalUrl } = await fetchPage(candidate)
     if (!html) continue
+    let landed: URL
+    try {
+      landed = new URL(finalUrl)
+    } catch {
+      continue
+    }
+    if (!looksLikeCareers(landed)) continue
     const text = usableText(html)
-    if (text) return { url: candidate, text, html }
+    const url = landed.toString()
+    if (text) return { url, text, html, listed: listedRoleLinks(html, url).length }
   }
   return null
 }
@@ -200,6 +307,7 @@ export async function resolveLead(lead: JobLead): Promise<LeadResolution> {
       pageText: null,
       pageHtml: null,
       via: null,
+      listedRoles: 0,
       problem: 'not a valid http(s) URL',
     }
   }
@@ -214,6 +322,7 @@ export async function resolveLead(lead: JobLead): Promise<LeadResolution> {
       pageText: linked.text,
       pageHtml: linked.html,
       via: 'linked',
+      listedRoles: linked.listed,
       problem: null,
     }
   }
@@ -235,6 +344,7 @@ export async function resolveLead(lead: JobLead): Promise<LeadResolution> {
       pageText: guessed.text,
       pageHtml: guessed.html,
       via: 'well-known',
+      listedRoles: guessed.listed,
       problem: null,
     }
   }
@@ -245,6 +355,7 @@ export async function resolveLead(lead: JobLead): Promise<LeadResolution> {
     pageText: null,
     pageHtml: null,
     via: null,
+    listedRoles: 0,
     problem: ok ? 'no careers page found on the site' : 'the site could not be fetched',
   }
 }
@@ -276,6 +387,10 @@ export function leadToPosting(resolution: LeadResolution): RawPosting | null {
   if (!resolution.careersUrl || !resolution.pageText) return null
   return {
     keyedAs: 'lead',
+    // Carried through to the row, because the decision it feeds is made much
+    // later and by something that never sees this module: a page that lists
+    // nothing is stored, harvested as a lead, and never sent as a job.
+    listedRoles: resolution.listedRoles,
     company: resolution.lead.company,
     title: resolution.lead.role,
     location: null,
