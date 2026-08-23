@@ -19,6 +19,10 @@ dist/
 # Local databases (data + traces). Migrations in drizzle/ ARE committed.
 .data/
 
+# Pre-migration volume snapshots written by scripts/deploy.sh. They are a copy
+# of the reader's database, which is the one thing in here that must not travel.
+backups/
+
 # Editor / OS
 .DS_Store
 *.log

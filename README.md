@@ -148,6 +148,44 @@ docker compose up -d --build
 State lives in the `ava-data` volume, so back it up — it holds your dedupe
 history and the feedback that trains the rankers.
 
+### Updating a running deployment
+
+```bash
+./scripts/deploy.sh                                    # single deployment
+./scripts/deploy.sh -p ava-alice --env-file deploy/alice.env
+```
+
+Fetch, rebuild, restart — and **prove the migrations landed**. It is a no-op
+when the branch is already at its upstream and the container is up, so it is
+safe on a timer (`--force` rebuilds anyway).
+
+Migrations are not applied *by* the script: `migrate()` in
+[`src/db/client.ts`](src/db/client.ts) is memoized and awaited by every
+repository call, and `seedBeats()` fires at boot, so a container that comes up
+on new code has already run whatever was pending before it answers anything.
+What the script adds is the two things lazy migration cannot do for itself:
+
+- **A snapshot before the irreversible part.** Migrations against a file
+  database have no `down`, and several of them rewrite tables rather than adding
+  columns. The volume is tarred into `backups/` (gitignored, last 7 kept,
+  `traces.db` excluded) with the container *stopped*, so libsql has
+  checkpointed — a live `.db` without its `-wal` sibling is missing whatever was
+  not flushed.
+- **A check that they actually applied.** A migration that throws leaves the
+  container **running**; it fails at the first repository call instead, hours
+  later, in a chat. So the script counts rows in `__drizzle_migrations` against
+  the tags in `drizzle/meta/_journal.json` and fails the deploy — with the
+  container's log and the restore command — if they do not meet.
+
+The build runs before the stop, so downtime is the restart rather than the
+build. A stateless deployment (`AVA_DATA_DB_URL` on Turso) is detected by its
+missing `/data` mount: nothing to snapshot, and the migration count is reported
+as unchecked rather than as passing.
+
+One thing worth knowing before putting this on a timer: restarting while a
+pipeline is past its catch-up bar costs a real run, models included — see
+[Coming back after a long absence](#coming-back-after-a-long-absence).
+
 ### One deployment per reader
 
 A deployment serves one person: one CV, one set of beats, one `memories` table,

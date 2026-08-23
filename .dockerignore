@@ -6,6 +6,9 @@ node_modules
 deploy/
 .history
 .data
+# Volume snapshots from scripts/deploy.sh — a copy of the database, and the
+# build context is not where it belongs.
+backups
 .mastra
 dist
 *.log
