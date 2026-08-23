@@ -33,16 +33,24 @@ export interface BotDefinition<Slug extends string = string> {
   /** Stable id. Names the bot in logs and keys its cached environment. */
   id: string
   /**
-   * Prefix on this bot's Telegram variables — `NEWY_TELEGRAM_BOT_TOKEN`,
-   * `JOOB_TELEGRAM_CHAT_ID`, and so on.
+   * Prefix on this bot's own Telegram variables — `NEWY_TELEGRAM_BOT_TOKEN`,
+   * `JOOB_TELEGRAM_BOT_TOKEN`, and the rarely-set `<PREFIX>TELEGRAM_CHAT_ID`
+   * override.
    *
-   * Every bot has one, including the first. Newy's variables were bare
+   * **What is prefixed is what is genuinely this bot's alone**, which since
+   * [ADR-0041](../../docs/decisions/0041-one-deployment-one-reader.md) is the
+   * token and nothing else. The reader is one `AVA_TELEGRAM_USER_ID` shared by
+   * every bot here — `AVA_` because they belong to the system, not to an agent.
+   *
+   * Every bot has a prefix, including the first. Newy's variables were bare
    * `TELEGRAM_*` for as long as she was the only bot, and keeping them that way
    * was briefly argued for on the grounds that renaming costs an edit on every
-   * deployment — there is one deployment, so that argument was worth very
+   * deployment — there was one deployment, so that argument was worth very
    * little against a bare name that reads as "the default bot" sitting next to
-   * an explicit `JOOB_`. Renamed 2026-08-03; `docker-compose.yml` uses
-   * `env_file`, so `.env` and `.env.example` were the whole of it.
+   * an explicit `JOOB_`. Renamed 2026-08-03. That argument is worth more now
+   * that there is a deployment per reader, and it still loses: a rename is one
+   * line in each env file, and the prefix is what makes the *unprefixed* names
+   * mean "the system".
    */
   envPrefix: string
   /** This bot's tabs, in creation order. Telegram decides display order. */

@@ -172,7 +172,7 @@ export function createTelegramTransport<Slug extends string>(
   /** Built on first send so the news pipeline runs with Telegram unconfigured. */
   const client = (): ReturnType<typeof createTelegramAdapter> => {
     adapter ??= createTelegramAdapter({
-      botToken: telegramEnv(bot).TELEGRAM_BOT_TOKEN,
+      botToken: telegramEnv(bot).botToken,
       allowedUserIds: allowedTelegramUserIds(bot),
     })
     return adapter
@@ -234,7 +234,7 @@ export function createTelegramTransport<Slug extends string>(
    * should be silent, so anything in it is a report that this happened.
    */
   const threadChain = async (target?: SendTarget<Slug>): Promise<Hop[]> => {
-    const chatId = telegramEnv(bot).TELEGRAM_CHAT_ID
+    const chatId = telegramEnv(bot).chatId
     const flat: Hop = { threadId: client().encodeThreadId({ chatId }) }
     if (!target) return [flat]
 
@@ -299,7 +299,7 @@ export function createTelegramTransport<Slug extends string>(
     ensureTopics,
 
     async topicThreadId(topic?: Slug): Promise<string> {
-      const chatId = telegramEnv(bot).TELEGRAM_CHAT_ID
+      const chatId = telegramEnv(bot).chatId
       if (!topic) return client().encodeThreadId({ chatId })
       const messageThreadId = (await ensureTopics())[topic]
       return client().encodeThreadId(

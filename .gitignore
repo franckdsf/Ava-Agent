@@ -1,9 +1,13 @@
 # Dependencies
 node_modules/
 
-# Secrets
+# Secrets. Every .env* is ignored except the example — a per-reader deployment
+# means several of them (deploy/alice.env, .env.bak…), and listing them one by
+# one is how the second one gets committed (ADR-0041).
 .env
-.env.local
+.env.*
+!.env.example
+deploy/
 
 # IDE local-history extensions snapshot .env verbatim — never commit these
 .history/

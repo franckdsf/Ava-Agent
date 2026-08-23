@@ -58,7 +58,7 @@ for (const bot of targets) {
     continue
   }
 
-  // A bot with a token but no chat id or no allowlist is a real misconfiguration
+  // A bot with a token but no reader (`AVA_TELEGRAM_USER_ID`) is a real misconfiguration
   // and must fail the run — but it must not take the *other* bot's report with
   // it. Letting this throw crashed the process mid-report, which is exactly the
   // "silently covers one of two" failure this script is shaped to avoid; the
@@ -71,10 +71,10 @@ for (const bot of targets) {
     failed = true
     continue
   }
-  const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = resolved
+  const { botToken, chatId } = resolved
 
   const response = await fetch(
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getChat?chat_id=${TELEGRAM_CHAT_ID}`,
+    `https://api.telegram.org/bot${botToken}/getChat?chat_id=${chatId}`,
   )
   const body = (await response.json()) as { ok: boolean; result?: ChatInfo; description?: string }
 
@@ -87,7 +87,7 @@ for (const bot of targets) {
   const chat = body.result
   const route = await topicRoute(bot)
 
-  console.log(`chat    ${TELEGRAM_CHAT_ID} (${chat.type})`)
+  console.log(`chat    ${chatId} (${chat.type})`)
   console.log(`name    ${chat.title ?? chat.username ?? '—'}`)
   console.log(`tabs    ${route === 'unavailable' ? 'UNAVAILABLE' : `on, via ${route}`}`)
 
@@ -126,7 +126,13 @@ for (const bot of targets) {
       console.log('       create a group → Edit → toggle Topics on')
       console.log('       add this bot as admin WITH the "Manage Topics" right')
       console.log(
-        `       then point ${bot.envPrefix}TELEGRAM_CHAT_ID at that group (id starts with -100)`,
+        `       then set ${bot.envPrefix}TELEGRAM_CHAT_ID to that group (id starts with -100)`,
+      )
+      console.log(
+        '     That variable is the override, and the only reason it exists: a group id',
+      )
+      console.log(
+        "     is nobody's user id, so it cannot be derived from AVA_TELEGRAM_USER_ID.",
       )
     } else {
       console.log('  This is a group but Topics is off. Enable it in the group itself:')
@@ -136,7 +142,7 @@ for (const bot of targets) {
     continue
   }
 
-  const provisioned = await topicIds(bot.id, TELEGRAM_CHAT_ID)
+  const provisioned = await topicIds(bot.id, chatId)
   console.log('\ntabs')
   for (const topic of bot.topics) {
     const row = provisioned[topic.slug]

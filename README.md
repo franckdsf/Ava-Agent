@@ -72,6 +72,19 @@ pnpm dev                 # Studio at http://localhost:4111 (PORT= in .env moves 
 Only `OPENROUTER_API_KEY` is required to start — Telegram variables are
 validated lazily, so the news pipeline is fully usable before the bot exists.
 
+To reach it from Telegram you need two more: `AVA_TELEGRAM_USER_ID`, your numeric
+user id (@userinfobot tells you), and a bot token. That one id is the allowlist
+for every bot *and* the chat each bot pushes to — in a DM, Telegram's `chat_id`
+is the user id, so it is one number rather than four
+([ADR-0041](docs/decisions/0041-one-deployment-one-reader.md)).
+
+**Models are not in `.env`.** Every one is chosen in
+[`src/config/env.ts`](src/config/env.ts), with the measurement that chose it
+written beside it, and every one has a working default. A `.env` is copied once
+at deployment and never revisited while the code keeps moving — so a model id
+kept there is a decision that outlives its own reasoning. `.env.example` lists
+them commented out, for experiments.
+
 `PORT` moves the server when 4111 is taken, and one variable is enough: Studio,
 the built server behind `pnpm start`, and the terminal scripts that drive it
 ([`src/config/dev-server.ts`](src/config/dev-server.ts)) all read it. Docker is
@@ -134,6 +147,36 @@ docker compose up -d --build
 
 State lives in the `ava-data` volume, so back it up — it holds your dedupe
 history and the feedback that trains the rankers.
+
+### One deployment per reader
+
+A deployment serves one person: one CV, one set of beats, one `memories` table,
+one `/client` profile. Several people means several **Compose projects** off this
+same file and this same image
+([ADR-0041](docs/decisions/0041-one-deployment-one-reader.md)):
+
+```bash
+docker compose -p ava-alice --env-file deploy/alice.env up -d --build
+docker compose -p ava-bob   --env-file deploy/bob.env   up -d
+```
+
+`-p` is what keeps them apart — `ava-alice_ava-data` and `ava-bob_ava-data` are
+different volumes, `ava-alice-ava-1` and `ava-bob-ava-1` different containers.
+`image: ava-agent:latest` means the first `--build` serves all of them.
+
+Each reader's file is a copy of `.env.example` carrying their own id, their own
+bot tokens, their own portfolio URL, their own timezone — and their own
+`AVA_HOST_PORT`, which is the one thing two deployments on a box collide over.
+`deploy/` is gitignored, as is every `.env*` except the example.
+
+`docker-compose.yml` lists its variables explicitly rather than using
+`env_file:`. That is deliberate: `env_file` resolves against the compose file
+while `--env-file` feeds only interpolation, so the second deployment would have
+booted with the first one's `.env` — and answered the first one's reader.
+
+Running several on one box costs one thing worth knowing: each is a full Node
+process with its own schedules, so the digest hours fire N times. Nothing is
+shared, including the OpenRouter key, which is per reader and therefore per bill.
 
 ### Coming back after a long absence
 
@@ -215,7 +258,9 @@ tabs exist, and any profile
 field the next boot would push. It is read-only — safe against a running bot.
 
 To run stateless instead, point `AVA_DATA_DB_URL` at a Turso database and drop
-the volume. Turso *is* libSQL, so this is a URL change, not a code change:
+the volume. Turso *is* libSQL, so this is a URL change, not a code change — and
+it is the easier shape once there is a deployment per reader, since backing up
+one volume per person is the part that does not scale:
 
 ```bash
 turso db create ava

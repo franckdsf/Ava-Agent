@@ -1,7 +1,9 @@
 node_modules
 .git
-.env
-.env.local
+# Every .env*, not two named ones: `COPY . .` would otherwise bake a per-reader
+# env file into an image shared by every reader (ADR-0041).
+.env*
+deploy/
 .history
 .data
 .mastra

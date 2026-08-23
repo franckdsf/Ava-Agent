@@ -1,6 +1,6 @@
 # ADR-0023: A bot per agent — two tokens, two chats, one process
 
-- **Status:** Accepted
+- **Status:** Accepted — variables amended by [ADR-0041](0041-one-deployment-one-reader.md), which merges each bot's allowlist and chat id into one `AVA_TELEGRAM_USER_ID`. The decision here — a token per agent — is untouched; only the three-variables-per-bot shape is.
 - **Date:** 2026-08-03
 - **Answers:** the open question left by
   [ADR-0022](0022-ava-is-the-system-agents-have-names.md), which named this as its

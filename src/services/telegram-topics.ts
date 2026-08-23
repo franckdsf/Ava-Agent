@@ -48,7 +48,7 @@ async function callBotApi<T>(
   params: Record<string, unknown> = {},
 ): Promise<T> {
   const response = await fetch(
-    `https://api.telegram.org/bot${telegramEnv(bot).TELEGRAM_BOT_TOKEN}/${method}`,
+    `https://api.telegram.org/bot${telegramEnv(bot).botToken}/${method}`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -212,7 +212,7 @@ export type TopicRoute = 'private-threaded-mode' | 'supergroup-forum' | 'unavail
  */
 export async function topicRoute(bot: BotDefinition<string>): Promise<TopicRoute> {
   const chat = await callBotApi<ChatInfo>(bot, 'getChat', {
-    chat_id: telegramEnv(bot).TELEGRAM_CHAT_ID,
+    chat_id: telegramEnv(bot).chatId,
   })
   if (chat.type === 'supergroup' || chat.type === 'group') {
     return chat.is_forum === true ? 'supergroup-forum' : 'unavailable'
@@ -240,7 +240,7 @@ interface ForumTopic {
 export async function resolveTopics<Slug extends string>(
   bot: BotDefinition<Slug>,
 ): Promise<Partial<Record<Slug, number>>> {
-  const chatId = telegramEnv(bot).TELEGRAM_CHAT_ID
+  const chatId = telegramEnv(bot).chatId
 
   if ((await topicRoute(bot)) === 'unavailable') return {}
 
@@ -332,7 +332,7 @@ export async function resolveBeatTopic(
   bot: BotDefinition<string>,
   beat: BeatTab,
 ): Promise<number | undefined> {
-  const chatId = telegramEnv(bot).TELEGRAM_CHAT_ID
+  const chatId = telegramEnv(bot).chatId
   if ((await topicRoute(bot)) === 'unavailable') return undefined
 
   const slug = beatTopicSlug(beat.slug)
@@ -381,7 +381,7 @@ export async function setBeatTopicOpen(
   beat: BeatTab,
   open: boolean,
 ): Promise<BeatTabToggle> {
-  const chatId = telegramEnv(bot).TELEGRAM_CHAT_ID
+  const chatId = telegramEnv(bot).chatId
   const existing = (await topicIds(bot.id, chatId))[beatTopicSlug(beat.slug)]
   if (existing === undefined) return 'no-tab'
 
@@ -413,5 +413,5 @@ export async function invalidateTopic(
   bot: BotDefinition<string>,
   slug: TabSlug,
 ): Promise<void> {
-  await forgetTopic(bot.id, telegramEnv(bot).TELEGRAM_CHAT_ID, slug)
+  await forgetTopic(bot.id, telegramEnv(bot).chatId, slug)
 }

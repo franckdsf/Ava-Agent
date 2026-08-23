@@ -27,7 +27,17 @@ const gatewayModelId = z
 const coreSchema = z.object({
   /** Single key for every model below — chat routes through the OpenRouter gateway. */
   OPENROUTER_API_KEY: z.string().min(1),
-  REPLICATE_API_KEY: z.string().min(1),
+  /**
+   * Replicate, for Newy's `generateImage` tool — the one thing here that does
+   * *not* route through OpenRouter.
+   *
+   * Optional, and the only optional key: without it `imageTools` is empty and
+   * Newy is constructed without the tool, rather than with a tool that throws on
+   * first use. A deployment that never asks her for a picture should not have to
+   * find a second API key to boot
+   * ([ADR-0041](../../docs/decisions/0041-one-deployment-one-reader.md)).
+   */
+  REPLICATE_API_KEY: z.string().min(1).optional(),
 
   /**
    * Cheap and high-volume: scores + labels every incoming headline. Text only,
@@ -47,10 +57,18 @@ const coreSchema = z.object({
   AVA_MODEL_ORCHESTRATOR: gatewayModelId.default('openrouter/minimax/minimax-m3'),
   /**
    * Weekly memory review: decides which short-term notes become biography.
-   * Cheap and schema-constrained like the ranker — it runs once a week over a
-   * few dozen one-line rows, and its output is a list of ids, not prose.
+   *
+   * Schema-constrained like the ranker, and it runs once a week over a few dozen
+   * one-line rows — so the volume argument for a cheap model barely applies, and
+   * `deepseek-v4-pro` is what the running deployment had been pointed at for
+   * months while this default still said `flash`. Promoting what runs over what
+   * was written is the point of ADR-0041: what a decision is worth is decided by
+   * what the deployment actually uses.
+   *
+   * The judgement is also the one here with no undo — a note dropped at review
+   * is gone, and nothing re-reads the article it came from.
    */
-  AVA_MODEL_MEMORY_REVIEWER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
+  AVA_MODEL_MEMORY_REVIEWER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-pro'),
   /**
    * `/translearn` and `/translate`: translates an article into the reader's own
    * language, glossed with the English original.
@@ -317,25 +335,64 @@ const coreSchema = z.object({
   AGENT_TIMEZONE: z.string().min(1).default('Europe/Paris'),
 })
 
+
+/**
+ * One bot's Telegram identity, as it exists in the environment.
+ *
+ * Two variables, not three
+ * ([ADR-0041](../../docs/decisions/0041-one-deployment-one-reader.md)): a token
+ * that is this bot's alone, and `AVA_TELEGRAM_USER_ID` — the one person the
+ * deployment serves — which every bot here shares.
+ */
 const telegramSchema = z.object({
-  TELEGRAM_BOT_TOKEN: z.string().min(1),
-  /** Comma-separated. Without it, anyone who finds the bot can spend your tokens. */
-  TELEGRAM_ALLOWED_USER_IDS: z.string().min(1),
-  /** Chat that scheduled digests are pushed to. */
-  TELEGRAM_CHAT_ID: z.string().min(1),
+  botToken: z.string().min(1),
+  /**
+   * The reader's numeric Telegram user id. It is both the allowlist and, in a
+   * private chat, the chat id: Telegram's `chat_id` in a DM *is* the user id.
+   *
+   * Numeric rather than `min(1)` because the wrong thing to paste here is an
+   * `@username`, which every API call then rejects one layer further down with
+   * "chat not found".
+   */
+  userId: z
+    .string()
+    .trim()
+    .regex(/^\d+$/, 'must be a numeric Telegram user id — an @username will not work'),
 })
+
+/** What the rest of the app reads: a token, who may talk, and where to push. */
+export interface TelegramConfig {
+  botToken: string
+  /** Always exactly the reader — one deployment, one reader. */
+  allowedUserIds: string[]
+  /** The reader's DM, unless a supergroup override is set. */
+  chatId: string
+}
+
+/**
+ * An empty variable is an unset variable.
+ *
+ * `dotenv` reads `REPLICATE_API_KEY=` as `''`, which is *present* as far as zod
+ * is concerned — so `.default()` never fires and `.optional()` never applies,
+ * and a commented-out line behaves differently from an empty one for no reason
+ * a reader could guess. Stripping the empties here is what lets `.env.example`
+ * ship a key with nothing after the `=`.
+ */
+function withoutEmpties(source: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(source).filter(([, value]) => value !== ''))
+}
 
 function parse<T extends z.ZodType>(
   schema: T,
   scope: string,
   source: Record<string, unknown> = process.env,
-  /** Prefixed back onto each reported key, so the message names the real variable. */
-  keyPrefix = '',
+  /** Maps a schema key back to the variable it came from, so the message names the real one. */
+  varName: (key: string) => string = key => key,
 ): z.infer<T> {
-  const result = schema.safeParse(source)
+  const result = schema.safeParse(withoutEmpties(source))
   if (!result.success) {
     const issues = result.error.issues
-      .map(i => `  - ${keyPrefix}${i.path.join('.')}: ${i.message}`)
+      .map(i => `  - ${varName(i.path.join('.'))}: ${i.message}`)
       .join('\n')
     throw new Error(`Invalid ${scope} environment:\n${issues}\n\nSee .env.example.`)
   }
@@ -356,56 +413,73 @@ export interface BotEnvTarget {
   envPrefix: string
 }
 
-/** This bot's three Telegram variables, read under its own prefix. */
+/** The reader, shared by every bot in this deployment. */
+const OWNER_VAR = 'AVA_TELEGRAM_USER_ID'
+
+/** This bot's variables: its own token, plus the deployment's reader. */
 function telegramVars(prefix: string): Record<string, unknown> {
   return {
-    TELEGRAM_BOT_TOKEN: process.env[`${prefix}TELEGRAM_BOT_TOKEN`],
-    TELEGRAM_ALLOWED_USER_IDS: process.env[`${prefix}TELEGRAM_ALLOWED_USER_IDS`],
-    TELEGRAM_CHAT_ID: process.env[`${prefix}TELEGRAM_CHAT_ID`],
+    botToken: process.env[`${prefix}TELEGRAM_BOT_TOKEN`],
+    userId: process.env[OWNER_VAR],
   }
 }
 
-const telegramCache = new Map<string, z.infer<typeof telegramSchema>>()
+function telegramVarName(prefix: string, key: string): string {
+  return key === 'botToken' ? `${prefix}TELEGRAM_BOT_TOKEN` : OWNER_VAR
+}
+
+/**
+ * Where this bot pushes, when that is *not* the reader's DM.
+ *
+ * Optional, unset in every ordinary deployment, and the one thing that keeps
+ * the supergroup-forum route alive after the merge above: a group's chat id is
+ * a `-100…` number that is nobody's user id, so it cannot be derived and has to
+ * be typed. `pnpm telegram:check` prints it when it is in play.
+ */
+function chatIdOverride(bot: BotEnvTarget): string | undefined {
+  return process.env[`${bot.envPrefix}TELEGRAM_CHAT_ID`]?.trim() || undefined
+}
+
+const telegramCache = new Map<string, TelegramConfig>()
 
 /**
  * Validated on first use so the news pipeline can run without Telegram
  * configured, and cached per bot rather than once for the process.
  */
-export function telegramEnv(bot: BotEnvTarget): z.infer<typeof telegramSchema> {
+export function telegramEnv(bot: BotEnvTarget): TelegramConfig {
   const cached = telegramCache.get(bot.id)
   if (cached) return cached
 
-  const parsed = parse(
+  const { botToken, userId } = parse(
     telegramSchema,
     `${bot.id} Telegram`,
     telegramVars(bot.envPrefix),
-    bot.envPrefix,
+    key => telegramVarName(bot.envPrefix, key),
   )
-  telegramCache.set(bot.id, parsed)
-  return parsed
+
+  const config: TelegramConfig = {
+    botToken,
+    allowedUserIds: [userId],
+    chatId: chatIdOverride(bot) ?? userId,
+  }
+  telegramCache.set(bot.id, config)
+  return config
 }
 
 export function allowedTelegramUserIds(bot: BotEnvTarget): string[] {
-  return splitUserIds(telegramEnv(bot).TELEGRAM_ALLOWED_USER_IDS)
+  return telegramEnv(bot).allowedUserIds
 }
 
 /**
- * This bot's chat, or undefined when unset.
+ * This bot's chat, or undefined when the deployment has no reader yet.
  *
  * The inbound tab router runs on every message and only needs to know whether a
- * thread belongs to *its* bot's chat; `telegramEnv()` would throw for a bot that
- * has a token and an allowlist but no chat id, taking the conversation down over
- * a value it can degrade without.
+ * thread belongs to *its* bot's chat; `telegramEnv()` would throw for a
+ * deployment mid-setup, taking the conversation down over a value it can
+ * degrade without.
  */
 export function telegramChatId(bot: BotEnvTarget): string | undefined {
-  return process.env[`${bot.envPrefix}TELEGRAM_CHAT_ID`] || undefined
-}
-
-function splitUserIds(raw: string): string[] {
-  return raw
-    .split(',')
-    .map(id => id.trim())
-    .filter(Boolean)
+  return chatIdOverride(bot) ?? (process.env[OWNER_VAR]?.trim() || undefined)
 }
 
 /**
@@ -419,8 +493,8 @@ function splitUserIds(raw: string): string[] {
  * to preserve. It also means one bot can be configured and the other not,
  * which is the normal state while a second one is being brought up.
  *
- * It *does* throw when a token is present without an allowlist. The adapter
- * treats a missing allowlist as "everyone", so that combination is the one
+ * It *does* throw when a token is present without a reader. The adapter treats
+ * a missing allowlist as "everyone", so that combination is the one
  * misconfiguration that silently opens the bot to anyone who finds it.
  */
 export function telegramChannelEnv(
@@ -429,15 +503,12 @@ export function telegramChannelEnv(
   const botToken = process.env[`${bot.envPrefix}TELEGRAM_BOT_TOKEN`]
   if (!botToken) return undefined
 
-  const allowedUserIds = splitUserIds(
-    process.env[`${bot.envPrefix}TELEGRAM_ALLOWED_USER_IDS`] ?? '',
-  )
-  if (allowedUserIds.length === 0) {
+  const userId = process.env[OWNER_VAR]?.trim()
+  if (!userId) {
     throw new Error(
-      `${bot.envPrefix}TELEGRAM_BOT_TOKEN is set but ${bot.envPrefix}TELEGRAM_ALLOWED_USER_IDS ` +
-      'is empty — the adapter would accept messages from anyone who finds the bot. ' +
-      'See .env.example.',
+      `${bot.envPrefix}TELEGRAM_BOT_TOKEN is set but ${OWNER_VAR} is empty — the adapter ` +
+      'would accept messages from anyone who finds the bot. See .env.example.',
     )
   }
-  return { botToken, allowedUserIds }
+  return { botToken, allowedUserIds: [userId] }
 }

@@ -1,26 +1,70 @@
+# One deployment serves one reader (ADR-0041). Several readers means several
+# *projects* off this one file, each with its own env file, volume and host port:
+#
+#   docker compose -p ava-alice --env-file deploy/alice.env up -d --build
+#   docker compose -p ava-bob   --env-file deploy/bob.env   up -d
+#
+# `-p` is what keeps them apart: the volume becomes `ava-alice_ava-data`, the
+# container `ava-alice-ava-1`. Nothing else here is shared except the image.
+#
+# Plain `docker compose up -d --build` still works for a single deployment —
+# Compose reads `./.env` by default, which is the file `pnpm dev` already uses.
+
 services:
   ava:
     build: .
+    # Named so every project reuses one build instead of one image per reader.
+    # The first `up --build` produces it; the rest start against it.
+    image: ava-agent:latest
     restart: unless-stopped
-    env_file: .env
+
+    # Listed explicitly rather than `env_file: .env`, so `--env-file` alone
+    # decides which reader this container serves. With `env_file`, that path is
+    # resolved relative to *this file* and Compose's `--env-file` only feeds
+    # interpolation — so a second deployment would quietly boot with the first
+    # one's `.env`. Everything a reader owns passes through here; everything a
+    # measurement chose (models, thresholds, budgets) stays in code.
     environment:
-      # These three describe the *container's* layout, so they override whatever
-      # `.env` says — that file is written for the dev machine, and `env_file`
-      # loses to `environment` by design. Copying `.env.example` verbatim brings
-      # a relative `AVA_MIGRATIONS_DIR=drizzle` along with it; it happens to
-      # resolve here too, because the bundle ships a package.json for
-      # `resolveFromRoot()` to anchor on, but relying on that walk is how the
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY in the env file}
+      REPLICATE_API_KEY: ${REPLICATE_API_KEY:-}
+
+      AVA_TELEGRAM_USER_ID: ${AVA_TELEGRAM_USER_ID:?set AVA_TELEGRAM_USER_ID in the env file}
+      NEWY_TELEGRAM_BOT_TOKEN: ${NEWY_TELEGRAM_BOT_TOKEN:-}
+      JOOB_TELEGRAM_BOT_TOKEN: ${JOOB_TELEGRAM_BOT_TOKEN:-}
+      # Unset in an ordinary deployment — the supergroup-forum route only.
+      NEWY_TELEGRAM_CHAT_ID: ${NEWY_TELEGRAM_CHAT_ID:-}
+      JOOB_TELEGRAM_CHAT_ID: ${JOOB_TELEGRAM_CHAT_ID:-}
+
+      PORTFOLIO_FEED_URL: ${PORTFOLIO_FEED_URL:-}
+      PORTFOLIO_FEED_TOKEN: ${PORTFOLIO_FEED_TOKEN:-}
+
+      AGENT_TIMEZONE: ${AGENT_TIMEZONE:-Europe/Paris}
+
+      # Empty means the volume below. Point it at a Turso URL and the deployment
+      # is stateless — the easier shape once there are several of them.
+      AVA_DATA_DB_URL: ${AVA_DATA_DB_URL:-file:/data/ava.db}
+      AVA_DATA_DB_AUTH_TOKEN: ${AVA_DATA_DB_AUTH_TOKEN:-}
+
+      # These two describe the *container's* layout, not the reader's, which is
+      # why they take no variable. A relative `AVA_MIGRATIONS_DIR=drizzle`
+      # happens to resolve here too — the bundle ships a package.json for
+      # `resolveFromRoot()` to anchor on — but relying on that walk is how the
       # "Can't find meta/_journal.json" failure in AGENTS.md happened once.
-      AVA_DATA_DB_URL: file:/data/ava.db
       AVA_TRACES_DB_URL: file:/data/traces.db
       AVA_MIGRATIONS_DIR: /app/drizzle
+
     volumes:
       - ava-data:/data
+
     ports:
       # Bound to loopback: the agent reaches Telegram and the model gateway
-      # outbound only, so nothing needs to reach it from the network. This is
-      # here for the local API, not for inbound traffic.
-      - '127.0.0.1:4111:4111'
+      # outbound only, so nothing needs to reach it from the network
+      # (invariant 1). This is here for the local API, not for inbound traffic.
+      #
+      # The host port is a variable because it is the one thing two deployments
+      # on one box collide over — the second `up` fails outright on a taken port,
+      # which is the good failure, but only if each reader's file names its own.
+      - '127.0.0.1:${AVA_HOST_PORT:-4111}:4111'
 
 volumes:
   ava-data:

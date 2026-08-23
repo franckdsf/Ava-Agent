@@ -69,7 +69,15 @@ The rule for reading this repo, and for naming anything new in it:
   installed and removed once the Chat SDK adapter turned out to cover both
   directions.
 - **Tunables belong in `src/config/`, secrets in `.env`.** No magic numbers in
-  logic. `src/config/pipeline.ts` is the knob drawer.
+  logic. `src/config/pipeline.ts` is the knob drawer. **`.env` holds what is true
+  of one reader or one machine — a key, a bot token, an id, a CV URL, a port —
+  and nothing a measurement chose**
+  ([ADR-0041](docs/decisions/0041-one-deployment-one-reader.md)). Model ids in
+  particular live in `src/config/env.ts` with the measurement beside them: a
+  `.env` is copied once at deployment and never revisited, so anything kept there
+  outlives its own reasoning, and the model variables had already drifted from
+  the defaults that justified them — in both directions: one id newer than its
+  comment, two never copied out at all.
 - **If a decision's justification erodes mid-task, say so and re-open it** rather
   than carrying it forward. Convex was adopted and then dropped this way, and
   that was the right outcome.
@@ -958,13 +966,23 @@ doesn't wrap without adding a second Telegram library.
   quietly. `package.json` now pins it and the Dockerfile sets
   `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`, since the download is not a decision
   anyone is present to make.
-- **`environment:` beats `env_file:` in compose, and that is what makes the
-  container's paths safe.** `.env` is written for the dev machine — copying
-  `.env.example` verbatim brings `AVA_MIGRATIONS_DIR=drizzle` with it — so the
-  three path variables are overridden explicitly in `docker-compose.yml`. The
-  relative value does resolve in the container (the bundle ships a package.json
-  for `resolveFromRoot()` to anchor on), but leaning on that walk is how "Can't
-  find meta/_journal.json" happened the first time.
+- **`env_file:` is the wrong tool for a deployment per reader, and it was hiding
+  a path bug before that.** Two separate reasons, a month apart, and both end at
+  the explicit `environment:` block `docker-compose.yml` now uses.
+  1. **Paths.** `.env` is written for the dev machine — copying `.env.example`
+     verbatim used to bring `AVA_MIGRATIONS_DIR=drizzle` with it — so the path
+     variables are set in compose, not passed through. The relative value does
+     resolve in the container (the bundle ships a package.json for
+     `resolveFromRoot()` to anchor on), but leaning on that walk is how "Can't
+     find meta/_journal.json" happened the first time.
+  2. **Whose deployment it is.** `env_file:` resolves against the *compose file*
+     while `--env-file` feeds only interpolation — so
+     `docker compose -p ava-bob --env-file deploy/bob.env up` would have loaded
+     Alice's `.env` into Bob's container and answered Alice's reader with Bob's
+     bot ([ADR-0041](docs/decisions/0041-one-deployment-one-reader.md)). The cost
+     of the explicit block is drift: **a new env var means editing two files**,
+     and the second one is easy to forget. It fails loudly — zod names the
+     missing variable at boot — which is the whole reason it is tolerable.
 - **An empty `ava-data` volume against a chat you already use is not a clean
   start — it is a fork.** The container's database has no `telegram_topics`, and
   the persisted id is the only authority on whether a tab exists, so
@@ -990,12 +1008,14 @@ doesn't wrap without adding a second Telegram library.
   will ever request and leaves the default profile untouched.
 - **A private chat's `chat_id` is the user's id, so two bots see the same one.**
   Telegram user ids are global, not per-bot, and for a private chat `chat.id`
-  *is* that user id — so `NEWY_TELEGRAM_CHAT_ID` and `JOOB_TELEGRAM_CHAT_ID`
-  hold the **same value** (`8401775038` here), which is also the reader's entry
-  in both allowlists. The conversations are still distinct in the client because
-  the token differs; nothing else distinguishes them. This was asserted the wrong
-  way round in the first draft of ADR-0023 and in `.env.example`, both of which
-  said the two chat ids must differ.
+  *is* that user id — so both bots push to the **same value** (`8401775038`
+  here), which is also the reader's entry in both allowlists. The conversations
+  are still distinct in the client because the token differs; nothing else
+  distinguishes them. This was asserted the wrong way round in the first draft of
+  ADR-0023 and in `.env.example`, both of which said the two chat ids must differ.
+  **Since [ADR-0041](docs/decisions/0041-one-deployment-one-reader.md) it is one
+  variable**, `AVA_TELEGRAM_USER_ID` — four fields holding one number was four
+  chances to typo it, three of them silent.
   Two consequences, and the second one bites:
   - `telegram_topics` is keyed `(botId, chatId, slug)`. Keyed on chat and slug
     alone — which is correct for supergroups, where two groups are two ids —
@@ -1004,11 +1024,20 @@ doesn't wrap without adding a second Telegram library.
     conversation, and `invalidateTopic` deletes the *other* bot's row; that bot
     recreates it, `createForumTopic` is not idempotent, and a duplicate tab
     appears. Never query that table without a bot id.
-  - `TELEGRAM_CHAT_ID` is still not redundant with the allowlist, despite
-    holding a value that appears in it. The allowlist says who may *talk*; the
-    chat id says where a cron fire — which has no message to reply to — should
-    *send*. They diverge the moment there are two allowed users, and on the
-    supergroup route the chat id is a `-100…` group that is nobody's user id.
+  - **The allowlist and the chat id are one variable now, and the argument that
+    kept them apart is the one worth reading.** It said: the allowlist says who
+    may *talk*, the chat id says where a cron fire — which has no message to
+    reply to — should *send*, and they diverge the moment there are two allowed
+    users. Correct as a distinction between two **concepts**, and wrong as a
+    reason for two **fields**: they had never diverged, the second allowed user
+    was a shape this system does not support anywhere else (one CV, one
+    `memories` table, one `/client` profile), and the price of holding the option
+    open was asking four times for one number in the variable that gates access.
+    ADR-0041 collapsed them and kept the one case that genuinely cannot be
+    derived — the supergroup route, where the chat id is a `-100…` group that is
+    nobody's user id — as the optional `<PREFIX>TELEGRAM_CHAT_ID` override.
+    **The general lesson: a distinction that is real in the domain still has to
+    earn its second field in the config.**
 - **A statement above an `import` does not run first, and two scripts here are
   written as if it does.** ESM hoists every `import` above all top-level
   statements, so `process.env.X = …` or `delete process.env.X` written at the top
@@ -1059,7 +1088,55 @@ doesn't wrap without adding a second Telegram library.
 
 ## Where work stopped
 
-*Last updated: 2026-08-20.*
+*Last updated: 2026-08-23.*
+
+**The environment now holds only who the reader is —
+[ADR-0041](docs/decisions/0041-one-deployment-one-reader.md).** The question that
+started it was *"can I run one of these per person?"*, and the answer was no for
+an unglamorous reason: the `.env` was written for the machine it grew on.
+
+- **Four identity variables became one.** `AVA_TELEGRAM_USER_ID` is the
+  allowlist for every bot and, in a DM, the chat each bot pushes to. The live
+  `.env` had held one identical id in `NEWY_TELEGRAM_ALLOWED_USER_IDS`,
+  `NEWY_TELEGRAM_CHAT_ID`, `JOOB_TELEGRAM_ALLOWED_USER_IDS` and
+  `JOOB_TELEGRAM_CHAT_ID`. `<PREFIX>TELEGRAM_CHAT_ID` survives as an override for
+  the supergroup route only. **The allowlist can no longer hold two people**, and
+  that is the recorded cost — a second reader is a second project, not a second
+  entry.
+- **Fifteen `AVA_MODEL_*` lines left `.env.example`.** They all had defaults in
+  `src/config/env.ts` already; the file was overriding those defaults with copies
+  of themselves, and the copies were the ones without the measurement attached.
+  Fifteen against seventeen in the code — `JOB_SCORER` and `JOB_WRITER` had never
+  been added to the example, and nothing had noticed.
+  **They had already drifted:** `.env` ran `AVA_MODEL_MEMORY_REVIEWER` on
+  `deepseek-v4-pro` while the default and its justifying comment still said
+  `flash`. The running system won; the comment now records why. **The rule is
+  now: a `.env` holds what is true of one reader or one machine, and nothing a
+  measurement chose.**
+- **`REPLICATE_API_KEY` is optional** — `imageTools` is empty without it and Newy
+  is built without the tool. `OPENROUTER_API_KEY` is the only key a deployment
+  must have.
+- **An empty variable is now an unset variable.** `parse()` strips `''` before
+  zod sees it, so `.default()` and `.optional()` fire on `FOO=` exactly as they
+  do on a missing line. Every previous `.env.example` value had to be non-empty
+  for that reason and nothing said so.
+- **Deployment is a Compose project per reader**, one file and one image:
+  `docker compose -p ava-alice --env-file deploy/alice.env up -d`. `env_file:` is
+  gone from `docker-compose.yml` — it resolves against the compose file while
+  `--env-file` feeds only interpolation, so the second deployment would have
+  booted with the first one's `.env` and answered the first one's reader. The
+  explicit `environment:` block that replaces it is the one thing here that can
+  drift: **a new env var means editing two files.**
+- **Verified live**, `pnpm telegram:check`, 2026-08-23: both bots resolve
+  `8401775038 (private)` from the single variable, Threaded Mode on, all six tabs
+  found, both profiles up to date. `docker compose -p ava-test config` resolves
+  clean.
+
+**Not done, and the next thing anyone should ask:** nothing has been *run* under
+two projects at once on one host. The failure to look for is not the app — it is
+the box: two Node processes, two sets of schedules, and digest hours that fire N
+times against one machine's CPU. Run two and watch a digest hour before promising
+a third reader.
 
 **A reader's bug report closed two defects in the job scout —
 [ADR-0040](docs/decisions/0040-a-careers-page-with-nothing-on-it-is-a-lead.md).**
@@ -1988,8 +2065,10 @@ it caught a `.toLowerCase()` on the command menu rendering `What I do` as
 `what i do`.
 
 **To provision it:** a second @BotFather bot, its own Threaded Mode toggle, and
-the three `JOOB_TELEGRAM_*` variables. `JOOB_TELEGRAM_CHAT_ID` takes the **same
-value** as Newy's — see the private-chat gotcha above.
+`JOOB_TELEGRAM_BOT_TOKEN`. That is now the whole of it — the allowlist and the
+chat id it used to need are `AVA_TELEGRAM_USER_ID`, shared with Newy
+([ADR-0041](docs/decisions/0041-one-deployment-one-reader.md)); see the
+private-chat gotcha above for why one number serves both bots.
 
 **Two corrections landed on the way, both found by questioning the design rather
 than by running anything.** Recorded because the wrong versions were written

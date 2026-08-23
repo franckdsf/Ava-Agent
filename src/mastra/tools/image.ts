@@ -87,4 +87,14 @@ const generateImage = createTool({
   }
 })
 
-export const imageTools = { generateImage }
+/**
+ * Newy's image tool — present only when `REPLICATE_API_KEY` is set.
+ *
+ * An empty object rather than a tool that throws on first call: the key is the
+ * one optional credential in this repo
+ * ([ADR-0041](../../../docs/decisions/0041-one-deployment-one-reader.md)), and a
+ * deployment without it should have a Newy that never offers to draw, not one
+ * that offers and then fails.
+ */
+export const imageTools: Partial<Record<'generateImage', typeof generateImage>> =
+  env.REPLICATE_API_KEY ? { generateImage } : {}
