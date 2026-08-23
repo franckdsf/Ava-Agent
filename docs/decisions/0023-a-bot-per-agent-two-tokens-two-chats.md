@@ -1,3 +1,11 @@
+---
+id: 0023
+applies_to: ["src/config/bots.ts", "src/services/telegram.ts", "src/mastra/channels.ts", "src/mastra/joob-channels.ts"]
+status: amended
+supersedes: []
+verify: "pnpm telegram:check"
+---
+
 # ADR-0023: A bot per agent — two tokens, two chats, one process
 
 - **Status:** Accepted — variables amended by [ADR-0041](0041-one-deployment-one-reader.md), which merges each bot's allowlist and chat id into one `AVA_TELEGRAM_USER_ID`. The decision here — a token per agent — is untouched; only the three-variables-per-bot shape is.

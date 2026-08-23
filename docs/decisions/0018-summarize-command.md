@@ -1,3 +1,11 @@
+---
+id: 0018
+applies_to: ["src/mastra/commands/summarize.ts", "src/mastra/agents/summarizer.ts", "src/config/summary.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm models:check"
+---
+
 # ADR-0018: `/summarize [language]`, answered in Chat, with the language typed rather than remembered
 
 - **Status:** Accepted

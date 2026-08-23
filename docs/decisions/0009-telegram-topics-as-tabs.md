@@ -1,3 +1,11 @@
+---
+id: 0009
+applies_to: ["src/services/telegram.ts", "src/services/telegram-topics.ts", "src/config/topics.ts"]
+status: partly-superseded
+supersedes: []
+verify: "pnpm telegram:check"
+---
+
 # ADR-0009: Telegram topics as tabs, splitting chat from news
 
 - **Status:** Accepted

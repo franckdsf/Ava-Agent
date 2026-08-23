@@ -1,3 +1,10 @@
+---
+id: 0014
+applies_to: ["src/db/memories.ts", "src/mastra/tools/memory.ts", "src/config/memory.ts"]
+status: accepted
+supersedes: []
+---
+
 # ADR-0014: Two-tier memory, dated and never rewritten
 
 - **Status:** Accepted

@@ -1,3 +1,11 @@
+---
+id: 0040
+applies_to: ["src/services/job-scout.ts", "src/services/page-fetch.ts", "src/config/jobs.ts"]
+status: accepted
+supersedes: ["0026"]
+verify: "pnpm sonar:check"
+---
+
 # ADR-0040: A careers page with nothing on it is a lead, not a job
 
 - **Status:** Accepted

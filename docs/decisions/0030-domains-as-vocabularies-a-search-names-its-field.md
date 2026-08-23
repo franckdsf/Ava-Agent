@@ -1,3 +1,11 @@
+---
+id: 0030
+applies_to: ["src/config/job-taxonomy.ts", "src/db/job-searches.ts", "src/mastra/commands/targets.ts"]
+status: accepted
+supersedes: ["0028"]
+verify: "pnpm jobs:check"
+---
+
 # ADR-0030: Domains as vocabularies, and a search names its own field
 
 - **Status:** Accepted

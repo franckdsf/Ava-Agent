@@ -1,3 +1,10 @@
+---
+id: 0022
+applies_to: ["**"]
+status: accepted
+supersedes: []
+---
+
 # ADR-0022: Ava is the system, and agents have their own names
 
 - **Status:** Accepted

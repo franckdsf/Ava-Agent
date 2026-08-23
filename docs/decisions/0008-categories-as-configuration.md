@@ -1,3 +1,10 @@
+---
+id: 0008
+applies_to: ["src/mastra/agents/curator.ts", "src/mastra/workflows/curate-all.ts", "src/config/seed-beats.ts"]
+status: partly-superseded
+supersedes: []
+---
+
 # ADR-0008: Categories as configuration, one parameterized curator
 
 - **Status:** Partly superseded by [ADR-0019](0019-beats-as-reader-owned-data.md).

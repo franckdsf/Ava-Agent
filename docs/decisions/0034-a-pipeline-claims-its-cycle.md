@@ -1,3 +1,11 @@
+---
+id: 0034
+applies_to: ["src/db/cycles.ts", "src/mastra/workflows/curate-all.ts", "src/mastra/workflows/find-jobs.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm catchup:check"
+---
+
 # ADR-0034: A pipeline claims its cycle in one write, rather than checking and then starting
 
 - **Status:** Accepted

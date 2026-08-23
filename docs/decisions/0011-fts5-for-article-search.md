@@ -1,3 +1,11 @@
+---
+id: 0011
+applies_to: ["src/db/schema.ts", "src/mastra/tools/news.ts", "drizzle/**"]
+status: accepted
+supersedes: []
+verify: "pnpm db:generate"
+---
+
 # ADR-0011: FTS5 for article search, not embeddings
 
 - **Status:** Accepted

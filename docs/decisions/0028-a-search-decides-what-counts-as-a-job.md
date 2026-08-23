@@ -1,3 +1,11 @@
+---
+id: 0028
+applies_to: ["src/services/job-filter.ts", "src/config/job-taxonomy.ts", "src/db/job-searches.ts"]
+status: amended
+supersedes: []
+verify: "pnpm jobs:check"
+---
+
 # ADR-0028: A search decides what counts as a job, not the taxonomy
 
 - **Status:** Accepted

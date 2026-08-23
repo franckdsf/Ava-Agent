@@ -1,3 +1,10 @@
+---
+id: 0003
+applies_to: []
+status: superseded
+supersedes: []
+---
+
 # ADR-0003: Convex for storage and scheduling
 
 - **Status:** Superseded by [ADR-0005](0005-two-libsql-databases-instead-of-convex.md). Never implemented.

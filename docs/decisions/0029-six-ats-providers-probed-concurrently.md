@@ -1,3 +1,11 @@
+---
+id: 0029
+applies_to: ["src/services/ats.ts"]
+status: accepted
+supersedes: ["0027"]
+verify: "pnpm jobs:check"
+---
+
 # ADR-0029: Six applicant-tracking providers, probed concurrently
 
 - **Status:** Accepted

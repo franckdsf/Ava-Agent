@@ -1,3 +1,10 @@
+---
+id: 0001
+applies_to: ["docker-compose.yml", "Dockerfile", "src/mastra/index.ts"]
+status: accepted
+supersedes: []
+---
+
 # ADR-0001: Mastra in a container with no inbound ports
 
 - **Status:** Accepted

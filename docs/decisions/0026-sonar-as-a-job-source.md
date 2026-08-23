@@ -1,3 +1,11 @@
+---
+id: 0026
+applies_to: ["src/services/job-scout.ts", "src/mastra/agents/job-scout.ts", "src/config/jobs.ts"]
+status: amended
+supersedes: []
+verify: "pnpm sonar:check"
+---
+
 # ADR-0026: Sonar as a job source, keyed on the page it resolves
 
 - **Status:** Accepted — extended by [ADR-0040](0040-a-careers-page-with-nothing-on-it-is-a-lead.md), which adds the gate this one lacks: a resolved careers page must list something.

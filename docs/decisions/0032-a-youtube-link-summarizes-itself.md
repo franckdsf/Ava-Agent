@@ -1,3 +1,11 @@
+---
+id: 0032
+applies_to: ["src/services/youtube.ts", "src/mastra/tools/youtube.ts", "src/config/youtube.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm youtube:check"
+---
+
 # ADR-0032: A YouTube link summarizes itself — a tool on Newy, not a command
 
 - **Status:** Accepted

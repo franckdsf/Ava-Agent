@@ -1,3 +1,10 @@
+---
+id: 0033
+applies_to: ["src/mastra/workflows/curate-all.ts", "src/mastra/workflows/find-jobs.ts", "src/db/jobs.ts", "src/db/beats.ts"]
+status: accepted
+supersedes: []
+---
+
 # ADR-0033: A delivery is claimed before it is sent, not stamped after
 
 - **Status:** Accepted

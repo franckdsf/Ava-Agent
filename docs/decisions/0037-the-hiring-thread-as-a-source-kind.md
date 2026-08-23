@@ -1,3 +1,11 @@
+---
+id: 0037
+applies_to: ["src/services/job-hn.ts", "src/services/job-fetch.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm jobs:check"
+---
+
 # ADR-0037: Hacker News's hiring thread is a source kind, not an adapter
 
 - **Status:** Accepted

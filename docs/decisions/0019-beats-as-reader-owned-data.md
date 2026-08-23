@@ -1,3 +1,10 @@
+---
+id: 0019
+applies_to: ["src/db/beats.ts", "src/db/schema.ts", "src/config/seed-beats.ts", "src/mastra/workflows/curate-all.ts"]
+status: accepted
+supersedes: ["0008"]
+---
+
 # ADR-0019: Beats are reader-owned data, and a story can sit on several
 
 - **Status:** Accepted

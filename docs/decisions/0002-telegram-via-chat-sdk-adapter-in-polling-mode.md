@@ -1,3 +1,11 @@
+---
+id: 0002
+applies_to: ["src/mastra/channels.ts", "src/mastra/joob-channels.ts", "src/services/telegram.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm telegram:check"
+---
+
 # ADR-0002: Telegram via Chat SDK adapter in polling mode
 
 - **Status:** Accepted

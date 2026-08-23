@@ -1,3 +1,10 @@
+---
+id: 0041
+applies_to: ["**"]
+status: accepted
+supersedes: ["0023"]
+---
+
 # ADR-0041: One deployment, one reader — and a `.env` that says only who they are
 
 - **Status:** Accepted

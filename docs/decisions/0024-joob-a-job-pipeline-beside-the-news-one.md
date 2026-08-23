@@ -1,3 +1,11 @@
+---
+id: 0024
+applies_to: ["src/mastra/workflows/find-jobs.ts", "src/mastra/agents/joob.ts", "src/services/joob-telegram.ts", "src/config/jobs.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm jobs:check"
+---
+
 # ADR-0024: Joob — a job pipeline beside the news one, sharing everything but the tables
 
 - **Status:** Accepted
@@ -300,3 +308,46 @@ that makes a scheduled run a metered one and deserves its own decision about
 caps. Also revisit if searches ever want genuinely different *pipelines* rather
 than different filters, which is when one tab stops being enough and
 ADR-0021's per-beat tab becomes the right model after all.
+
+---
+
+## Amendments, 2026-08-23
+
+Two things settled after this ADR was accepted, recorded here rather than in a new record because
+both are this decision's own subject. **Nothing above is rewritten** — these are additions.
+
+### The scorer is one slow call, and slowness is not the defect
+
+Scoring is a single batch call for the whole run — the largest prompt in this repo, most of it the
+reader's CV. It is slow, and **duration is not the risk**: the run is unattended, nothing waits on
+it, and a slow scheduled job is simply a slow scheduled job. **Do not "fix" it by switching models
+for speed.**
+
+What *is* the risk is that it is **one call whose failure costs the whole batch** — which is why it
+retries (`jobPipeline.modelAttempts`) and why a failure leaves postings **unscored** rather than
+scored at zero.
+
+*No latency figure is recorded here on purpose.* The measurement that produced this decision was
+taken at `maxJobsPerScoringRun: 60` and `intervalHours: 44`; both have since changed (90 and 20).
+A number that outlives its configuration is worse than no number, and the decision does not depend
+on one — take a fresh reading off `job_runs` if you need it.
+
+**Cost:** the run's most expensive request has no timeout budget anyone is defending, so a provider
+degradation shows up as a run that never finishes rather than as an error, and the reader's only
+symptom is a quiet day. It also locks the scorer out of any future latency-sensitive caller.
+
+### The CV prioritises the scoring batch and may never filter it
+
+When more postings survive the filter than can be scored, the batch used to be the *newest*.
+`rankByCvOverlap` (`src/mastra/workflows/find-jobs.ts`) orders by how many of the reader's own
+technologies a posting names, with recency as the tie-break — applied **before** the slice, never as
+a rejection. Measured against the live table on a loose target: mean CV overlap in the scored batch
+**0.57 → 2.80**, with 48 of 60 slots changing hands.
+
+**The rule is the asymmetry:** a deprioritised posting costs days, a filtered one is invisible
+forever. The same reasoning is why `/target` never feeds the CV to the parser.
+
+**Cost:** the pipeline still pays for model calls on postings the CV plainly does not match, and the
+ordering is a raw overlap count — so an agency advert naming twenty technologies outranks a real
+match (Lemon.io's *Senior Graphic Designer* ranked sixth). Normalising by the posting's own tag
+count would fix that and is unmeasured.

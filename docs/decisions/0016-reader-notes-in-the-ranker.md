@@ -1,3 +1,10 @@
+---
+id: 0016
+applies_to: ["src/mastra/workflows/curate-all.ts", "src/mastra/agents/curator.ts", "src/db/memories.ts"]
+status: accepted
+supersedes: []
+---
+
 # ADR-0016: The ranker reads Ava's notes about the reader
 
 - **Status:** Accepted

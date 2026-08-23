@@ -1,3 +1,10 @@
+---
+id: 0015
+applies_to: ["src/mastra/workflows/review-memories.ts", "src/mastra/agents/memory.ts", "src/config/memory.ts"]
+status: accepted
+supersedes: []
+---
+
 # ADR-0015: A weekly model-judged review promotes memories, then expires them
 
 - **Status:** Accepted

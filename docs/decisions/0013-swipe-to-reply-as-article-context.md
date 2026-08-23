@@ -1,3 +1,10 @@
+---
+id: 0013
+applies_to: ["src/services/telegram-reply.ts", "src/services/quoted-article.ts", "src/mastra/commands/article-context.ts"]
+status: accepted
+supersedes: []
+---
+
 # ADR-0013: Swipe-to-reply resolves the article, with no table
 
 - **Status:** Accepted

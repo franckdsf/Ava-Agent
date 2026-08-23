@@ -1,3 +1,11 @@
+---
+id: 0027
+applies_to: ["src/services/ats.ts", "src/services/job-scout.ts", "src/config/jobs.ts"]
+status: partly-superseded
+supersedes: []
+verify: "pnpm jobs:check"
+---
+
 # ADR-0027: Real postings off applicant-tracking boards, and the boards become sources
 
 - **Status:** Partly superseded by [ADR-0029](0029-six-ats-providers-probed-concurrently.md).

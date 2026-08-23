@@ -1,3 +1,10 @@
+---
+id: 0005
+applies_to: ["src/db/client.ts", "src/mastra/storage.ts", "src/lib/libsql-url.ts", "docker-compose.yml"]
+status: accepted
+supersedes: ["0003"]
+---
+
 # ADR-0005: Two libSQL databases instead of Convex
 
 - **Status:** Accepted

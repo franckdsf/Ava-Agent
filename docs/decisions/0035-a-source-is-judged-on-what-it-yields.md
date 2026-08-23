@@ -1,3 +1,11 @@
+---
+id: 0035
+applies_to: ["src/db/jobs.ts", "src/config/jobs.ts", "src/mastra/workflows/find-jobs.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm jobs:check"
+---
+
 # ADR-0035: A source is judged on what it yields, not on whether it answers
 
 - **Status:** Accepted

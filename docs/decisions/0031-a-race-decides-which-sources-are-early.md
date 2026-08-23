@@ -1,3 +1,11 @@
+---
+id: 0031
+applies_to: ["src/services/feed-timeliness.ts", "src/services/feed-finder.ts", "src/config/feed-finder.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm finder:check"
+---
+
 # ADR-0031: A race decides which sources are early, not a health check
 
 - **Status:** Accepted

@@ -1,3 +1,11 @@
+---
+id: 0021
+applies_to: ["src/services/telegram-topics.ts", "src/db/topics.ts", "src/config/topics.ts"]
+status: accepted
+supersedes: ["0009"]
+verify: "pnpm telegram:check"
+---
+
 # ADR-0021: A tab per beat, created on first delivery
 
 - **Status:** Accepted

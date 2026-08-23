@@ -1,3 +1,11 @@
+---
+id: 0036
+applies_to: ["src/db/job-searches.ts", "src/services/job-filter.ts", "src/mastra/commands/targets.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm jobs:check"
+---
+
 # ADR-0036: A source may declare its field, and a search may be re-read
 
 - **Status:** Accepted

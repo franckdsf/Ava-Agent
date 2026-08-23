@@ -1,3 +1,10 @@
+---
+id: 0007
+applies_to: ["src/services/cluster.ts", "src/config/pipeline.ts"]
+status: accepted
+supersedes: []
+---
+
 # ADR-0007: Lexical clustering instead of embeddings
 
 - **Status:** Accepted

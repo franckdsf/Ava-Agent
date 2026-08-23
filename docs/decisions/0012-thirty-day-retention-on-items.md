@@ -1,3 +1,10 @@
+---
+id: 0012
+applies_to: ["src/mastra/workflows/prune-articles.ts", "src/config/pipeline.ts", "src/db/articles.ts"]
+status: accepted
+supersedes: []
+---
+
 # ADR-0012: Thirty-day retention on items, enforced by a scheduled prune
 
 - **Status:** Accepted

@@ -1,3 +1,11 @@
+---
+id: 0038
+applies_to: ["src/mastra/workflows/find-leads.ts", "src/services/lead-identity.ts", "src/services/lead-filter.ts", "src/config/leads.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm leads:check"
+---
+
 # ADR-0038: Leads — a prospecting pipeline in Joob's chat, keyed on a company
 
 - **Status:** Accepted

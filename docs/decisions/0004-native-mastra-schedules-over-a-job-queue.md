@@ -1,3 +1,10 @@
+---
+id: 0004
+applies_to: ["src/mastra/index.ts", "src/mastra/workflows/**"]
+status: accepted
+supersedes: []
+---
+
 # ADR-0004: Native Mastra schedules over a job queue
 
 - **Status:** Accepted

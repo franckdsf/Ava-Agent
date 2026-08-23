@@ -1,3 +1,11 @@
+---
+id: 0006
+applies_to: ["src/db/schema.ts", "src/db/client.ts", "drizzle/**"]
+status: accepted
+supersedes: []
+verify: "pnpm db:generate"
+---
+
 # ADR-0006: Drizzle ORM for application tables
 
 - **Status:** Accepted

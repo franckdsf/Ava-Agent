@@ -1,3 +1,11 @@
+---
+id: 0039
+applies_to: ["src/services/lead-scout.ts", "src/mastra/agents/lead-scout.ts", "src/config/leads.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm leadscout:check"
+---
+
 # ADR-0039: A lead scout with its own budget, and a verification the job scout does not need
 
 - **Status:** Accepted

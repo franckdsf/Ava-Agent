@@ -1,3 +1,11 @@
+---
+id: 0020
+applies_to: ["src/mastra/workflows/discover-feeds.ts", "src/services/feed-discovery.ts", "src/config/discovery.ts"]
+status: accepted
+supersedes: []
+verify: "pnpm discovery:check"
+---
+
 # ADR-0020: The model proposes sites, the code finds the feeds
 
 - **Status:** Accepted
