@@ -18,7 +18,7 @@ import { pipelineCycles } from './schema.js'
 
 export type CycleClaim =
   /** This run owns the cycle and must proceed. */
-  | { claimed: true }
+  | { claimed: true; release: () => Promise<void> }
   /** Another run owns it, or it is simply too soon. `lastStartedAt` is why. */
   | { claimed: false; lastStartedAt: number }
 
@@ -41,6 +41,19 @@ export type CycleClaim =
  * sources and makes the same model calls. A forced run that left the marker
  * untouched would let the next scheduled fire run again minutes later, which is
  * the thing being prevented.
+ *
+ * **A winner gets a `release`, and it is only for a run that did nothing.** The
+ * claim is deliberately written before any work, so a run that dies on its very
+ * first statement still spends the cycle — and one did: on 2026-08-23 two fires
+ * arrived in the same millisecond, the winner's `insert into job_runs` lost the
+ * write lock with `SQLITE_BUSY`, and a run that had touched no source and made
+ * no model call cost the pipeline the whole interval. Handing the cycle back
+ * costs nothing there, because nothing was spent.
+ *
+ * It is *not* a general undo. Once a run has fetched a source or called a model
+ * it has spent the cycle whatever happens next, and releasing would let the next
+ * fire spend it again minutes later. Callers therefore release only inside the
+ * window before their first side effect.
  */
 export async function claimCycle(
   id: string,
@@ -50,12 +63,20 @@ export async function claimCycle(
   await migrate()
   const now = Date.now()
 
+  // Read before the write, purely so a release has something to restore. It is
+  // *not* part of the decision — that still comes out of the guarded write
+  // below, which is the whole point of this function. A value that goes stale
+  // between here and there cannot be restored over anyone: `releaseCycle` only
+  // matches a row still stamped `now`, and the only writer who could have moved
+  // it in that window is one whose stamp makes our own guard fail.
+  const previous = await lastCycleStart(id)
+
   if (options.force) {
     await db()
       .insert(pipelineCycles)
       .values({ id, startedAt: now })
       .onConflictDoUpdate({ target: pipelineCycles.id, set: { startedAt: now } })
-    return { claimed: true }
+    return { claimed: true, release: () => releaseCycle(id, now, previous) }
   }
 
   const inserted = await db()
@@ -63,21 +84,50 @@ export async function claimCycle(
     .values({ id, startedAt: now })
     .onConflictDoNothing()
     .returning({ id: pipelineCycles.id })
-  if (inserted.length > 0) return { claimed: true }
+  if (inserted.length > 0) return { claimed: true, release: () => releaseCycle(id, now, null) }
 
   const claimed = await db()
     .update(pipelineCycles)
     .set({ startedAt: now })
     .where(and(eq(pipelineCycles.id, id), lt(pipelineCycles.startedAt, now - minGapMs)))
     .returning({ id: pipelineCycles.id })
-  if (claimed.length > 0) return { claimed: true }
+  if (claimed.length > 0) return { claimed: true, release: () => releaseCycle(id, now, previous) }
 
-  // Only for the message. The decision was made above, by the write.
+  // Only for the message, and read again rather than reused from `previous`:
+  // the number a turned-away run reports should be the winner's fresh stamp.
+  // The decision was made above, by the write.
+  return { claimed: false, lastStartedAt: (await lastCycleStart(id)) ?? now }
+}
+
+/** When the cycle for `id` last started, or null on a fresh volume. */
+async function lastCycleStart(id: string): Promise<number | null> {
   const [row] = await db()
     .select({ startedAt: pipelineCycles.startedAt })
     .from(pipelineCycles)
     .where(eq(pipelineCycles.id, id))
-  return { claimed: false, lastStartedAt: row?.startedAt ?? now }
+  return row?.startedAt ?? null
+}
+
+/**
+ * Puts the marker back the way a claim found it, if the claim still stands.
+ *
+ * Guarded on `startedAt === stamp` — the value the claim wrote — which is what
+ * makes this safe to call late and safe to call twice. A release that arrives
+ * after some later run has claimed the cycle matches nothing and does nothing,
+ * rather than handing that run's cycle away underneath it.
+ *
+ * `previous === null` means the claim created the row on a fresh volume, so the
+ * way back is to delete it rather than to invent a timestamp: a row stamped with
+ * some epoch-ish number would read as "ran long ago" and be indistinguishable
+ * from a real one.
+ */
+async function releaseCycle(id: string, stamp: number, previous: number | null): Promise<void> {
+  const still = and(eq(pipelineCycles.id, id), eq(pipelineCycles.startedAt, stamp))
+  if (previous === null) {
+    await db().delete(pipelineCycles).where(still)
+    return
+  }
+  await db().update(pipelineCycles).set({ startedAt: previous }).where(still)
 }
 
 /** Hours since `lastStartedAt`, for the note a turned-away run reports. */

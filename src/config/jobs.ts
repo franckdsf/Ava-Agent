@@ -102,8 +102,29 @@ export const jobPipeline = {
    */
   intervalHours: 20,
 
-  /** Hour the daily schedule fires, in `AGENT_TIMEZONE`. */
-  runHour: 8,
+  /**
+   * Hours the schedule fires, in `AGENT_TIMEZONE`.
+   *
+   * **Two fires a day, and the second one is not a second run.** The gate above
+   * still decides, so at 20h apart a 08:00 fire and a 20:00 fire cannot both
+   * work: whichever claims the cycle turns the other away. What the second fire
+   * buys is a *retry*, and the failure it exists for is one this repo measured.
+   *
+   * A process that is not up at 08:00 never gets the fire on time. The scheduler
+   * replays the missed one at boot instead, which lands at whatever hour the
+   * container came up — and a boot a few hours after a run replays into a gate
+   * that correctly refuses it. With a single fire a day that refusal was the
+   * day's only chance, so the pipeline went quiet until the next boot at a
+   * luckier hour: on 2026-08-24 the replayed 08:00 fire was turned away with
+   * "Only 14.3h since the last run", and nothing ran for the next 27 hours.
+   * `catchup.jobsStaleAfterDays` does not cover that gap by design — its bar is
+   * 72h, well above the interval here.
+   *
+   * So this is a list rather than a number because the cadence lives in
+   * `intervalHours` and always did. Adding an hour here adds an opportunity, not
+   * a run, and the model spend is unchanged.
+   */
+  runHours: [8, 20],
 
   /**
    * Longest description stored per posting.

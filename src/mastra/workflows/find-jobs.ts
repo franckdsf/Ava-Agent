@@ -62,11 +62,14 @@ import {
  * schedule: the scorer is a classifier over a row set handed to it, and its
  * answers are validated against that set on the way back.
  *
- * **The schedule fires daily and `jobPipeline.intervalHours` decides whether a
- * firing works.** The gate stays even though the cadence is now daily too: a
- * missed schedule firing on boot has already put two runs in flight at once in
- * this repo. It also keeps the cadence a property of the data, so retuning it is
- * one number here rather than a cron expression that has to encode an interval.
+ * **The schedule fires twice a day and `jobPipeline.intervalHours` decides
+ * whether a firing works.** The gate is what makes the second fire safe: at a
+ * 20h interval only one of 08:00 and 20:00 can claim the cycle, so the extra
+ * fire is a retry rather than a second run. It exists because a fire refused by
+ * the gate used to be the day's only chance — see `jobPipeline.runHours`. The
+ * gate also keeps the cadence a property of the data, so retuning it is one
+ * number in the config rather than a cron expression that has to encode an
+ * interval.
  *
  * **`job_runs.startedAt` was said to make that impossible, and it did not.** The
  * gate read it and inserted the next run several awaits later, so two fires
@@ -186,16 +189,36 @@ const ingest = createStep({
       return []
     }
 
-    const searches = await activeSearches()
-    const wanted = inputData.searches
-      ? searches.filter(search => inputData.searches?.includes(search.slug))
-      : searches
-    if (wanted.length === 0) {
-      await setState({ ...idle, note: 'Nothing to look for — no active searches. Use /target.' })
-      return []
+    /**
+     * From the claim to here, nothing has been spent — and everything in this
+     * block can end the run without spending anything.
+     *
+     * A claim is written before any work on purpose, so that two fires cannot
+     * both pass the gate. The cost is that a run which stops on its first
+     * statement still burns the interval, and that is not theoretical: on
+     * 2026-08-23 this very `startJobRun()` lost the write lock to a simultaneous
+     * fire with `SQLITE_BUSY`, and a run that had fetched nothing cost the
+     * pipeline its cycle. Handing the claim back here is honest because no
+     * source has been fetched and no model has been called; past this point it
+     * would not be, which is why the window closes on the next line.
+     */
+    let wanted: JobSearch[]
+    let runId: string
+    try {
+      const searches = await activeSearches()
+      wanted = inputData.searches
+        ? searches.filter(search => inputData.searches?.includes(search.slug))
+        : searches
+      if (wanted.length === 0) {
+        await cycle.release()
+        await setState({ ...idle, note: 'Nothing to look for — no active searches. Use /target.' })
+        return []
+      }
+      runId = await startJobRun()
+    } catch (error) {
+      await cycle.release()
+      throw error
     }
-
-    const runId = await startJobRun()
 
     // The CV. A failure here stops the run rather than scoring against nothing:
     // unscored postings simply wait, and the next run picks them all up. It is
@@ -903,12 +926,17 @@ export const findJobs = createWorkflow({
   inputSchema: runInput,
   outputSchema: runReport,
   stateSchema: runState,
-  // Daily, gated by `job_runs.startedAt` — see the note at the head of this file
-  // for why the cron does not express the cadence itself.
+  // Twice a day, gated by `pipeline_cycles` — see the note at the head of this
+  // file for why the cron does not express the cadence itself, and
+  // `jobPipeline.runHours` for why two fires are still one run.
   schedule: [
     {
+      // Still `jobs-daily`, and deliberately: the id names the *cadence*, which
+      // is one run a day, not the number of fires. It is also the key of the
+      // stored schedule row — renaming it strands the old row, and a stranded
+      // row is still active, which is how one pipeline ends up with two.
       id: 'jobs-daily',
-      cron: `0 ${jobPipeline.runHour} * * *`,
+      cron: `0 ${jobPipeline.runHours.join(',')} * * *`,
       timezone: env.AGENT_TIMEZONE,
       inputData: {},
     },
