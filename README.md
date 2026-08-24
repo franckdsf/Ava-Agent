@@ -1,386 +1,125 @@
-# ava-agent
+# Ava Agent 🦋
 
-A personal Telegram orchestrator that curates RSS news through category-expert
-sub-agents, on a schedule.
+A self-hosted Telegram bot that reads RSS/news feeds and job boards on a
+schedule, ranks what it finds against your interests, and delivers a curated
+digest — no dashboard, no inbound webhook, just a chat.
 
-## Names
+> **⚠️ Vibe-coded.** This is a personal project, built almost entirely with an
+> AI coding agent (Claude Code) and run for an audience of one. It works well
+> enough that I trust it with my own reading, but it hasn't had a review, 
+> a second maintainer, or production hardening. Read the code before
+> you point it at anything that matters, and expect rough edges.
 
-**Ava is the system, not an agent.** It is the repo, the database, the container,
-the `AVA_*` environment — everything that outlives any one agent. Agents living
-inside it have their own names, and **Newy** is the first: the conversational
-agent behind the Chat tab, and the one whose face the bot wears.
+## What it does
 
-The distinction matters because the system is built to hold more than one of
-them, sharing Ava's memory and Ava's tables. Anything named `ava` in a path, a
-variable or a volume is the system; a name in a prompt or a tab is an agent. See
-[ADR-0022](docs/decisions/0022-ava-is-the-system-agents-have-names.md).
+Two bots, one reader. Both run **outbound-only** — the container polls
+Telegram and calls an LLM gateway, nothing needs to reach it from the
+network — so it runs fine on a laptop, a Raspberry Pi, or a small VPS.
 
-## Architecture
+### Newy — news
+
+Subscribes to RSS feeds grouped into "beats" (e.g. `design`, `ai`,
+`climate`), dedupes stories carried by multiple outlets, scores each item
+against your beat's rubric and your past 👍/👎, and writes a digest for the
+ones that clear the bar — three times a day, one message per article, into
+a Telegram topic per beat.
+
+Talk to Newy directly in the **Chat** tab: it remembers facts about you over
+time (durable facts vs. recent context) and can translate or summarize any
+article it delivered. A beat is just a row in the database — no code change,
+no restart — so it can also be run by hand from Mastra Studio: `Workflows →
+curateAll → { "beats": ["design"] }`.
+
+| Command | What it does |
+| --- | --- |
+| `/follow <subject>` | Follow a new subject — Newy finds the feeds itself |
+| `/beats` | List the beats it follows and how each is doing |
+| `/beat <slug>` | Show one beat's rubric, feeds and thresholds |
+| `/pause` / `/resume <slug>` | Stop or restart a beat without losing it |
+| `/addfeed` / `/removefeed <slug> <url>` | Manage a beat's feeds directly |
+| `/why` | Swipe an article and ask why it was — or wasn't — sent |
+| `/summarize [lang]` | A few hundred words on an article, in any language |
+| `/translate` / `/translearn` | An article translated, glossed for your level |
+
+### Joob — jobs & leads
+
+A second bot that crawls job boards and company career pages, scores
+postings against your CV, and separately flags companies that look like
+they *should* be hiring you even if they haven't posted a role — jobs in
+the **Jobs** tab, prospects in **Leads**.
+
+| Command | What it does |
+| --- | --- |
+| `/target <what you want>` | Describe a role in your own words — Joob parses it into a search |
+| `/targets` / `/untarget <slug>` | List or stop one of your active searches |
+| `/retarget <slug> [wording]` | Re-read a search with the current parser, or change it |
+| `/client <what you sell, to whom>` | Describe a lead profile for prospecting |
+| `/clients` / `/unclient <slug>` | List or stop one of your active client profiles |
+| `/reclient <slug> [wording]` | Re-read a client profile, or change it |
+
+Both command sets are also always in Telegram's own `/` menu for each bot,
+with a one-line description — the tables above are the shape, not the full
+help text (`/start` in either chat prints the rest).
+
+## How it works
 
 ```
 ┌─ container (no inbound ports) ──────────────┐
 │  Mastra          agents + workflows          │   ┌─ ava.db (libsql/Turso) ─┐
-│  scheduler       native cron, Studio UI      │──▶│  mastra_* domains       │
-│  Telegram        long-polling, outbound only │   │  feed_state/items/      │
-└──────────────────────────────────────────────┘   │  feedback (Drizzle)     │
-                                                   └─────────────────────────┘
-                                                   ┌─ traces.db ─────────────┐
-                                                   │  observability only     │
-                                                   └─────────────────────────┘
+│  scheduler       native cron                  │──▶│  news / jobs / leads    │
+│  Telegram        long-polling, outbound only │   │  memory, feedback       │
+└──────────────────────────────────────────────┘   └─────────────────────────┘
 ```
 
-**Mastra reasons, libSQL remembers.** Every LLM call happens in the container;
-all durable state lives in libSQL. Nothing needs to reach the container from the
-network — it polls Telegram and calls the model gateway outbound — so it runs
-unchanged on a laptop, a Pi, a VPS, or Fly.
+Only two steps of the pipeline call a model — ranking and composing the
+digest. Ingest, dedupe, and clustering are deterministic, so a scheduled job
+never has an LLM improvising its own control flow.
 
-Two databases, split by lifetime: `ava.db` holds everything worth keeping,
-`traces.db` is high-volume and disposable, so trace churn never contends for
-locks with real data and the file can be deleted at any time.
+Built on [Mastra](https://mastra.ai) for agents/workflows, libSQL for
+storage, and `@chat-adapter/telegram` for delivery. Any model reachable
+through [OpenRouter](https://openrouter.ai) works.
 
-### The pipeline
-
-`ingest → cluster → rank → compose`, one workflow for every beat:
-
-1. **ingest** — conditional GET per feed (ETag/Last-Modified), items older than
-   `maxItemAgeDays` dropped, insert deduped on a hash of the canonical link.
-2. **cluster** — lexical Jaccard over normalized titles, so one story carried by
-   five outlets is ranked and delivered once.
-3. **rank** — one cheap-model call scores every new item against the category
-   rubric plus your recent 👍/👎.
-4. **compose** — a strong model writes the digest for the handful that cleared
-   the threshold.
-
-Only steps 3 and 4 call a model. That's deliberate: a scheduled job that lets an
-LLM pick its own control flow is how you get surprise bills and duplicate
-messages.
-
-A seventh schedule, `prune-items`, runs at 04:00 and deletes items older than
-`retentionDays`, so the database stops growing without bound. It calls no model
-either. Retention must stay well above `maxItemAgeDays` — freeing an id frees it
-for re-ingest, and the ingest window is what stops a deleted story coming back
-([0012](docs/decisions/0012-thirty-day-retention-on-items.md)).
-
-## Setup
+## Quick start
 
 ```bash
 pnpm install
-cp .env.example .env     # add OPENROUTER_API_KEY at minimum
-pnpm dev                 # Studio at http://localhost:4111 (PORT= in .env moves it)
-```
-
-Only `OPENROUTER_API_KEY` is required to start — Telegram variables are
-validated lazily, so the news pipeline is fully usable before the bot exists.
-
-To reach it from Telegram you need two more: `AVA_TELEGRAM_USER_ID`, your numeric
-user id (@userinfobot tells you), and a bot token. That one id is the allowlist
-for every bot *and* the chat each bot pushes to — in a DM, Telegram's `chat_id`
-is the user id, so it is one number rather than four
-([ADR-0041](docs/decisions/0041-one-deployment-one-reader.md)).
-
-**Models are not in `.env`.** Every one is chosen in
-[`src/config/env.ts`](src/config/env.ts), with the measurement that chose it
-written beside it, and every one has a working default. A `.env` is copied once
-at deployment and never revisited while the code keeps moving — so a model id
-kept there is a decision that outlives its own reasoning. `.env.example` lists
-them commented out, for experiments.
-
-`PORT` moves the server when 4111 is taken, and one variable is enough: Studio,
-the built server behind `pnpm start`, and the terminal scripts that drive it
-([`src/config/dev-server.ts`](src/config/dev-server.ts)) all read it. Docker is
-deliberately outside that — the image publishes 4111 whatever this machine does,
-because that is the container's own layout.
-
-On first boot the `beats` table is seeded from
-[`src/config/seed-beats.ts`](src/config/seed-beats.ts) so there is something to
-read. After that the table is the authority — the file is a starting state, not
-configuration.
-
-In Studio, open **Workflows → curateAll** and run it with `{}` for every beat, or
-`{ "beats": ["design"] }` for one. **Workflows → Schedules** lists five declared
-fire times: three digests, the nightly prune, and the weekly memory review.
-
-## Adding a beat
-
-A beat is a row in `beats` plus its feeds in `beat_feeds` — slug, subtopics,
-rubric, and optional thresholds that fall back to `src/config/pipeline.ts` when
-null. Nothing is derived at boot any more, so a beat added while the process is
-running is picked up by the next digest with no restart
-([ADR-0019](docs/decisions/0019-beats-as-reader-owned-data.md)). What makes each
-curator expert on its beat is its rubric, passed in the ranker's prompt, plus a
-per-beat feedback history and Newy's notes about the reader.
-
-A story carried by two beats' feeds is stored once and scored by both, and is
-delivered by whichever scored it higher. The others keep their score and a
-one-line reason, so you can ask why something was skipped.
-
-Then verify the feeds resolve:
-
-```bash
-pnpm feeds:check
-```
-
-## Commands
-
-| Command | Purpose |
-| --- | --- |
-| `pnpm dev` | Mastra Studio — run agents and workflows, read traces |
-| `pnpm build` | Bundle to `.mastra/output` |
-| `pnpm workflow:run <target>` | Fire a scheduled workflow by hand against a running `pnpm dev`. **Spends money and sends to Telegram** — every other script here is a dry run. `--help` lists the targets and what each one costs |
-| `pnpm feeds:check` | Confirm every subscribed feed is reachable and parses |
-| `pnpm catchup:check` | Show what a boot would do about a pipeline that has gone quiet |
-| `pnpm jobs:check` | Fetch every job source for real and report per-source field coverage, the cross-board dedupe, and **which sources the next run would archive for low yield**. Writes nothing, calls no model |
-| `pnpm sonar:check "<slug or text>"` | Dry-run the `sonar` job source — companies, careers pages, what survives the filter. Calls a model |
-| `pnpm finder:check "<topic>"` | Find candidate sources and measure **which of them break a story and which repeat it late**. `--against <url>` races them past feeds you already have |
-| `pnpm rssfinder:check "<subject or domain>"` | Ask rssfinder.app what feeds it knows about a subject or a site. Add `--verify` to fetch each one |
-| `pnpm youtube:check [url]` | Fetch real YouTube transcripts and report what the summarizer would be handed. The early warning for the caption route being blocked |
-| `pnpm models:check` | Compare candidate models for the translator and the summarizer on parse rate, latency and **`$/call` rather than rate card**, against stored articles with only the model swapped. Calls models, writes nothing. `--task`, `--models`, `--repeats`, `--concurrency`; transcripts land in `.data/model-bench/` |
-| `pnpm db:generate` | Emit a migration after editing `src/db/schema.ts` |
-| `pnpm db:studio` | Browse the database |
-| `pnpm typecheck` | `tsc --noEmit` |
-
-## Deployment
-
-```bash
+pnpm setup                # interactive: keys, your Telegram id, both bot tokens
 docker compose up -d --build
 ```
 
-State lives in the `ava-data` volume, so back it up — it holds your dedupe
-history and the feedback that trains the rankers.
+`pnpm setup` walks you through getting a token from
+[@BotFather](https://t.me/BotFather) and your numeric id from
+[@userinfobot](https://t.me/userinfobot) — the two things only a human can do on
+Telegram's side — checks each token live, and writes `.env`. Answer just the
+`OPENROUTER_API_KEY` prompt and say no to the Telegram questions to skip
+straight to `pnpm dev` (Mastra Studio at http://localhost:4111) and run the
+news pipeline by hand instead.
 
-### Updating a running deployment
+State (dedupe history, feedback, memory) lives in the `ava-data` volume —
+back it up.
 
-```bash
-./scripts/deploy.sh                                    # single deployment
-./scripts/deploy.sh -p ava-alice --env-file deploy/alice.env
-```
+## Useful dev commands
 
-Fetch, rebuild, restart — and **prove the migrations landed**. It is a no-op
-when the branch is already at its upstream and the container is up, so it is
-safe on a timer (`--force` rebuilds anyway).
+| Command               | What it does                                              |
+| --------------------- | --------------------------------------------------------- |
+| `pnpm dev`            | Mastra Studio — run workflows by hand, inspect traces     |
+| `pnpm feeds:check`    | Confirm every subscribed feed is reachable                |
+| `pnpm jobs:check`     | Dry-run the jobs pipeline against real sources, no writes |
+| `pnpm telegram:check` | Verify both bots' profile, commands, and tabs are live    |
+| `pnpm typecheck`      | `tsc --noEmit`                                            |
 
-Migrations are not applied *by* the script: `migrate()` in
-[`src/db/client.ts`](src/db/client.ts) is memoized and awaited by every
-repository call, and `seedBeats()` fires at boot, so a container that comes up
-on new code has already run whatever was pending before it answers anything.
-What the script adds is the two things lazy migration cannot do for itself:
+More scripts and what each proves: [docs/COMMANDS.md](docs/COMMANDS.md).
 
-- **A snapshot before the irreversible part.** Migrations against a file
-  database have no `down`, and several of them rewrite tables rather than adding
-  columns. The volume is tarred into `backups/` (gitignored, last 7 kept,
-  `traces.db` excluded) with the container *stopped*, so libsql has
-  checkpointed — a live `.db` without its `-wal` sibling is missing whatever was
-  not flushed.
-- **A check that they actually applied.** A migration that throws leaves the
-  container **running**; it fails at the first repository call instead, hours
-  later, in a chat. So the script counts rows in `__drizzle_migrations` against
-  the tags in `drizzle/meta/_journal.json` and fails the deploy — with the
-  container's log and the restore command — if they do not meet.
+## Docs
 
-The build runs before the stop, so downtime is the restart rather than the
-build. A stateless deployment (`AVA_DATA_DB_URL` on Turso) is detected by its
-missing `/data` mount: nothing to snapshot, and the migration count is reported
-as unchecked rather than as passing.
-
-One thing worth knowing before putting this on a timer: restarting while a
-pipeline is past its catch-up bar costs a real run, models included — see
-[Coming back after a long absence](#coming-back-after-a-long-absence).
-
-### One deployment per reader
-
-A deployment serves one person: one CV, one set of beats, one `memories` table,
-one `/client` profile. Several people means several **Compose projects** off this
-same file and this same image
-([ADR-0041](docs/decisions/0041-one-deployment-one-reader.md)):
-
-```bash
-docker compose -p ava-alice --env-file deploy/alice.env up -d --build
-docker compose -p ava-bob   --env-file deploy/bob.env   up -d
-```
-
-`-p` is what keeps them apart — `ava-alice_ava-data` and `ava-bob_ava-data` are
-different volumes, `ava-alice-ava-1` and `ava-bob-ava-1` different containers.
-`image: ava-agent:latest` means the first `--build` serves all of them.
-
-Each reader's file is a copy of `.env.example` carrying their own id, their own
-bot tokens, their own portfolio URL, their own timezone — and their own
-`AVA_HOST_PORT`, which is the one thing two deployments on a box collide over.
-`deploy/` is gitignored, as is every `.env*` except the example.
-
-`docker-compose.yml` lists its variables explicitly rather than using
-`env_file:`. That is deliberate: `env_file` resolves against the compose file
-while `--env-file` feeds only interpolation, so the second deployment would have
-booted with the first one's `.env` — and answered the first one's reader.
-
-Running several on one box costs one thing worth knowing: each is a full Node
-process with its own schedules, so the digest hours fire N times. Nothing is
-shared, including the OpenRouter key, which is per reader and therefore per bill.
-
-### Coming back after a long absence
-
-Schedules survive a restart, which means a machine that was off for a fortnight
-comes back and simply waits for the next digest hour. So a boot **checks how long
-each pipeline has been quiet** and fires the ones that have stopped, unless their
-next scheduled fire is within half an hour:
-
-| Pipeline | Normal cadence | Fires on boot after |
-| --- | --- | --- |
-| News (`curate-all`) | three digests a day | **7 days** without an ingest |
-| Jobs (`find-jobs`) | a run every two days | **3 days** without a run |
-
-Two bars rather than one, because a week of silence is twenty missed digests but
-only three missed job runs. Three days for jobs rather than two so the bar sits
-just above what a *healthy* jobs pipeline can drift to on its own (~68h), which is
-what keeps an ordinary restart from costing a scoring run. The cadence itself is
-untouched either way — the 08:00 digest still happens.
-
-Both numbers are in [`src/config/catchup.ts`](src/config/catchup.ts), the
-reasoning is in [ADR-0025](docs/decisions/0025-a-boot-catch-up-for-a-stale-pipeline.md),
-and `pnpm catchup:check` prints what a boot right now would decide. The one thing
-worth knowing: restarting the container while a pipeline is past its bar now costs
-a real run, models included.
-
-### Moving an existing database into the volume
-
-**Do this before the first `compose up` if you have been running `pnpm dev`**,
-because an empty volume against a chat you already use is not a clean start:
-
-- `telegram_topics` is empty, so `resolveTopics()` creates a **second** set of
-  tabs. `createForumTopic` is not idempotent and `deleteForumTopic` is not wired
-  — the cleanup is manual, on the phone.
-- `beats` re-seeds from `src/config/seed-beats.ts`, so every beat you made with
-  `/follow` is gone.
-- `feed_state` is empty, so the next digest re-ingests every feed from scratch
-  and re-delivers what you have already read.
-
-Stop the dev server first — a libsql database is only complete once it has
-checkpointed, and a live `.db` file without its `-wal` sibling is missing
-whatever has not been flushed:
-
-```bash
-ls .data/                       # copy ava.db-wal and -shm too if they exist
-docker volume create ava-data
-docker run --rm -v ava-data:/data -v "$(pwd)/.data:/seed:ro" node:22-slim \
-  sh -c "cp /seed/ava.db* /data/ && chown -R 1000:1000 /data"
-```
-
-`traces.db` is disposable and does not need copying. Check a row count you know
-before trusting the copy.
-
-### The bot provisions itself
-
-Bring the container up against a fresh bot token and it publishes its own
-identity on boot — no retyping anything into @BotFather:
-
-| What | From | Method |
-| --- | --- | --- |
-| The `/` command menu | `TRANSLATIONS`, `BEAT_COMMANDS`, `summary` | `setMyCommands` |
-| Name, and both descriptions | [`src/config/bot-profile.ts`](src/config/bot-profile.ts) | `setMyName`, `setMyShortDescription`, `setMyDescription` |
-| The tabs | [`src/config/topics.ts`](src/config/topics.ts) | `createForumTopic`, on first use |
-
-The profile **reads before it writes**, so editing the config is what changes the
-bot and a restart loop costs nothing — `setMyName` is flood-limited hard enough
-that pushing it on every boot would eventually lock the bot out of renaming
-itself. The command menu is a full replacement every boot, which is safe for
-`setMyCommands` and is what keeps the config the source of truth.
-
-**One step no API can do: Threaded Mode.** It is a BotFather toggle, and without
-it the tabs degrade to one flat stream:
-
-```
-@BotFather → /mybots → <your bot> → Bot Settings → Threads Settings → Threaded Mode
-```
-
-`pnpm telegram:check` reports, for every configured bot, whether it is on, which
-tabs exist, and any profile
-field the next boot would push. It is read-only — safe against a running bot.
-
-To run stateless instead, point `AVA_DATA_DB_URL` at a Turso database and drop
-the volume. Turso *is* libSQL, so this is a URL change, not a code change — and
-it is the easier shape once there is a deployment per reader, since backing up
-one volume per person is the part that does not scale:
-
-```bash
-turso db create ava
-turso db show ava --url && turso db tokens create ava
-```
-
-## Why it looks like this
-
-Non-obvious decisions are recorded as ADRs in
-[`docs/decisions/`](docs/decisions/README.md) — including the ones that were
-reversed, which are usually the informative ones:
-
-- [0001](docs/decisions/0001-mastra-in-a-container-with-no-inbound-ports.md) — why nothing reaches the container from the network
-- [0003](docs/decisions/0003-convex-for-storage-and-scheduling.md) → [0005](docs/decisions/0005-two-libsql-databases-instead-of-convex.md) — Convex was adopted, then dropped when each of its three advantages dissolved
-- [0004](docs/decisions/0004-native-mastra-schedules-over-a-job-queue.md) — why a durable job queue isn't needed for an idempotent pipeline
-- [0007](docs/decisions/0007-lexical-clustering-instead-of-embeddings.md) — why clustering is free, and what would justify paying for it
-
-[`CLAUDE.md`](CLAUDE.md) carries the operational invariants for anyone — human or
-agent — picking the repo up cold.
+- [AGENTS.md](AGENTS.md) — the operating contract: invariants, gotchas, and
+  patterns for anyone (human or agent) working in this repo
+- [docs/decisions/](docs/decisions/README.md) — ADRs explaining why it looks
+  the way it does, including the ideas that were tried and reversed
 
 ## Status
 
-Working: ingest, dedupe, clustering, ranking, digest composition, schedules, and
-Telegram delivery — one message per article, into the **News** tab. Items are
-marked delivered as they land, so a failure partway through a batch doesn't
-re-send what already arrived.
-
-Newy, the conversational half, answers in the **Chat** tab and only there; a
-message typed in another tab is answered in Chat instead. Her tools are read-only
-over the news tables. See
-[ADR-0009](docs/decisions/0009-telegram-topics-as-tabs.md) and
-[ADR-0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md).
-
-She also remembers you. Facts you mention are written to a `memories` table as
-she goes — split into lasting ones (your name, where you live) and recent ones
-(what you ate, what you're working on), each dated, and injected into her prompt
-every turn. Nothing is ever overwritten, so a fact that changes reads as a
-history rather than a correction: *blond since January, dark before that*. See
-[ADR-0014](docs/decisions/0014-two-tier-memory-for-ava.md).
-
-Once a week a review agent reads the notes, promotes the ones that turned out to
-be lasting — a new job, a person's name — and deletes the ordinary days
-([ADR-0015](docs/decisions/0015-weekly-memory-review.md)).
-
-Two slash commands turn an article into reading practice. Swipe to reply on any
-delivered article and send `/translearn` for it back in your own language with
-the English original behind almost every word, or `/translate` for the same thing
-glossed only on the terms worth watching:
-
-> Les modèles OlmoEarth sont notre famille de modèles de fondation
-> (foundation models) d'observation de la Terre, pré-entraînés (pretrained) sur
-> environ 10 téraoctets de données satellitaires multimodales.
-
-Your language is not configured anywhere — it is read from what Newy has noted
-about you. What *is* configured is how good your English already is:
-`translation.readerLevel` in [`src/config/translation.ts`](src/config/translation.ts)
-is a CEFR level, and it is what stops the glosses landing on words you have known
-for years. Headings, lists and code blocks are preserved, and code is repaired
-and fenced rather than flattened into prose.
-
-Output lands in a third tab, **Translations**, because a full article arrives as
-several messages over a few minutes
-([ADR-0017](docs/decisions/0017-translation-commands.md)).
-
-A third command explains an article instead of translating it. Swipe and send
-`/summarize` for a few hundred words on what it is, what changed, the concrete
-numbers, and the caveats the digest card had no room for — noticeably more than
-the digest already gave you. It writes in English by default, or in whatever
-language you name after it:
-
-```
-/summarize        → English
-/summarize fr     → French
-/summarize ru     → Russian
-/summarize deutsch
-```
-
-A code, an English name or the language's own name all work; the footer reports
-which language it actually used, so a typo is visible rather than silent. This
-one answers in **Chat**, not in Translations — it is one short message, and the
-tab split is about length, not about being a command
-([ADR-0018](docs/decisions/0018-summarize-command.md)).
-
-Not yet wired: the 👍/👎 feedback loop. The inbound path exists now, but nothing
-handles a reaction yet.
+News (ingest → rank → digest → Telegram) and jobs/leads are both running
+day to day. The 👍/👎 feedback loop is wired for input but nothing consumes
+it yet. See [AGENTS.md § Current state](AGENTS.md#current-state) for the
+honest, up-to-date list of what's solid and what's known to be rough.

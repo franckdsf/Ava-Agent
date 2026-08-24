@@ -25,6 +25,7 @@
     "portfolio:check": "tsx --env-file=.env scripts/check-portfolio.ts",
     "review:check": "tsx --env-file=.env scripts/check-feed-review.ts",
     "rssfinder:check": "tsx scripts/check-rssfinder.ts",
+    "setup": "tsx --env-file-if-exists=.env scripts/setup.ts",
     "sonar:check": "tsx --env-file=.env scripts/check-sonar.ts",
     "start": "node .mastra/output/index.mjs",
     "telegram:check": "tsx --env-file=.env scripts/check-telegram.ts",
