@@ -354,8 +354,9 @@ async function showBeat(slug: string | undefined): Promise<string> {
     `**Subtopics:** ${beat.subtopics.map(topic => `\`${topic}\``).join(', ') || '—'}`,
     `**Feeds (${feeds.length}), over ${beatCommands.statsDays} days:**`,
     shown.length > 0
-      ? shown.map(feed => feedLine(feed.source, performance.get(feed.feedUrl))).join('\n') +
-        (rest > 0 ? `\n- …and ${rest} more` : '')
+      ? shown
+          .map(feed => feedLine(feed.source, feed.feedUrl, performance.get(feed.feedUrl)))
+          .join('\n') + (rest > 0 ? `\n- …and ${rest} more` : '')
       : '- none yet — `/addfeed` to add one',
     '**Rubric:**',
     // Fenced rather than escaped: a rubric is prose full of parentheses, dashes
@@ -366,18 +367,17 @@ async function showBeat(slug: string | undefined): Promise<string> {
 }
 
 /**
- * One feed's line in `/beat`: what it brought, and what came of it.
- *
- * The URL is deliberately gone. It was the only thing here before and it is the
- * least useful thing about a feed the reader already subscribed to — while
- * "delivered 0 of 312" is the whole reason to look at this list at all.
- * `/removefeed` needs the URL, so `/beat` keeps showing it for feeds with no
- * traffic, which are exactly the ones a reader is about to remove.
+ * One feed's line in `/beat`: what it brought, what came of it, and the URL
+ * `/removefeed` takes — trailing, since a reader is reading the stats first and
+ * copying the URL second, if at all.
  */
-function feedLine(source: string, stats: FeedPerformance | undefined): string {
+function feedLine(source: string, feedUrl: string, stats: FeedPerformance | undefined): string {
   const name = `- **${escapeMarkdown(source)}**`
+  // Not escaped: a code span keeps backslashes literally, so `\_` would reach
+  // the reader — and `/removefeed` — as part of the URL.
+  const url = `  \`${feedUrl}\``
   if (!stats || stats.collected === 0) {
-    return `${name}\n  nothing collected yet`
+    return `${name}\n  nothing collected yet\n${url}`
   }
 
   const parts = [`${stats.delivered} sent of ${stats.collected}`]
@@ -385,7 +385,7 @@ function feedLine(source: string, stats: FeedPerformance | undefined): string {
   if (stats.bestScore !== null) parts.push(`best ${stats.bestScore}`)
   if (stats.ranked < stats.collected) parts.push(`${stats.collected - stats.ranked} unscored`)
 
-  return `${name}\n  ${parts.join(' · ')}`
+  return `${name}\n  ${parts.join(' · ')}\n${url}`
 }
 
 /* ────────────────────────────── /pause · /resume ───────────────────────────── */
