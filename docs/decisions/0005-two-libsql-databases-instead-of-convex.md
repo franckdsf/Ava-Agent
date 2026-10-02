@@ -1,13 +1,13 @@
 ---
 id: 0005
 applies_to: ["src/db/client.ts", "src/mastra/storage.ts", "src/lib/libsql-url.ts", "docker-compose.yml"]
-status: accepted
+status: amended
 supersedes: ["0003"]
 ---
 
 # ADR-0005: Two libSQL databases instead of Convex
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-10-02)
 - **Date:** 2026-07-27
 - **Supersedes:** [ADR-0003](0003-convex-for-storage-and-scheduling.md)
 
@@ -61,3 +61,20 @@ separate deploy. `mastra dev` is the whole development loop.
 **Revisit if:** a second consumer needs the data concurrently, or a web dashboard
 becomes desirable — Turso plus a read replica handles the first; the second is a
 genuine argument to reopen [ADR-0003](0003-convex-for-storage-and-scheduling.md).
+
+---
+
+## Amendments, 2026-10-02
+
+**"One connection" was wrong; one *client* is what is shared.** On a local file,
+`@libsql/client` hands the current connection to each `transaction()` and opens a
+new one for the next statement, so the shared client fans out into several
+connections over its life. Sharing it still matters — Mastra serializes its writes
+per client — but it does not by itself avoid lock contention.
+
+The cost showed up as a lost `PRAGMA busy_timeout`: Mastra sets it once at boot, on
+a connection the first transaction then takes away, so every later connection
+failed on a lock in about a millisecond instead of waiting. The 2026-09-28
+`review-memories` catch-up died that way and stayed `running`. `src/db/client.ts`
+now passes `timeout` (`dataDb.busyTimeoutMs`), which libsql applies to every
+connection it opens — the same thing Mastra does for a local client it builds itself.

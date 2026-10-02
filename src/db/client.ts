@@ -1,16 +1,22 @@
 import { createClient, type Client } from '@libsql/client'
 import { drizzle, type LibSQLDatabase } from 'drizzle-orm/libsql'
 import { migrate as runMigrations } from 'drizzle-orm/libsql/migrator'
+import { dataDb } from '../config/database.js'
 import { env } from '../config/env.js'
 import { resolveDbUrl } from '../lib/libsql-url.js'
 import { resolveFromRoot } from '../lib/project-root.js'
 import * as schema from './schema.js'
 
 /**
- * A single libsql connection is shared between Drizzle (the app's tables) and
- * Mastra's LibSQLStore (its `mastra_*` tables). One pool against one database
- * avoids the SQLITE_BUSY contention two independent pools would cause on a
- * local file.
+ * A single libsql client is shared between Drizzle (the app's tables) and
+ * Mastra's LibSQLStore (its `mastra_*` tables), so Mastra's per-client write
+ * lock at least sees its own writes in one queue.
+ *
+ * **One client is not one connection.** On a local file, every `transaction()`
+ * keeps the current connection and the client opens a fresh one for whatever
+ * comes next — so a `PRAGMA busy_timeout` run once at boot (Mastra does) is gone
+ * after the first transaction. `timeout` is the only setting that reaches every
+ * connection, which is why it is passed here and not left to the store.
  *
  * Traces live in a *separate* database — high-volume, disposable, and only ever
  * read locally in Studio.
@@ -23,9 +29,12 @@ let migrated: Promise<void> | undefined
 /** The raw libsql client, so Mastra's store can reuse this exact connection. */
 export function rawClient(): Client {
   if (!client) {
+    const url = resolveDbUrl(env.AVA_DATA_DB_URL)
     client = createClient({
-      url: resolveDbUrl(env.AVA_DATA_DB_URL),
+      url,
       ...(env.AVA_DATA_DB_AUTH_TOKEN ? { authToken: env.AVA_DATA_DB_AUTH_TOKEN } : {}),
+      // A remote libsql server resolves contention itself and ignores this.
+      ...(url.startsWith('file:') ? { timeout: dataDb.busyTimeoutMs } : {}),
     })
   }
   return client

@@ -22,7 +22,7 @@ something looks the way it does.
 | [0002](0002-telegram-via-chat-sdk-adapter-in-polling-mode.md) | Telegram via Chat SDK adapter in polling mode | Accepted | `src/mastra/channels.ts`, `src/services/telegram.ts` | `pnpm telegram:check` |
 | [0003](0003-convex-for-storage-and-scheduling.md) | Convex for storage and scheduling | Superseded by [0005](0005-two-libsql-databases-instead-of-convex.md) | — | — |
 | [0004](0004-native-mastra-schedules-over-a-job-queue.md) | Native Mastra schedules over a job queue | Accepted | `src/mastra/index.ts`, `src/mastra/workflows/**` | — |
-| [0005](0005-two-libsql-databases-instead-of-convex.md) | Two libSQL databases instead of Convex | Accepted | `src/db/client.ts`, `src/mastra/storage.ts`, `docker-compose.yml` | — |
+| [0005](0005-two-libsql-databases-instead-of-convex.md) | Two libSQL databases instead of Convex | Accepted (amended 2026-10-02) | `src/db/client.ts`, `src/mastra/storage.ts`, `docker-compose.yml` | — |
 | [0006](0006-drizzle-orm-for-application-tables.md) | Drizzle ORM for application tables | Accepted | `src/db/schema.ts`, `drizzle/**` | `pnpm db:generate` |
 | [0007](0007-lexical-clustering-instead-of-embeddings.md) | Lexical clustering instead of embeddings | Accepted | `src/services/cluster.ts`, `src/config/pipeline.ts` | — |
 | [0008](0008-categories-as-configuration.md) | Categories as configuration, one parameterized curator | Partly superseded by [0019](0019-beats-as-reader-owned-data.md) | `src/mastra/agents/curator.ts`, `src/mastra/workflows/curate-all.ts` | — |
