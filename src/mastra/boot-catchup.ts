@@ -1,11 +1,9 @@
 import type { Mastra } from '@mastra/core'
 import { catchup } from '../config/catchup.js'
 import { lastCycleStart } from '../db/cycles.js'
-import { lastFeedFetchAt } from '../db/feeds.js'
 import type { Pipeline } from './pipeline-kit.js'
 import { PIPELINES } from './pipelines.js'
 import { storage } from './storage.js'
-import { curateAll } from './workflows/curate-all.js'
 
 /**
  * A boot fires a pipeline that has stopped running — a week without news, three
@@ -29,9 +27,8 @@ import { curateAll } from './workflows/curate-all.js'
  * and it explicitly does not move the cadence: the next scheduled digest still happens.
  *
  * **Staleness is read from the pipelines' own tables**, not from a marker this
- * module writes. `feed_state.lastFetchedAt` for news and, for every
- * pipeline on the kit, its `pipeline_cycles` row are written by the runs
- * themselves, which means a catch-up that starts and then crashes still counts
+ * module writes. Every pipeline's `pipeline_cycles` row is written by its runs
+ * themselves — the same row its gate reads — which means a catch-up that starts and then crashes still counts
  * as having spent the cycle — the same reasoning the gates are built on.
  *
  * **A paused schedule is never woken.** Pausing is a durable operator decision
@@ -61,10 +58,10 @@ const HOUR_MS = 3_600_000
  * expensive when it does not, which is exactly the shape that never gets
  * exercised otherwise.
  *
- * `staleAfterDays` is an argument rather than a config read because the two
- * pipelines answer it differently: a week of no news is twenty missed fires,
- * while a week of no jobs is three missed cycles. Passing it in also means the
- * check script can prove both bars against the same function.
+ * `staleAfterDays` is an argument rather than a config read because the
+ * pipelines answer it differently: a week of no news is fourteen missed fires,
+ * while a week of no jobs is several missed cycles. Passing it in also means the
+ * check script can prove every bar against the same function.
  */
 export function decideCatchup(input: {
   now: number
@@ -145,25 +142,15 @@ export function catchupTarget(pipeline: Pipeline): CatchupTarget {
 }
 
 /**
- * Every pipeline, in the order a boot considers them: news, not yet on the
- * kit, then every one that is.
+ * Every pipeline, in the order a boot considers them.
  *
  * `workflowId` is never written out by hand: a schedule row is keyed by the id in
  * `createWorkflow`, which is the kebab-case one and *not* the key it is
  * registered under in `index.ts`. Spelling either by hand is a silent miss — an
  * unknown id lists no schedules and the catch-up decides, correctly and
- * uselessly, to do nothing. News reads it off the workflow; a kit
- * pipeline's workflow takes it from the definition.
+ * uselessly, to do nothing. Each workflow takes its id from its definition.
  */
-export const CATCHUP_TARGETS: CatchupTarget[] = [
-  {
-    label: 'news',
-    workflowId: curateAll.id,
-    staleAfterDays: catchup.newsStaleAfterDays,
-    lastRunAt: lastFeedFetchAt,
-  },
-  ...PIPELINES.map(catchupTarget),
-]
+export const CATCHUP_TARGETS: CatchupTarget[] = PIPELINES.map(catchupTarget)
 
 /**
  * Waits for the worker that consumes `workflow.start`.

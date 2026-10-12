@@ -1,8 +1,7 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows'
 import { z } from 'zod'
-import { env } from '../../config/env.js'
 import { memoryConfig } from '../../config/memory.js'
-import { newsMinRunGapMs, pipeline } from '../../config/pipeline.js'
+import { pipeline } from '../../config/pipeline.js'
 import { runNotices } from '../../config/run-notices.js'
 import {
   claimForDelivery,
@@ -17,9 +16,9 @@ import {
   saveRankings,
 } from '../../db/articles.js'
 import { activeBeats, feedsForBeats, getBeat, type Beat } from '../../db/beats.js'
-import { claimCycle, hoursSince } from '../../db/cycles.js'
 import { recentFeedback, type FeedbackSignal } from '../../db/feedback.js'
 import { memoriesForCuration, type Memory } from '../../db/memories.js'
+import { finishRun } from '../../db/runs.js'
 import type { Article, ArticleRanking, BeatLink, DiscoveredArticle, PendingArticle } from '../../db/types.js'
 import { articleBody, fetchOgImage, looksLikeSiteChrome } from '../../services/article.js'
 import { clusterItems, dedupeByCluster } from '../../services/cluster.js'
@@ -28,9 +27,10 @@ import { withRetry } from '../../services/structured-output.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { newyTelegram } from '../../services/newy-telegram.js'
 import { articleWriterId, rankerId } from '../agents/curator.js'
+import { NEWS } from '../pipelines.js'
 
 /**
- * One workflow for every beat, on one schedule per digest hour.
+ * One workflow for every beat, on one schedule carrying every digest hour.
  *
  * ingest → rank (per beat) → **arbitrate** → deliver (per beat). Each stage is
  * deterministic except the two LLM calls, which is deliberate: a scheduled job
@@ -82,6 +82,8 @@ const runInput = z.object({
  * `foreach` would race itself.
  */
 const runState = z.object({
+  /** This run's `pipeline_runs` row; empty when the run never opened. */
+  runId: z.string().default(''),
   feedsFetched: z.number(),
   discovered: z.number(),
   linked: z.number(),
@@ -140,43 +142,41 @@ const ingest = createStep({
   outputSchema: z.array(beatRef),
   stateSchema: runState,
   execute: async ({ inputData, setState, mastra }) => {
-    const beats = await activeBeats(inputData.beats)
-    if (beats.length === 0) {
-      await setState({ feedsFetched: 0, discovered: 0, linked: 0, feedErrors: [] })
-      return []
-    }
+    const idle = { runId: '', feedsFetched: 0, discovered: 0, linked: 0, feedErrors: [] as string[] }
 
-    // Below the beat check and above the fetch, which is the only placement that
-    // is both cheap and correct. Above it, a run narrowed to a slug that does
-    // not exist would spend the cycle and lock out the next real digest for
-    // hours; below the fetch, a duplicate run has already paid for the feeds and
-    // is about to pay for the ranker. Everything expensive is after this line.
-    //
-    // A boot replaying two missed digest fires starts them milliseconds apart
-    // ([ADR-0034](../../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)),
-    // so the guard is a single write and the loser is turned away here. It is
-    // the claim in `deliverBeat` that stops the reader seeing a story twice;
-    // this only stops the second run paying for one
+    // The claim is one guarded write, so two fires arriving together cannot
+    // both pass the gate — a boot used to replay one missed fire per digest row,
+    // milliseconds apart ([ADR-0034](../../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)).
+    // It is the claim in `deliverBeat` that stops the reader seeing a story
+    // twice; this only stops the second run paying for one
     // ([ADR-0033](../../../docs/decisions/0033-a-delivery-is-claimed-before-it-is-sent.md)).
-    const cycle = await claimCycle('news', newsMinRunGapMs(), { force: inputData.force })
-    if (!cycle.claimed) {
-      mastra
-        .getLogger()
-        ?.info(
-          `News run skipped: ${hoursSince(cycle.lastStartedAt).toFixed(1)}h since the last one started, ` +
-            `minimum is ${(newsMinRunGapMs() / 3_600_000).toFixed(1)}h`,
-        )
-      await setState({ feedsFetched: 0, discovered: 0, linked: 0, feedErrors: [] })
+    //
+    // Nothing inside the window fetches a feed or calls a model, so a run that
+    // stops there — no beats, a run narrowed to a slug that does not exist, no
+    // feeds between them, or a read losing the write lock — hands the cycle
+    // back. Everything after it has spent it.
+    const opened = await NEWS.open({ force: inputData.force }, async ({ abandon }) => {
+      const beats = await activeBeats(inputData.beats)
+      if (beats.length === 0) return abandon('No active beats to read for.')
+      const subscriptions = await feedsForBeats(beats.map(beat => beat.slug))
+      const distinct = dedupeFeeds(
+        subscriptions.map(subscription => ({
+          url: subscription.feedUrl,
+          source: subscription.source,
+        })),
+      )
+      if (distinct.length === 0) return abandon('No live feeds between the active beats.')
+      return { beats, subscriptions, distinct }
+    })
+    if (!opened.ok) {
+      mastra.getLogger()?.info(`News run skipped: ${opened.note}`)
+      await setState(idle)
       return []
     }
-
-    const subscriptions = await feedsForBeats(beats.map(beat => beat.slug))
-    const distinct = dedupeFeeds(
-      subscriptions.map(subscription => ({
-        url: subscription.feedUrl,
-        source: subscription.source,
-      })),
-    )
+    const {
+      value: { beats, subscriptions, distinct },
+      runId,
+    } = opened
 
     // Announced here rather than at the top of the step, so the notice can name
     // what the run is about to do instead of promising a run that turns out to
@@ -185,12 +185,12 @@ const ingest = createStep({
     // is model calls, so this is the last cheap moment before the reader would
     // otherwise be looking at nothing.
     //
-    // `distinct.length > 0` is the same bar the closing notice applies, and the
-    // two have to agree: a run with beats but no live feeds between them fetches
-    // nothing and reports nothing, and announcing only the start of it would
-    // leave a run that looks like it never came back.
-    mastra.getLogger()?.info('News run started', { beats: beats.length, feeds: distinct.length })
-    if (runNotices.news.start && distinct.length > 0) {
+    // A run with no live feeds abandoned in the window above, so every run
+    // here fetches something — which is the bar the closing notice applies too,
+    // and the two have to agree: announcing only the start of a run would leave
+    // one that looks like it never came back.
+    mastra.getLogger()?.info('News run started', { runId, beats: beats.length, feeds: distinct.length })
+    if (runNotices.news.start) {
       await newyTelegram
         .notify(renderNewsStart(beats.length, distinct.length), 'chat')
     }
@@ -234,6 +234,7 @@ const ingest = createStep({
     const linked = await linkToBeats(links)
 
     await setState({
+      runId,
       feedsFetched: distinct.length,
       discovered,
       linked,
@@ -706,8 +707,18 @@ const report = createStep({
       sendErrors: summary.sendErrors.length,
     })
 
+    if (state.runId) {
+      await finishRun(state.runId, {
+        fetched: summary.feedsFetched,
+        stored: summary.discovered,
+        scored: summary.scored,
+        delivered: summary.sent,
+        detail: { linked: summary.linked },
+      })
+    }
+
     // A run that fetched nothing is a run `ingest` returned early from — no
-    // active beats, or the overlap guard turning a second run away — so there
+    // active beats or feeds, or the gate turning a second run away — so there
     // was no start notice either. A closing line on its own would be the only
     // word about a run that never happened, which reads as a failure rather than
     // as an empty schedule or a duplicate correctly refused.
@@ -780,21 +791,17 @@ export function renderNewsFinish(report: z.infer<typeof runReport>): string {
 }
 
 export const curateAll = createWorkflow({
-  id: 'curate-all',
+  id: NEWS.workflowId,
   inputSchema: runInput,
   outputSchema: runReport,
   stateSchema: runState,
-  // One schedule per digest hour, for every beat at once. This used to be one
-  // schedule per category per hour, derived from a config array — which cannot
-  // work when a beat is created at runtime, since the schedule set is read off
-  // the workflow at boot. Fanning out inside the run means adding a beat needs
-  // no schedule to be created, reconciled, or deleted.
-  schedule: pipeline.digestHours.map(hour => ({
-    id: `digest-${String(hour).padStart(2, '0')}00`,
-    cron: `0 ${hour} * * *`,
-    timezone: env.AGENT_TIMEZONE,
-    inputData: {},
-  })),
+  // One schedule for every beat at once, rendered by the kit from `NEWS`: one
+  // row whose cron carries every digest hour. This used to be one schedule per
+  // category per hour, derived from a config array — which cannot work when a
+  // beat is created at runtime, since the schedule set is read off the workflow
+  // at boot. Fanning out inside the run means adding a beat needs no schedule
+  // to be created, reconciled, or deleted.
+  schedule: NEWS.schedule,
 })
   .then(ingest)
   .foreach(rankBeat, { concurrency: pipeline.beatConcurrency })

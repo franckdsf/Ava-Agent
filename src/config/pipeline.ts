@@ -199,9 +199,10 @@ export const pipeline = {
    * at three fires and are still slack at two.
    *
    * Read dynamically by the schedule, by `/start` and by `/beat`, so this array
-   * is the only place the cadence lives. `catchup.newsStaleAfterDays` is set
-   * against it and is **not** derived — the boot catch-up tests in `pnpm verify`
-   * hold the relationship, and `pnpm catchup:check` shows the live verdict.
+   * is the only place the cadence lives. `NEWS` in `src/mastra/pipelines.ts`
+   * derives its gate from it, and `definePipeline` refuses to load a
+   * `catchup.newsStaleAfterDays` at or under the ceiling it implies;
+   * `pnpm catchup:check` shows the live verdict.
    */
   digestHours: [10, 20],
 
@@ -227,26 +228,4 @@ export function minDigestGapHours(hours: readonly number[] = pipeline.digestHour
     index === 0 ? sorted[0]! + 24 - sorted[sorted.length - 1]! : hour - sorted[index - 1]!,
   )
   return Math.min(...gaps)
-}
-
-/**
- * How close together two news runs may start — half the tightest digest gap.
- *
- * **Derived rather than set, and that is the whole design.** A hand-written
- * number here would be a third knob tied to `digestHours` with nothing enforcing
- * the relationship, which is the trap `catchup.newsStaleAfterDays` already
- * documents and the boot catch-up tests exist to catch. Add an 08:00 digest and
- * the tightest gap becomes 2 hours; a hardcoded 9 would then silently swallow
- * two digests a day, visible only as the reader receiving less news.
- *
- * **Half, because the guard must never turn away a fire that is merely late.**
- * The runs it exists to stop start milliseconds apart, so any value above a few
- * seconds catches them; everything above that is margin for a digest that fired
- * behind schedule. Half the tightest gap spends that margin evenly — today it
- * blocks a second run inside 5 hours and leaves a legitimate fire up to 5 hours
- * of lateness before it would be refused
- * ([ADR-0034](../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)).
- */
-export function newsMinRunGapMs(): number {
-  return (minDigestGapHours() / 2) * 3_600_000
 }

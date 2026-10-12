@@ -11,7 +11,8 @@ import {
   type ScheduleFire,
 } from '../boot-catchup.js'
 import { definePipeline, healthyCeilingHours } from '../pipeline-kit.js'
-import { JOBS as JOBS_PIPELINE, LEADS, PIPELINES } from '../pipelines.js'
+import { JOBS as JOBS_PIPELINE, LEADS, NEWS as NEWS_PIPELINE, PIPELINES } from '../pipelines.js'
+import { curateAll } from '../workflows/curate-all.js'
 import { findJobs } from '../workflows/find-jobs.js'
 import { findLeads } from '../workflows/find-leads.js'
 
@@ -161,10 +162,11 @@ describe('the imminent-fire gate', () => {
   })
 })
 
-// Leads was unknown to the catch-up until slice 2 (audit F1), and jobs kept its bar in prose until
-// slice 3. Each bar is now checked against its cadence by `definePipeline` itself, at load, so these
+// Leads was unknown to the catch-up until slice 2 (audit F1), and jobs and news kept their bars in
+// prose until slice 3. Each bar is now checked against its cadence by `definePipeline` itself, at load, so these
 // cases state the result rather than guard a coupling.
 const kit = [
+  { pipeline: NEWS_PIPELINE, workflowId: curateAll.id, bar: catchup.newsStaleAfterDays },
   { pipeline: JOBS_PIPELINE, workflowId: findJobs.id, bar: catchup.jobsStaleAfterDays },
   { pipeline: LEADS, workflowId: findLeads.id, bar: catchup.leadsStaleAfterDays },
 ]

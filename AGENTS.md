@@ -304,10 +304,9 @@ above `retentionDays` (60).
 **The leads side** fires at each of `leadPipeline.runHours` (09:00, 21:00) on its own
 `leadPipeline.intervalHours` (**44**, not the jobs pipeline's 20) with `retentionDays` 180. The two
 intervals are different numbers for different pipelines and have been confused before — read the
-config, not a remembered figure. Leads and jobs are on the kit: `LEADS` and `JOBS` in
-`src/mastra/pipelines.ts` hold their cadence, and `open()` hands the cycle back to a run that
+config, not a remembered figure. All three pipelines are on the kit: `NEWS`, `JOBS` and `LEADS`
+in `src/mastra/pipelines.ts` hold their cadence, and `open()` hands the cycle back to a run that
 stops before spending anything ([ADR-0044](docs/decisions/0044-a-pipeline-s-cadence-is-one-definition.md)).
-News still claims by hand until slice 3's next step.
 
 **Verified live 2026-08-23** (`pnpm telegram:check`): both bots resolve one private chat id, Threaded
 Mode on, all six tabs found, both profiles up to date.

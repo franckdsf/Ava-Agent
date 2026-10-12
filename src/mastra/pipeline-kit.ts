@@ -35,9 +35,12 @@ export type PipelineDefinition = {
    */
   workflowId: string
   /**
-   * The stored schedule row's key. **Never rename it**: a renamed id strands the
-   * old row, and a stranded row is still active — one pipeline, two schedules.
-   * Changing `runHours` under the same id updates the row in place.
+   * The stored schedule row's key. Changing `runHours` under the same id
+   * updates the row in place. A rename swaps the row: Mastra's sync deletes any
+   * `wf_<workflowId>__*` row the workflow no longer declares, which is how
+   * news's per-hour rows became one (`schedule-sweep.test.ts` pins it). What a
+   * rename costs is the old row's trigger history in Studio, and a paused row
+   * comes back active under its new id.
    */
   scheduleId: string
   /** Hours of day the schedule fires, in `AGENT_TIMEZONE`. Every fire past the first is a retry. */

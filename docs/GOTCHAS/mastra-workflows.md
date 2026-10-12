@@ -97,7 +97,7 @@ Gotchas. The routing table is [README.md](README.md).
   registered under — and it can be read from a script.** `curateAll` is
   registered in `index.ts` under `curateAll` and declares
   `createWorkflow({ id: 'curate-all' })`; the persisted rows are
-  `wf_curate-all__digest-0800` and friends, whose `target.workflowId` is
+  `wf_curate-all__digest` (one row carrying every digest hour), whose `target.workflowId` is
   `curate-all`. Every lookup — `mastra.schedules.list({ workflowId })`,
   `mastra.schedules.run(id)` — takes the kebab-case one, and the registry key
   silently matches nothing: no error, an empty list, and a caller that concludes
@@ -134,8 +134,10 @@ Gotchas. The routing table is [README.md](README.md).
   the database, not recorded after the fact** — a guard evaluated after the side
   effect protects the row and nothing else
   ([ADR-0033](../decisions/0033-a-delivery-is-claimed-before-it-is-sent.md)).
-  Both pipelines now claim their cycle in one guarded write before doing any
-  work (`pipeline_cycles`, [ADR-0034](../decisions/0034-a-pipeline-claims-its-cycle.md)).
+  Every pipeline now claims its cycle in one guarded write before doing any
+  work, through the kit (`pipeline_cycles`, [ADR-0034](../decisions/0034-a-pipeline-claims-its-cycle.md)),
+  and each declares one schedule row whose cron carries every fire hour — so a
+  boot replays a pipeline once, not once per hour.
   **`find-jobs` was believed to be safe here and was not** — its gate read
   `job_runs.startedAt` and inserted the next run several awaits later, which is
   the same read-then-write shape and passes two simultaneous fires. Two layers

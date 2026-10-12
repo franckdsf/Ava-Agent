@@ -19,7 +19,9 @@ export const catchup = {
    * **It said twenty when the cadence was three a day**, and the cadence dropped
    * to two on 2026-08-06. The number did not need to move: the bar is a multiple
    * of the cadence rather than a fixed count, and fourteen missed fires is still
-   * nowhere near a healthy gap. Halve the cadence again and re-read this.
+   * nowhere near a healthy gap. Halve the cadence again and re-read this —
+   * `definePipeline` refuses a bar at or under the healthy ceiling, today the
+   * 5h gate plus the 14h gap from 20:00 to 10:00 plus a DST hour: 20h.
    */
   newsStaleAfterDays: 7,
 
