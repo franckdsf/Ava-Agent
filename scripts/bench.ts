@@ -11,8 +11,8 @@
  * the database once and frozen under `.data/bench/fixtures/` so that two runs
  * a week apart compare models on the same inputs; `--refresh` re-reads them.
  *
- * See [the plan](../docs/plans/model-bench.md) for which tasks exist and why the
- * assistants and the scouts are not among them.
+ * See [ADR-0046](../docs/decisions/0046-a-model-is-chosen-by-pnpm-bench.md) for why a
+ * model is chosen this way, and why the assistants and the scouts are not benched.
  */
 // Type-only, so it is erased: the tokens below must be gone before anything that
 // reads env is evaluated, which is why every real import is dynamic.
