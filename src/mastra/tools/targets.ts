@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
 import { jobCommands } from '../../config/job-commands.js'
+import { knownSeniority, seniorityIds } from '../../config/job-taxonomy.js'
 import { activeSearches, getSearch, saveSearch } from '../../db/job-searches.js'
 import type { JobSearch } from '../../db/schema.js'
 
@@ -152,7 +153,10 @@ export const updateTarget = createTool({
       .enum(['required', 'preferred', 'onsite', 'any'])
       .optional()
       .describe('"required" and "onsite" reject postings; "preferred" and "any" do not.'),
-    seniority: z.array(z.string()).optional().describe('junior, mid, senior, staff, principal, lead.'),
+    seniority: z
+      .array(z.string())
+      .optional()
+      .describe(`Exactly these bands: ${seniorityIds().join(', ')}. A director or head-of role is "manager".`),
     contractTypes: z.array(z.string()).optional(),
     mustHave: z
       .array(z.string())
@@ -201,7 +205,9 @@ export const updateTarget = createTool({
       ...existing,
       locations: input.locations ?? existing.locations,
       remote: input.remote ?? existing.remote,
-      seniority: input.seniority ?? existing.seniority,
+      // Reduced to the bands `filterJob` can match — an unknown one rejects every
+      // posting that states a level. Same guard as `parseTarget`.
+      seniority: input.seniority ? knownSeniority(input.seniority) : existing.seniority,
       contractTypes: input.contractTypes ?? existing.contractTypes,
       mustHave: input.mustHave ?? existing.mustHave,
       dealbreakers: input.dealbreakers ?? existing.dealbreakers,

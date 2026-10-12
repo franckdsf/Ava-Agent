@@ -3,7 +3,7 @@ import { Agent } from '@mastra/core/agent'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { jobCommands } from '../../config/job-commands.js'
-import { domainIds, isKnownDomain } from '../../config/job-taxonomy.js'
+import { domainIds, isKnownDomain, knownSeniority, seniorityIds } from '../../config/job-taxonomy.js'
 
 /**
  * The one model call behind `/target`.
@@ -109,8 +109,8 @@ Return:
   only take on-site, "preferred" if they said they would rather have remote but
   did not rule out an office, "any" if they did not say. Most requests are "any";
   do not read a preference into silence.
-- "seniority": the bands that fit, from junior, mid, senior, staff, principal,
-  lead, director. Usually one or two. Empty if they did not say — an empty list
+- "seniority": the bands that fit, **exactly these strings** — ${seniorityIds().join(', ')}.
+  Usually one or two. A director, head of or VP role is "manager". Empty if they did not say — an empty list
   means "do not filter on this", which is very different from guessing.
 - "contractTypes": from permanent, contract, freelance, internship,
   apprenticeship. Empty if they did not say.
@@ -283,5 +283,8 @@ export async function parseTarget(mastra: Mastra, request: string): Promise<Pars
   // error, it just quietly rejects every posting that names any field at all,
   // and the reader sees a search that found nothing rather than a broken one.
   const domain = isKnownDomain(response.object.domain) ? response.object.domain : null
-  return { ...response.object, domain }
+  // The same discipline for seniority. The prompt used to offer "director",
+  // which `SENIORITY` does not have: a band the filter cannot match drops every
+  // posting whose title names a different level, silently.
+  return { ...response.object, domain, seniority: knownSeniority(response.object.seniority) }
 }

@@ -431,6 +431,24 @@ export const SENIORITY: Record<string, string[]> = {
   manager: ['manager', 'head of', 'director', 'vp of', 'chief'],
 }
 
+/** The bands a search's `seniority` may hold — what the targeter is offered. */
+export function seniorityIds(): string[] {
+  return Object.keys(SENIORITY)
+}
+
+/**
+ * A model-supplied seniority list, reduced to the bands this file knows.
+ *
+ * `filterJob` drops a posting whose title names a level the search did not ask
+ * for, so a band it cannot match ("director", when the vocabulary calls that
+ * "manager") does not filter nothing — it rejects every posting with a stated
+ * level. Unknown values are dropped rather than mapped: a guess here is a
+ * filter the reader never chose.
+ */
+export function knownSeniority(values: string[]): string[] {
+  return [...new Set(values.map(value => value.trim().toLowerCase()).filter(value => value in SENIORITY))]
+}
+
 export const jobTaxonomy = {
   /**
    * Body characters scanned for skill terms.
