@@ -1,9 +1,5 @@
 {
-  "src/mastra/commands/clients.ts": 2,
-  "src/mastra/commands/targets.ts": 2,
-  "src/mastra/workflows/curate-all.ts": 2,
-  "src/mastra/workflows/find-jobs.ts": 5,
-  "src/mastra/workflows/find-leads.ts": 1,
+  "src/mastra/commands/targets.ts": 1,
   "src/services/telegram.ts": 1,
   "scripts/check-lead-scout.ts": 1,
   "scripts/check-sonar.ts": 1

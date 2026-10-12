@@ -49,13 +49,12 @@ export async function runJobCommand(
     // indistinguishable from one that was never registered, which is the whole
     // bug the catch-all handler exists to prevent.
     await joobTelegram
-      .sendToTelegram(
+      .notify(
         `\`${escapeMarkdown(command)}\` failed: ${escapeMarkdown(
           error instanceof Error ? error.message : String(error),
         )}`,
         'chat',
       )
-      .catch(() => {})
   }
 }
 

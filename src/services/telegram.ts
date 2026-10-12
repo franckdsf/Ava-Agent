@@ -1,4 +1,5 @@
 import { createTelegramAdapter } from '@chat-adapter/telegram'
+import { ConsoleLogger } from '@mastra/core/logger'
 import { allowedTelegramUserIds, telegramEnv } from '../config/env.js'
 import type { BotDefinition } from '../config/bots.js'
 import { pipeline } from '../config/pipeline.js'
@@ -136,6 +137,17 @@ export interface TelegramTransport<Slug extends string> {
    */
   sendToTelegram(text: string, target?: SendTarget<Slug>): Promise<number>
   /**
+   * Sends a notice that must never affect the run sending it — a run notice, a
+   * "couldn't read your CV", a command's "working on it". Resolves false
+   * rather than throwing, and logs the failure: a notice that never arrived
+   * used to leave nothing to find
+   * ([audit F5](../../docs/audit/03-FLAWS.md#-f5--fifteen-silent-failures)).
+   *
+   * Not for anything the reader is owed — an article, a brief, a lead. A failed
+   * delivery must reach its caller so the claim on it is released.
+   */
+  notify(text: string, target?: SendTarget<Slug>): Promise<boolean>
+  /**
    * Sends an article, with its image when there is one.
    *
    * Telegram fetches the image URL itself and rejects anything unreachable, too
@@ -168,6 +180,8 @@ export function createTelegramTransport<Slug extends string>(
   bot: BotDefinition<Slug>,
 ): TelegramTransport<Slug> {
   let adapter: ReturnType<typeof createTelegramAdapter> | undefined
+  /** Mastra's own default logger, so a failed notice lands beside every other log line. */
+  const logger = new ConsoleLogger({ name: `telegram:${bot.id}` })
 
   /** Built on first send so the news pipeline runs with Telegram unconfigured. */
   const client = (): ReturnType<typeof createTelegramAdapter> => {
@@ -312,6 +326,20 @@ export function createTelegramTransport<Slug extends string>(
     },
 
     sendToTelegram,
+
+    async notify(text: string, target?: SendTarget<Slug>): Promise<boolean> {
+      try {
+        await sendToTelegram(text, target)
+        return true
+      } catch (error) {
+        const tab = target === undefined ? 'chat' : typeof target === 'string' ? target : target.slug
+        logger.warn(`Notice to ${bot.id}'s ${tab} tab not sent`, {
+          error: error instanceof Error ? error.message : String(error),
+          text: text.slice(0, 120),
+        })
+        return false
+      }
+    },
 
     async sendArticle(
       text: string,

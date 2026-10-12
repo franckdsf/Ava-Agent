@@ -192,8 +192,7 @@ const ingest = createStep({
     mastra.getLogger()?.info('News run started', { beats: beats.length, feeds: distinct.length })
     if (runNotices.news.start && distinct.length > 0) {
       await newyTelegram
-        .sendToTelegram(renderNewsStart(beats.length, distinct.length), 'chat')
-        .catch(() => {})
+        .notify(renderNewsStart(beats.length, distinct.length), 'chat')
     }
 
     const results = await fetchFeeds(distinct)
@@ -713,7 +712,7 @@ const report = createStep({
     // word about a run that never happened, which reads as a failure rather than
     // as an empty schedule or a duplicate correctly refused.
     if (runNotices.news.finish && summary.feedsFetched > 0) {
-      await newyTelegram.sendToTelegram(renderNewsFinish(summary), 'chat').catch(() => {})
+      await newyTelegram.notify(renderNewsFinish(summary), 'chat')
     }
 
     return summary

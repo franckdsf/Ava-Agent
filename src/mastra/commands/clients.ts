@@ -65,8 +65,7 @@ async function runAndAnswer(
   const timer = mayBeSlow
     ? setTimeout(() => {
         acknowledged = joobTelegram
-          .sendToTelegram(working(command), 'chat')
-          .catch(() => {})
+          .notify(working(command), 'chat')
       }, leadPipeline.ackAfterMs)
     : null
 
@@ -112,13 +111,12 @@ export async function runLeadCommand(
     // Every branch ends in a message: a command that fails silently is
     // indistinguishable from one that was never registered.
     await joobTelegram
-      .sendToTelegram(
+      .notify(
         `\`${escapeMarkdown(command)}\` failed: ${escapeMarkdown(
           error instanceof Error ? error.message : String(error),
         )}`,
         'chat',
       )
-      .catch(() => {})
   }
 }
 

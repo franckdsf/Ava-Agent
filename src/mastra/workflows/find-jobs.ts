@@ -229,17 +229,16 @@ const ingest = createStep({
       if (portfolio.truncated) {
         // Not fatal, but it means the tail of the CV is not being read at all.
         await joobTelegram
-          .sendToTelegram(
+          .notify(
             `Heads up — your portfolio is ${portfolio.chars.toLocaleString('en-US')} characters and I only read the first part of it. Worth trimming, or raising the cap.`,
             'chat',
           )
-          .catch(() => {})
       }
     } catch (error) {
       const message = error instanceof PortfolioError ? error.message : String(error)
       await finishRun(runId, { note: `portfolio: ${message}` })
       await joobTelegram
-        .sendToTelegram(
+        .notify(
           [
             `I couldn't read your CV, so I've skipped this run rather than guess.`,
             escapeMarkdown(message),
@@ -247,7 +246,6 @@ const ingest = createStep({
           ].join('\n\n'),
           'chat',
         )
-        .catch(() => {})
       await setState({ ...idle, runId, note: `portfolio unreadable: ${message}` })
       return []
     }
@@ -265,8 +263,7 @@ const ingest = createStep({
       ?.info('Job run started', { runId, sources: sources.length, searches: wanted.length })
     if (runNotices.jobs.start) {
       await joobTelegram
-        .sendToTelegram(renderJobsStart(sources.length, wanted.length), 'chat')
-        .catch(() => {})
+        .notify(renderJobsStart(sources.length, wanted.length), 'chat')
     }
 
     const postings: NewJob[] = []
@@ -792,8 +789,7 @@ const report = createStep({
       const unproductive = await decayUnproductiveSources().catch(() => [])
       if (unproductive.length > 0) {
         await joobTelegram
-          .sendToTelegram(renderUnproductiveSources(unproductive), 'chat')
-          .catch(() => {})
+          .notify(renderUnproductiveSources(unproductive), 'chat')
       }
     }
 
@@ -836,7 +832,7 @@ const report = createStep({
     // exist to answer. A gated firing says nothing: it did no work, `state.note`
     // records why, and a message for it would be a message most days.
     if (!state.skipped && runNotices.jobs.finish) {
-      await joobTelegram.sendToTelegram(renderJobsFinish(summary), 'chat').catch(() => {})
+      await joobTelegram.notify(renderJobsFinish(summary), 'chat')
     }
 
     return summary

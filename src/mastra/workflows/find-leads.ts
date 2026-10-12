@@ -150,11 +150,10 @@ const collect = createStep({
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       await joobTelegram
-        .sendToTelegram(
+        .notify(
           `I couldn't read your portfolio, so I've skipped this prospecting run rather than guess what you sell. ${escapeMarkdown(reason)}`,
           'chat',
         )
-        .catch(() => {})
       await setState({ ...idle, runId, note: `Portfolio fetch failed: ${reason}` })
       await finishRun(runId, { note: `Portfolio fetch failed: ${reason}` })
       return []

@@ -13,9 +13,10 @@
  * and a run summary is the same kind of message as the weekly feed review and
  * Joob's "nothing worth sending", which already go to Chat.
  *
- * **A notice is never allowed to affect a run.** Every send here is fired with
- * its rejection swallowed: a pipeline that dies because Telegram is having a bad
- * minute would be a far worse bug than the silence this replaces.
+ * **A notice is never allowed to affect a run.** Every send here goes through
+ * the transport's `notify`, which logs a failure and never throws: a pipeline
+ * that dies because Telegram is having a bad minute would be a far worse bug
+ * than the silence this replaces.
  *
  * The two halves are separately switchable because they answer different
  * questions — `start` is "is it alive right now", which matters most while the
