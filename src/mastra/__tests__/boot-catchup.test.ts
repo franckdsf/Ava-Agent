@@ -1,8 +1,19 @@
+import { randomUUID } from 'node:crypto'
+
 import { describe, expect, it } from 'vitest'
 
 import { catchup } from '../../config/catchup.js'
 import { jobPipeline } from '../../config/jobs.js'
-import { decideCatchup, type CatchupDecision, type ScheduleFire } from '../boot-catchup.js'
+import {
+  CATCHUP_TARGETS,
+  catchupTarget,
+  decideCatchup,
+  type CatchupDecision,
+  type ScheduleFire,
+} from '../boot-catchup.js'
+import { definePipeline, healthyCeilingHours } from '../pipeline-kit.js'
+import { LEADS } from '../pipelines.js'
+import { findLeads } from '../workflows/find-leads.js'
 
 // `decideCatchup` runs unattended, once, on a path that is invisible when it is right and expensive
 // when it is wrong: a wrong "fire" starts a run beside a scheduled one, a wrong "skip" leaves the
@@ -161,6 +172,46 @@ describe('the imminent-fire gate', () => {
       }),
       { fire: true, scheduleId: 'digest-1300' },
     )
+  })
+})
+
+// Leads was unknown to the catch-up until slice 2 (audit F1). Its bar is checked against its
+// cadence by `definePipeline` itself, so these cases state the result rather than guard a coupling.
+describe('a pipeline on the kit', () => {
+  const ceiling = healthyCeilingHours(LEADS)
+
+  it('leads is a target, under the id its workflow declares its schedule with', () => {
+    const target = CATCHUP_TARGETS.find(entry => entry.label === LEADS.id)
+    expect(target?.workflowId).toBe(findLeads.id)
+    expect(target?.staleAfterDays).toBe(catchup.leadsStaleAfterDays)
+  })
+
+  it(`leads at the top of its healthy range (${ceiling}h) is left alone`, () => {
+    expectDecision(
+      decide({ lastRunAt: now - hours(ceiling), schedules: [active('leads-daily', 10)], staleAfterDays: LEADS.staleAfterDays }),
+      { fire: false },
+    )
+  })
+
+  it(`leads idle ${LEADS.staleAfterDays}d fires`, () => {
+    expectDecision(
+      decide({ lastRunAt: now - days(LEADS.staleAfterDays), schedules: [active('leads-daily', 10)], staleAfterDays: LEADS.staleAfterDays }),
+      { fire: true, scheduleId: 'leads-daily' },
+    )
+  })
+
+  // Against the real SQLite: the gate and the catch-up read one row, so a run that stopped
+  // before spending anything is invisible to both (audit F6).
+  it('last run is the last claimed cycle, and an abandoned run is not one', async () => {
+    const pipeline = definePipeline({ ...LEADS, id: `test-${randomUUID()}` })
+    const lastRunAt = catchupTarget(pipeline).lastRunAt
+
+    await pipeline.open({}, async ({ abandon }) => abandon('nobody'))
+    expect(await lastRunAt()).toBeNull()
+
+    const before = Date.now()
+    await pipeline.open({}, async () => 'ran')
+    expect(await lastRunAt()).toBeGreaterThanOrEqual(before)
   })
 })
 

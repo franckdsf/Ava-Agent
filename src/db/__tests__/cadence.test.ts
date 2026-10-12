@@ -6,7 +6,7 @@ import { claimCycle } from '../cycles.js'
 
 // What a schedule and a gate produce together: the scheduled fires, each one asking `claimCycle`
 // with the pipeline's real `intervalHours`, over simulated days. Audit F1 is the reason — jobs got
-// two fires a day in 7762cf4 "so a refused fire is not the day's only chance", leads did not.
+// two fires a day in 7762cf4 "so a refused fire is not the day's only chance", leads only in slice 2.
 //
 // The property: **once the gate opens, a fire comes within half a day.** That is the jobs fix's
 // promise, stated as a number. A single daily fire breaks it whenever a run lands off-rhythm —
@@ -58,8 +58,7 @@ async function runs(pipeline: { fireHours: readonly number[]; intervalHours: num
 const gapsInHours = (times: number[]) => times.slice(1).map((time, i) => (time - times[i]!) / HOUR)
 
 const jobs = { fireHours: jobPipeline.runHours, intervalHours: jobPipeline.intervalHours }
-// Slice 2 gives leads `runHours` and reads it here; until then its one fire is the whole list.
-const leads = { fireHours: [leadPipeline.runHour], intervalHours: leadPipeline.intervalHours }
+const leads = { fireHours: leadPipeline.runHours, intervalHours: leadPipeline.intervalHours }
 
 describe('jobs — two fires a day, one gate', () => {
   it('on its rhythm, runs once a day', async () => {
@@ -73,16 +72,16 @@ describe('jobs — two fires a day, one gate', () => {
   })
 })
 
-describe('leads — one fire a day, one gate', () => {
+describe('leads — two fires a day, one gate', () => {
   it('on its rhythm, runs every other day', async () => {
     const times = await runs(leads, leads.fireHours[0]!)
     expect(new Set(gapsInHours(times))).toEqual(new Set([48]))
   })
 
-  // F1, pinned before it is fixed: a 15:00 run is refused at 09:00 (18h) and 09:00 again (42h),
-  // so the next run is 66h out — 22h after the gate opened. `it.fails` passes while that is true
-  // and turns red the moment slice 2 fixes it, which is the signal to make this a plain `it`.
-  it.fails('after an off-rhythm run (15:00), the next comes within half a day of the gate opening', async () => {
+  // F1: with 09:00 alone, a 15:00 run was refused at 09:00 (18h) and 09:00 again (42h), and the
+  // next run came 66h out — 22h after the gate opened. Pinned as `it.fails` in bd0eaea; the 21:00
+  // fire (slice 2) brings it to 54h.
+  it('after an off-rhythm run (15:00), the next comes within half a day of the gate opening', async () => {
     const [first, second] = await runs(leads, 15)
     expect(second! - first!).toBeLessThanOrEqual(leads.intervalHours * HOUR + HALF_A_DAY)
   })

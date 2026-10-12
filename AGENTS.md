@@ -15,7 +15,7 @@
 Operating contract for anyone — human or agent — working in this repo.
 
 - **What it is and how to run it:** [README.md](README.md)
-- **Why it looks like this:** [docs/decisions/](docs/decisions/README.md) — 43 ADRs, each declaring
+- **Why it looks like this:** [docs/decisions/](docs/decisions/README.md) — 44 ADRs, each declaring
   the files it governs and the command that proves it still holds
 - **What surprised us:** [docs/GOTCHAS/](docs/GOTCHAS/README.md) — nine routed files; read the one
   whose globs match what you are touching
@@ -301,10 +301,13 @@ employers whose careers pages code resolves and verifies. Scoring is capped at
 `maxJobsPerScoringRun` **per search** and ordered by CV overlap, which may reorder and never reject. Delivery is guarded by `job_deliveries`, permanently, with `redeliveryGuardDays` (75)
 above `retentionDays` (60).
 
-**The leads side** fires at `leadPipeline.runHour` (09:00) on its own
+**The leads side** fires at each of `leadPipeline.runHours` (09:00, 21:00) on its own
 `leadPipeline.intervalHours` (**44**, not the jobs pipeline's 20) with `retentionDays` 180. The two
 intervals are different numbers for different pipelines and have been confused before — read the
-config, not a remembered figure.
+config, not a remembered figure. It is the first pipeline on the kit: `LEADS` in
+`src/mastra/pipelines.ts` holds its cadence, and `LEADS.open()` hands the cycle back to a run that
+stops before spending anything ([ADR-0044](docs/decisions/0044-a-pipeline-s-cadence-is-one-definition.md)).
+News and jobs still claim by hand until slice 3.
 
 **Verified live 2026-08-23** (`pnpm telegram:check`): both bots resolve one private chat id, Threaded
 Mode on, all six tabs found, both profiles up to date.

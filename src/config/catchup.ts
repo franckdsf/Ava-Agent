@@ -51,6 +51,18 @@ export const catchup = {
   jobsStaleAfterDays: 3,
 
   /**
+   * The same for leads, and **the first bar a machine checks against its
+   * cadence**: `definePipeline` refuses to load one at or under the pipeline's
+   * healthy ceiling (`src/mastra/pipeline-kit.ts`), so the coupling the jobs
+   * comment above warns about cannot be broken silently here.
+   *
+   * The ceiling is the 44h gate plus the widest gap between the 09:00 and 21:00
+   * fires (12h) plus a DST hour — 57h. Three days clears it by fifteen. Four
+   * would too, and would only add a day of silence after an outage.
+   */
+  leadsStaleAfterDays: 3,
+
+  /**
    * A scheduled fire this close is left to the scheduler.
    *
    * Waiting twenty minutes for the next digest costs the reader nothing.

@@ -1,6 +1,6 @@
 ---
 id: 0034
-applies_to: ["src/db/cycles.ts", "src/mastra/workflows/curate-all.ts", "src/mastra/workflows/find-jobs.ts"]
+applies_to: ["src/db/cycles.ts", "src/mastra/workflows/curate-all.ts", "src/mastra/workflows/find-jobs.ts", "src/mastra/pipeline-kit.ts"]
 status: accepted
 supersedes: []
 verify: "pnpm catchup:check"

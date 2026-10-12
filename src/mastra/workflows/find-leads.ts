@@ -1,9 +1,7 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows'
 import { z } from 'zod'
-import { env } from '../../config/env.js'
 import { JOOB_TOPICS } from '../../config/joob-topics.js'
 import { LEAD_SIGNAL_LABELS, leadPipeline, type LeadSignalKind } from '../../config/leads.js'
-import { claimCycle, hoursSince } from '../../db/cycles.js'
 import {
   activeProfiles,
   claimLeadDelivery,
@@ -26,6 +24,7 @@ import { filterLead, visionIsStale } from '../../services/lead-filter.js'
 import { hiringSignalsFromJobs, idOf, resolveLeadPage } from '../../services/lead-signals.js'
 import { scoutProspects } from '../../services/lead-scout.js'
 import { proposeProspects } from '../agents/lead-scout.js'
+import { LEADS } from '../pipelines.js'
 import { joobTelegram } from '../../services/joob-telegram.js'
 import { fetchPortfolio } from '../../services/portfolio.js'
 import { escapeMarkdown } from '../../services/telegram.js'
@@ -102,12 +101,11 @@ const runReport = z.object({
 /**
  * Collects signals, resolves the companies behind them, and stores both.
  *
- * The cycle claim is taken as a single guarded write for the reason
- * [ADR-0034](../../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)
- * records: reading "when did the last run start" and writing the answer several
- * awaits later leaves a window where two fires arriving together both pass. The
- * cycle id is `leads`, distinct from `jobs`, so the two pipelines never block
- * each other.
+ * The cycle is claimed through `LEADS.open()` — one guarded write, for the
+ * reason [ADR-0034](../../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)
+ * records, and handed back if the run stops before spending anything. The cycle
+ * id is `leads`, distinct from `jobs`, so the two pipelines never block each
+ * other.
  */
 const collect = createStep({
   id: 'collect-signals',
@@ -124,31 +122,24 @@ const collect = createStep({
       portfolio: '',
     }
 
-    const cycle = await claimCycle('leads', leadPipeline.intervalHours * 3_600_000, {
-      force: inputData.force,
+    // Nothing inside this window fetches a source or calls a model, so a run
+    // that stops here — no profiles, or `startLeadRun()` losing the write lock —
+    // hands the 44h cycle back (audit F1). Everything after it has spent it.
+    const opened = await LEADS.open({ force: inputData.force }, async ({ abandon }) => {
+      const profiles = await activeProfiles()
+      const wanted = inputData.profiles
+        ? profiles.filter(profile => inputData.profiles?.includes(profile.slug))
+        : profiles
+      if (wanted.length === 0) {
+        return abandon('Nobody to prospect for — no active client profiles. Use /client.')
+      }
+      return { wanted, runId: await startLeadRun() }
     })
-    if (!cycle.claimed) {
-      const elapsedHours = hoursSince(cycle.lastStartedAt)
-      await setState({
-        ...idle,
-        note: `Only ${elapsedHours.toFixed(1)}h since the last leads run; the interval is ${leadPipeline.intervalHours}h.`,
-      })
+    if (!opened.ok) {
+      await setState({ ...idle, note: opened.note })
       return []
     }
-
-    const profiles = await activeProfiles()
-    const wanted = inputData.profiles
-      ? profiles.filter(profile => inputData.profiles?.includes(profile.slug))
-      : profiles
-    if (wanted.length === 0) {
-      await setState({
-        ...idle,
-        note: 'Nobody to prospect for — no active client profiles. Use /client.',
-      })
-      return []
-    }
-
-    const runId = await startLeadRun()
+    const { wanted, runId } = opened.value
 
     // The portfolio is the rubric, exactly as it is for jobs. A failure stops
     // the run rather than scoring against nothing: unscored signals simply wait
@@ -640,22 +631,16 @@ export function renderLeadMessage(
 }
 
 export const findLeads = createWorkflow({
-  id: 'find-leads',
+  id: LEADS.workflowId,
   inputSchema: runInput,
   outputSchema: runReport,
   stateSchema: runState,
-  // Daily, gated by the `leads` cycle claim — the cron does not express the
-  // cadence, for the reason at the head of `find-jobs.ts`. An hour after the job
-  // run so the two never contend for the same portfolio fetch, and so a hiring
-  // signal ingested this morning is available to prospect on the same day.
-  schedule: [
-    {
-      id: 'leads-daily',
-      cron: `0 ${leadPipeline.runHour} * * *`,
-      timezone: env.AGENT_TIMEZONE,
-      inputData: {},
-    },
-  ],
+  // 09:00 and 21:00, gated by the `leads` cycle claim — the cron does not
+  // express the cadence, for the reason at the head of `find-jobs.ts`; the kit
+  // renders it from `LEADS`. An hour after each job fire so the two never
+  // contend for the same portfolio fetch, and so a hiring signal ingested this
+  // morning is available to prospect on the same day.
+  schedule: LEADS.schedule,
 })
   .then(collect)
   .foreach(scoreProfile)

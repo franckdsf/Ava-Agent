@@ -99,8 +99,15 @@ export async function claimCycle(
   return { claimed: false, lastStartedAt: (await lastCycleStart(id)) ?? now }
 }
 
-/** When the cycle for `id` last started, or null on a fresh volume. */
-async function lastCycleStart(id: string): Promise<number | null> {
+/**
+ * When the cycle for `id` last started, or null on a fresh volume.
+ *
+ * Also the boot catch-up's answer to "when did this pipeline last run" for every
+ * pipeline on the kit (audit F6): a released claim restores the previous stamp,
+ * so a run that stopped before spending anything does not read as a run.
+ */
+export async function lastCycleStart(id: string): Promise<number | null> {
+  await migrate()
   const [row] = await db()
     .select({ startedAt: pipelineCycles.startedAt })
     .from(pipelineCycles)

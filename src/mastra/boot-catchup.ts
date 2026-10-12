@@ -1,14 +1,17 @@
 import type { Mastra } from '@mastra/core'
 import { catchup } from '../config/catchup.js'
+import { lastCycleStart } from '../db/cycles.js'
 import { lastFeedFetchAt } from '../db/feeds.js'
 import { lastRunStartedAt } from '../db/jobs.js'
+import type { Pipeline } from './pipeline-kit.js'
+import { PIPELINES } from './pipelines.js'
 import { storage } from './storage.js'
 import { curateAll } from './workflows/curate-all.js'
 import { findJobs } from './workflows/find-jobs.js'
 
 /**
- * A boot fires a pipeline that has stopped running — a week without news, two
- * days without jobs, each pipeline judged against its own cadence.
+ * A boot fires a pipeline that has stopped running — a week without news, three
+ * days without jobs or leads, each pipeline judged against its own cadence.
  *
  * Schedules are persisted and survive a restart, which is the behaviour you
  * want and also the whole problem: a machine that was off for a fortnight comes
@@ -28,10 +31,10 @@ import { findJobs } from './workflows/find-jobs.js'
  * and it explicitly does not move the cadence: the next scheduled digest still happens.
  *
  * **Staleness is read from the pipelines' own tables**, not from a marker this
- * module writes. `feed_state.lastFetchedAt` and `job_runs.startedAt` are written
- * by the runs themselves, which means a catch-up that starts and then crashes
- * still counts as having spent the cycle — the same reasoning the job pipeline's
- * own gate is built on.
+ * module writes. `feed_state.lastFetchedAt`, `job_runs.startedAt` and, for a
+ * pipeline on the kit, its `pipeline_cycles` row are written by the runs
+ * themselves, which means a catch-up that starts and then crashes still counts
+ * as having spent the cycle — the same reasoning the gates are built on.
  *
  * **A paused schedule is never woken.** Pausing is a durable operator decision
  * ("this misfires, stop it while I look"), and a boot that undid it would make
@@ -131,13 +134,28 @@ export type CatchupTarget = {
 }
 
 /**
- * The two pipelines, in the order a boot considers them.
+ * A pipeline on the kit, as a catch-up target. Its last run is its last claimed
+ * cycle — the same row its gate reads, so the two cannot disagree (audit F6).
+ */
+export function catchupTarget(pipeline: Pipeline): CatchupTarget {
+  return {
+    label: pipeline.id,
+    workflowId: pipeline.workflowId,
+    staleAfterDays: pipeline.staleAfterDays,
+    lastRunAt: () => lastCycleStart(pipeline.id),
+  }
+}
+
+/**
+ * Every pipeline, in the order a boot considers them: the two not yet on the
+ * kit, then every one that is.
  *
- * `workflowId` is read off each workflow rather than written out: a schedule row
- * is keyed by the id in `createWorkflow`, which is the kebab-case one and *not*
- * the key it is registered under in `index.ts`. Spelling either by hand is a
- * silent miss — an unknown id lists no schedules and the catch-up decides,
- * correctly and uselessly, to do nothing.
+ * `workflowId` is never written out by hand: a schedule row is keyed by the id in
+ * `createWorkflow`, which is the kebab-case one and *not* the key it is
+ * registered under in `index.ts`. Spelling either by hand is a silent miss — an
+ * unknown id lists no schedules and the catch-up decides, correctly and
+ * uselessly, to do nothing. The legacy two read it off the workflow; a kit
+ * pipeline's workflow takes it from the definition.
  */
 export const CATCHUP_TARGETS: CatchupTarget[] = [
   {
@@ -152,6 +170,7 @@ export const CATCHUP_TARGETS: CatchupTarget[] = [
     staleAfterDays: catchup.jobsStaleAfterDays,
     lastRunAt: lastRunStartedAt,
   },
+  ...PIPELINES.map(catchupTarget),
 ]
 
 /**
@@ -183,9 +202,10 @@ async function workersReady(mastra: Mastra): Promise<boolean> {
  * here is optional, and none of it may hold up the surface coming back.
  *
  * **The window this does not close.** A container in a crash loop could fire a
- * catch-up on each boot. What bounds it is that both runs write their own
- * staleness marker in the first seconds — ingest stamps `feed_state`, and
- * `startJobRun()` writes `job_runs.startedAt` — so the next boot sees a fresh
+ * catch-up on each boot. What bounds it is that every run writes its own
+ * staleness marker in the first seconds — ingest stamps `feed_state`,
+ * `startJobRun()` writes `job_runs.startedAt`, and a kit pipeline's claim stamps
+ * `pipeline_cycles` before anything else — so the next boot sees a fresh
  * pipeline and stands down. A restart inside that first window would start a
  * second run; a process restarting every few seconds has worse problems, and
  * invariant 6 already assumes a single replica.

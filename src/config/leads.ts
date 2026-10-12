@@ -116,8 +116,17 @@ export const leadPipeline = {
    */
   intervalHours: 44,
 
-  /** Hour of day the schedule fires, local to the container's clock. */
-  runHour: 9,
+  /**
+   * Hours the schedule fires, in `AGENT_TIMEZONE`.
+   *
+   * **Two fires, one run** — the reasoning `jobPipeline.runHours` records, which
+   * `7762cf4` applied to jobs and not here (audit F1). The gate above decides, so
+   * at 44h only one fire per cycle claims it; the other is a retry. With 09:00
+   * alone, a run the scheduler replayed at boot at 15:00 was refused at 09:00 two
+   * mornings running and the next run came 66h later, not 54h. Model spend is
+   * unchanged. `src/db/__tests__/cadence.test.ts` holds both numbers.
+   */
+  runHours: [9, 21],
 
   /** Characters of resolved page text kept on a signal. */
   maxPageChars: 20_000,

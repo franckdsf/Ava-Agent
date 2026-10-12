@@ -141,12 +141,12 @@ Run before believing anything about job scoring, and after any change to the por
 
 ### `pnpm catchup:check`
 
-**Required after** touching `decideCatchup`, `src/config/catchup.ts`, `pipeline.digestHours` or
-`jobPipeline.intervalHours`.
+**Required after** touching `decideCatchup`, `src/config/catchup.ts`, `pipeline.digestHours`,
+`jobPipeline.intervalHours`, or a pipeline in `src/mastra/pipelines.ts`.
 
 **Writes nothing · calls no model · needs `.env`**
 
-**Required** after touching `decideCatchup`, `src/config/catchup.ts`, `pipeline.digestHours` or `jobPipeline.intervalHours` — the last two because the staleness bars are set against those cadences and nothing enforces the relationship. The boot catch-up runs once, unattended, on a path that is invisible when it decides right and expensive when it decides wrong. Every guard has its case in `src/mastra/__tests__/boot-catchup.test.ts`, run by `pnpm verify`; this script prints what a boot *right now* would do to both live pipelines, against the real tables and schedule rows. Read-only; fires nothing.
+**Required** after touching `decideCatchup`, `src/config/catchup.ts`, `pipeline.digestHours`, `jobPipeline.intervalHours` or a pipeline in `src/mastra/pipelines.ts` — the cadences because the staleness bars are set against them. For a pipeline on the kit, `definePipeline` enforces that relationship at load ([ADR-0044](decisions/0044-a-pipeline-s-cadence-is-one-definition.md)); for news and jobs, nothing does yet. The boot catch-up runs once, unattended, on a path that is invisible when it decides right and expensive when it decides wrong. Every guard has its case in `src/mastra/__tests__/boot-catchup.test.ts`, run by `pnpm verify`; this script prints what a boot *right now* would do to every live pipeline, against the real tables and schedule rows. Read-only; fires nothing.
 
 ### `pnpm finder:check "<topic>" [--against <url>…]`
 

@@ -48,6 +48,7 @@ needs a judgement no script can make, and is settled.
 | A branch other than `main` is `<type>/<kebab-summary>` | 🔒 `pre-commit` |
 | `pnpm verify` is green before a commit exists | 🔒 `pre-commit`, `pre-merge-commit` |
 | Env is validated at boot and names what is missing | the process refuses to start — zod in `src/config/env.ts`, core vars at import, a bot's when it is built. Not in `pnpm verify`; ⏳ a test that the schema rejects an empty `.env` |
+| A pipeline's catch-up bar clears its healthy ceiling (gate + widest fire gap) | 🧪 `definePipeline` throws at load, so every test importing a pipeline fails and so does boot — kit pipelines only; jobs is held by a case in `boot-catchup.test.ts` until slice 3 |
 | `pnpm db:generate` after a schema edit | 👁 — the `SessionStart` hook warns on mtimes; ⏳ a check comparing the schema to the last snapshot |
 | Never require an inbound port, tunnel or webhook | ⏳ — `mode: 'polling'` on every Telegram adapter, ports bound to loopback in `docker-compose.yml` |
 | Never give an outbound Telegram instance a `mode`, never `mode: 'auto'` | ⏳ — same check |
