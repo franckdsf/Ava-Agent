@@ -298,7 +298,7 @@ const coreSchema = z.object({
    * on*, so a four-minute parse is not a slow background step; it is a bot that
    * looks broken, and they will type it again and get a second row.
    *
-   * `/client` now also acknowledges after `leadPipeline.ackAfterMs` when a parse
+   * `/client` now also acknowledges after `commands.ackAfterMs` when a parse
    * runs long, so the reader is never left watching nothing — which makes this
    * variable a **cost/quality** choice rather than a UX one. It stays on the
    * faster model anyway: the call runs once per profile the reader ever creates,

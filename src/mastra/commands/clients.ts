@@ -1,4 +1,5 @@
 import type { Mastra } from '@mastra/core'
+import { commands } from '../../config/commands.js'
 import { LEAD_COMMANDS, type LeadCommand } from '../../config/lead-commands.js'
 import { JOOB_TOPICS } from '../../bots/joob.js'
 import { LEAD_SIGNAL_KINDS, LEAD_SIGNAL_LABELS, leadPipeline } from '../../config/leads.js'
@@ -50,7 +51,7 @@ interface SlashEvent {
  * reader's understanding: the typing indicator expires after about five seconds
  * and then nothing happens, for as long as the model takes.
  *
- * So the acknowledgement is on a timer. Under `leadPipeline.ackAfterMs` the
+ * So the acknowledgement is on a timer. Under `commands.ackAfterMs` the
  * reader gets exactly one message, as before; over it they get "working on it"
  * and then the result. The ack is **awaited before the result is sent**, because
  * two sends racing could otherwise deliver the answer first and the promise to
@@ -69,7 +70,7 @@ async function runAndAnswer(
     ? setTimeout(() => {
         acknowledged = joobTelegram
           .notify(working(command), 'chat')
-      }, leadPipeline.ackAfterMs)
+      }, commands.ackAfterMs)
     : null
 
   try {

@@ -157,7 +157,7 @@ export function unknown(surface: BotSurface, command: string): string
 `/start` is the registrar's: first in the menu, first line of the list. A command's `name` is its key,
 so a duplicate across sections is a boot-time throw rather than one silently shadowing the other.
 
-**Tunables** — none new. `leadPipeline.ackAfterMs` becomes the ack bar for every command with
+**Tunables** — none new. `commands.ackAfterMs` (moved from `leadPipeline`) is the ack bar for every command with
 `working`; today only `/client` and `/reclient` have one, and `/target`·`/retarget` — which call the
 same kind of model — gain it. See decision 2.
 
