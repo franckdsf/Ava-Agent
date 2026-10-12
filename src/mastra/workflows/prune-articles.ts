@@ -66,6 +66,7 @@ export const pruneArticles = createWorkflow({
   // A single schedule, so no `id` is needed — Mastra assigns a stable internal
   // one. Retention is global rather than per-beat: the cutoff is a date, and
   // running it once per beat would just make the second run find nothing.
+  // C8: maintenance — retention: no gate, no claim, no catch-up; a missed day prunes the next.
   schedule: {
     cron: `0 ${pipeline.pruneHour} * * *`,
     timezone: env.AGENT_TIMEZONE,

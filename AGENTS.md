@@ -158,7 +158,7 @@ whether it writes, calls a model or needs `.env`. **`verify*` is offline and det
 
 | Command | Rule |
 | --- | --- |
-| `pnpm verify` | Before claiming any change works. Typecheck, the C1–C4 rule checks, the tests — the `pre-commit` hook runs it and refuses the commit if it fails. |
+| `pnpm verify` | Before claiming any change works. Typecheck, the C1–C4 and C8 rule checks, the tests — the `pre-commit` hook runs it and refuses the commit if it fails. |
 | `pnpm db:generate` | **Required** after editing `src/db/schema.ts`, or the migration silently lags the code. |
 | `pnpm workflow:run <target>` | **The only script that is not a dry run.** Real feeds, real model calls, real Telegram messages. Read `--help` first. |
 
@@ -290,7 +290,8 @@ is the one thing here that drifts: **a new env var means editing two files**, an
 boot because zod names the missing variable.
 
 **The news side** ingests with conditional GET, ranks per beat, and delivers one message per article
-into a tab per beat — two daily digests (`pipeline.digestHours`, 10:00 and 20:00) plus a 04:00 prune,
+into a tab per beat — two daily digests (`pipeline.digestHours`, 10:00 and 20:00, one schedule row
+gated at half the tightest gap) plus a 04:00 prune,
 a Monday 05:00 memory review and a Monday 06:00 feed review. Beats are rows the reader owns;
 `/follow` creates one from a subject and `retune-beat` lets Newy adjust it.
 
@@ -307,6 +308,9 @@ intervals are different numbers for different pipelines and have been confused b
 config, not a remembered figure. All three pipelines are on the kit: `NEWS`, `JOBS` and `LEADS`
 in `src/mastra/pipelines.ts` hold their cadence, and `open()` hands the cycle back to a run that
 stops before spending anything ([ADR-0044](docs/decisions/0044-a-pipeline-s-cadence-is-one-definition.md)).
+Every run that opens writes one `pipeline_runs` row, the kit inserting it and the pipeline finishing it
+([ADR-0045](docs/decisions/0045-one-run-log-for-every-pipeline.md)); C8 refuses a claim or a schedule
+written outside the kit, and the three maintenance workflows carry a `// C8: maintenance` line.
 
 **Verified live 2026-08-23** (`pnpm telegram:check`): both bots resolve one private chat id, Threaded
 Mode on, all six tabs found, both profiles up to date.

@@ -61,7 +61,7 @@ something looks the way it does.
 | [0041](0041-one-deployment-one-reader.md) | One deployment, one reader — and a `.env` that says only who they are | Accepted | everything (`**`) | — |
 | [0042](0042-a-scheduled-model-call-has-a-shape-not-a-list.md) | A scheduled model call has a shape, not a list | Accepted | `src/mastra/workflows/**`, `src/mastra/agents/**` | `pnpm workflow:run` |
 | [0043](0043-what-a-conversation-may-write-is-decided-by-what-reads-it-back.md) | What a conversation may write is decided by what reads it back | Accepted | `src/mastra/tools/**`, `src/mastra/commands/**`, `src/db/schema.ts` | — |
-| [0044](0044-a-pipeline-s-cadence-is-one-definition.md) | A pipeline's cadence is one definition, and its claim is handed back before it is spent | Accepted | `src/mastra/pipeline-kit.ts`, `src/mastra/pipelines.ts`, `src/mastra/boot-catchup.ts`, `src/config/catchup.ts`, `src/config/leads.ts` | `pnpm verify` |
+| [0044](0044-a-pipeline-s-cadence-is-one-definition.md) | A pipeline's cadence is one definition, and its claim is handed back before it is spent | Accepted | `src/mastra/pipeline-kit.ts`, `src/mastra/pipelines.ts`, `src/mastra/boot-catchup.ts`, `src/config/catchup.ts`, `src/config/leads.ts`, `src/config/jobs.ts`, `src/config/pipeline.ts`, `src/mastra/workflows/curate-all.ts`, `src/mastra/workflows/find-jobs.ts`, `src/mastra/workflows/find-leads.ts`, `scripts/checks/c8-one-cadence.mjs` | `pnpm verify` |
 | [0045](0045-one-run-log-for-every-pipeline.md) | One run log for every pipeline, written by the kit | Accepted | `src/db/runs.ts`, `src/db/schema.ts`, `src/mastra/pipeline-kit.ts`, `drizzle/0028_copy_run_logs.sql` | `pnpm verify` |
 
 **Reading 0001–0021:** they predate [0022](0022-ava-is-the-system-agents-have-names.md)

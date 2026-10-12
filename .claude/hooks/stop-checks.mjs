@@ -38,6 +38,7 @@ const CHECKS = [
     script: "c4-silent-catch.mjs",
     when: (f) => f.startsWith("src/") || f.startsWith("scripts/") || f.startsWith(".claude/hooks/"),
   },
+  { name: "C8 one cadence", script: "c8-one-cadence.mjs", when: (f) => f.startsWith("src/") },
 ];
 
 const changed = changedFiles();

@@ -368,6 +368,7 @@ export const reviewFeedsWorkflow = createWorkflow({
   id: 'review-feeds',
   inputSchema: empty,
   outputSchema: toppedUp.extend({ reported: z.boolean() }),
+  // C8: maintenance — weekly, on a weekday `runHours` cannot express; a missed week waits.
   schedule: {
     cron: `0 ${feedReview.reviewHour} * * ${feedReview.reviewWeekday}`,
     timezone: env.AGENT_TIMEZONE,

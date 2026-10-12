@@ -83,6 +83,7 @@ export const reviewMemoriesWorkflow = createWorkflow({
   // One schedule. The review is global — it reasons over the whole set of notes
   // at once, which is the only way to spot a recent note that duplicates
   // something already lasting.
+  // C8: maintenance — weekly, on a weekday `runHours` cannot express; a missed week waits.
   schedule: {
     cron: `0 ${memoryConfig.reviewHour} * * ${memoryConfig.reviewWeekday}`,
     timezone: env.AGENT_TIMEZONE,

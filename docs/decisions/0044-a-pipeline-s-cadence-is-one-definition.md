@@ -1,6 +1,6 @@
 ---
 id: 0044
-applies_to: ["src/mastra/pipeline-kit.ts", "src/mastra/pipelines.ts", "src/mastra/boot-catchup.ts", "src/config/catchup.ts", "src/config/leads.ts"]
+applies_to: ["src/mastra/pipeline-kit.ts", "src/mastra/pipelines.ts", "src/mastra/boot-catchup.ts", "src/config/catchup.ts", "src/config/leads.ts", "src/config/jobs.ts", "src/config/pipeline.ts", "src/mastra/workflows/curate-all.ts", "src/mastra/workflows/find-jobs.ts", "src/mastra/workflows/find-leads.ts", "scripts/checks/c8-one-cadence.mjs"]
 status: accepted
 supersedes: []
 verify: "pnpm verify"
