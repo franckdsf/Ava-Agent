@@ -90,9 +90,9 @@ cycles.test.ts
 
 cadence.test.ts — fake clock (vi.setSystemTime) through claimCycle with the real config
   jobs:  runHours × intervalHours, on-rhythm → a run every 24h
-  jobs:  an off-rhythm run (15:00) → the next run within 48h
+  jobs:  an off-rhythm run (15:00) → the next within intervalHours + 12h (29h ≤ 32h)
   leads: runHour × intervalHours, on-rhythm → a run every 48h
-  leads: an off-rhythm run (15:00) → the next run within 48h        ← F1: today 66h
+  leads: an off-rhythm run (15:00) → the next within intervalHours + 12h   ← F1: 66h > 56h, it.fails
 ```
 
 **Checks:**
