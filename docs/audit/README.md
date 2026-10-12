@@ -6,8 +6,9 @@ page: it was built from an **audit of the project before it**, written down in f
 then turned into an architecture. This folder is where the same audit of *this* repo gets written,
 before the refactor changes anything.
 
-**Nothing is in here yet but this file.** The documents below are written by reading the code, in
-order, and the refactor is planned from them — not from memory, and not from the existing docs.
+**01–04 were written at `f6c2b89`.** They were derived by reading the code, in order, and the
+refactor is planned from them — not from memory, and not from the existing docs. Start with
+[04-BLUEPRINT.md](04-BLUEPRINT.md); it links back to the evidence.
 
 ---
 
