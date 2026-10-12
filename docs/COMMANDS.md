@@ -176,8 +176,9 @@ Run before believing anything about job scoring, and after any change to the por
 
 **Required after** touching identity, the filter, image extraction, or the message template.
 
-**Writes nothing · calls no model · needs no `.env`** — no network and no database either
-(`--env-file-if-exists`).
+**Writes nothing · calls no model · needs no `.env`** — `vitest run lead`: every test file whose
+path names a lead, so `pnpm verify` runs the same cases on every commit. The name survives because
+[ADR-0038](decisions/0038-leads-a-prospecting-pipeline-in-joobs-chat.md) cites it as its `verify:`.
 
 The leads pipeline's deterministic half, offline — no network, no model, no database. Every case in it is one [ADR-0038](decisions/0038-leads-a-prospecting-pipeline-in-joobs-chat.md) argues about, so a failure is a regression against a recorded decision rather than against a guess. **The platform-host cases are the ones to care about**: reducing `acme.myshopify.com` to its registrable domain merges every store on that platform into one lead, silently, and it already caught exactly that bug once (`slice(0, -1)` on an exact match returns a truthy `"myshopify.co"`). Run it after touching identity, the filter, image extraction, or the message template.
 

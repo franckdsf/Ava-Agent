@@ -18,7 +18,7 @@
     "feeds:check": "tsx --env-file=.env scripts/check-feeds.ts",
     "finder:check": "tsx scripts/check-finder.ts",
     "jobs:check": "tsx --env-file=.env scripts/check-job-sources.ts",
-    "leads:check": "tsx --env-file-if-exists=.env scripts/check-leads.ts",
+    "leads:check": "vitest run lead",
     "leads:yield": "tsx --env-file=.env scripts/check-lead-yield.ts",
     "leadscout:check": "tsx --env-file=.env scripts/check-lead-scout.ts",
     "models:check": "tsx --env-file=.env scripts/check-models.ts",
