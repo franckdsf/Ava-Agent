@@ -257,7 +257,7 @@ export async function registerChatCommands(
  * a reader scrolling this list is far more often looking for `/summarize` than
  * for `/removefeed`.
  */
-function commandMenu(): { command: string; description: string }[] {
+export function commandMenu(): { command: string; description: string }[] {
   return [
     { command: '/start', description: 'What I do, and how to talk to me' },
     { command: summary.command, description: summary.menuDescription },

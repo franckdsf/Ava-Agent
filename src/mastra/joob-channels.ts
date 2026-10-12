@@ -89,7 +89,7 @@ export async function registerJoobCommands(
  * way. `/start` first because it is what a new reader reaches for; the rest in
  * the order they are used, which is define, review, remove.
  */
-function commandMenu(): { command: string; description: string }[] {
+export function commandMenu(): { command: string; description: string }[] {
   return [
     { command: '/start', description: 'What I do, and how to talk to me' },
     ...Object.entries(JOB_COMMANDS).map(([command, definition]) => ({

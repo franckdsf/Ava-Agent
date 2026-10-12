@@ -1,0 +1,281 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Joob > /start 1`] = `
+"## Hi, I'm Joob 💼
+
+I look for paid work that would actually suit you — roles you could take, and companies that should be hiring you — and I tell you what fits and what doesn't, rather than forwarding everything with your keywords in it.
+
+Three tabs:
+
+- **Chat** — talk to me here. Tell me what you're after, ask about anything I've sent, or think out loud about a move.
+- **Jobs** — where job matches land, one message each. I push there and don't answer there.
+- **Leads** — where companies worth approaching land, with the reason they're worth it *this week* and an opening you could send.
+
+For roles, start with \`/target\` in a sentence — *senior frontend in Paris or remote EU, TypeScript, no consultancies*. For clients, \`/client\` — *I shoot product photos for DTC skincare brands that just raised*. I'll show you exactly what I understood either way, and you correct me by saying it again. **Until you've set one, I have nothing to look for.**
+
+Then I check the boards every couple of days and score what I find against your CV; separately I watch for companies with a fresh reason to need you, and look at their site before I say so. Whatever clears the bar lands in its tab with the reasons it fits and the places it falls short. A quiet run says so here rather than leaving you guessing.
+
+I share what I know about you with Newy, in your other chat — one of you, one set of notes. Tell either of us something and we both know it.
+
+Commands:
+
+- \`/start\` — this message.
+- \`/target\` — tell me what to look for, in a sentence. \`/target senior frontend in Paris or remote EU, TypeScript, no consultancies\`. I show you what I understood.
+- \`/targets\` — everything I am currently looking for, with the filters for each.
+- \`/untarget\` — stop looking for one of them. Nothing already sent is lost. \`/untarget frontend\`.
+- \`/retarget\` — re-read one of my searches with the current parser, keeping its name and history. \`/retarget frontend\` re-reads what you already said; \`/retarget frontend senior only, no agencies\` replaces it.
+- \`/client\` — tell me who you want to work with, in a sentence. \`/client I shoot product photos for DTC skincare brands that just raised\`. I show you what I understood.
+- \`/clients\` — everything I am currently prospecting for, with the filters for each.
+- \`/unclient\` — stop prospecting for one of them. Nothing already sent is lost. \`/unclient dtc-skincare\`.
+- \`/reclient\` — re-read one of them without creating a second. \`/reclient dtc-skincare\` re-runs what you already said; add new wording to change it."
+`;
+
+exports[`Joob > an unknown command 1`] = `
+"/nope isn't a command I know. What I have:
+
+- \`/start\` — this message.
+- \`/target\` — tell me what to look for, in a sentence. \`/target senior frontend in Paris or remote EU, TypeScript, no consultancies\`. I show you what I understood.
+- \`/targets\` — everything I am currently looking for, with the filters for each.
+- \`/untarget\` — stop looking for one of them. Nothing already sent is lost. \`/untarget frontend\`.
+- \`/retarget\` — re-read one of my searches with the current parser, keeping its name and history. \`/retarget frontend\` re-reads what you already said; \`/retarget frontend senior only, no agencies\` replaces it.
+- \`/client\` — tell me who you want to work with, in a sentence. \`/client I shoot product photos for DTC skincare brands that just raised\`. I show you what I understood.
+- \`/clients\` — everything I am currently prospecting for, with the filters for each.
+- \`/unclient\` — stop prospecting for one of them. Nothing already sent is lost. \`/unclient dtc-skincare\`.
+- \`/reclient\` — re-read one of them without creating a second. \`/reclient dtc-skincare\` re-runs what you already said; add new wording to change it.
+
+For anything else, just say it in plain words."
+`;
+
+exports[`Joob > identity: id, env prefix, tabs, profile 1`] = `
+{
+  "envPrefix": "JOOB_",
+  "id": "joob",
+  "profile": {
+    "description": "Joob watches the job boards so you don't have to. Every couple of days it reads your CV, scores what has been posted against it, and sends only the roles worth your time — each one with the reasons it fits and the places it falls short. Ask about anything it has found, or tell it what you are looking for and it will remember. It shares what it knows about you with Newy, so telling either one something teaches both.",
+    "name": "Joob 💼",
+    "shortDescription": "Your job scout — postings read against your CV, with what fits and what doesn't spelled out.",
+  },
+  "topics": [
+    {
+      "emoji": "💬",
+      "iconCustomEmojiId": null,
+      "slug": "chat",
+      "title": "Chat",
+    },
+    {
+      "emoji": "💼",
+      "iconCustomEmojiId": null,
+      "slug": "jobs",
+      "title": "Jobs",
+    },
+    {
+      "emoji": "🎯",
+      "iconCustomEmojiId": null,
+      "slug": "leads",
+      "title": "Leads",
+    },
+  ],
+}
+`;
+
+exports[`Joob > the / menu 1`] = `
+[
+  {
+    "command": "/start",
+    "description": "What I do, and how to talk to me",
+  },
+  {
+    "command": "/target",
+    "description": "Tell me what kind of role to look for, in your own words",
+  },
+  {
+    "command": "/targets",
+    "description": "List what I am currently looking for",
+  },
+  {
+    "command": "/untarget",
+    "description": "Stop looking for one kind of role",
+  },
+  {
+    "command": "/retarget",
+    "description": "Re-read one of my searches, optionally with new wording",
+  },
+  {
+    "command": "/client",
+    "description": "Tell me what you sell and who should buy it",
+  },
+  {
+    "command": "/clients",
+    "description": "List who I am currently prospecting for",
+  },
+  {
+    "command": "/unclient",
+    "description": "Stop prospecting for one kind of client",
+  },
+  {
+    "command": "/reclient",
+    "description": "Re-read one client profile, keeping its name",
+  },
+]
+`;
+
+exports[`Newy > /start 1`] = `
+"## Hi, I'm Newy 😊
+
+I'm here to help you keep up with the topics you care about. Use the Chat tab to talk with me directly — every other tab is one I push to and don't answer in, so what you're reading stays tidy.
+
+What I do:
+
+- **Chat** — chat with me about anything, ask for details, or follow up on an article 📰.
+- I keep our conversation in one place so your context stays intact.
+
+- **One tab per beat** — each subject you follow gets its own 📅, and its digests go there and nowhere else.
+
+- **Translations** — where /translearn and /translate put an article once you've asked for it 📜.
+
+Beats:
+
+- 🧠 Computer Science
+- 🎨 Design
+
+A beat's tab appears the first time it has something to send you, so a brand new one is quiet until then. \`/pause\` closes a tab without deleting anything in it, and \`/resume\` opens it again.
+
+Digests arrive at 10:00, 20:00 Europe/Paris. Each article is delivered as its own message so you can read or save what matters.
+
+Commands:
+
+**Reading**
+- \`/start\` — this message.
+- \`/summarize\` — a detailed summary of the article. In English by default — add a language to get it in that one: \`/summarize fr\`.
+- \`/translearn\` — the article in your language, with the English behind every word worth learning.
+- \`/translate\` — the article in your language, with only the key terms shown in English.
+
+**Beats**
+- \`/follow\` — follow a new subject. Say it in any language and I set the beat up and go looking for feeds. \`/follow formula 1\`.
+- \`/beats\` — the beats I follow, with their feeds and what they did this week.
+- \`/beat\` — one beat in full — its rubric, its feeds, its thresholds. \`/beat design\`.
+- \`/pause\` — stop a beat without losing it — nothing is deleted. \`/pause design\`.
+- \`/resume\` — start a paused beat again. \`/resume design\`.
+- \`/addfeed\` — add an RSS feed to a beat. I check it before saving it. \`/addfeed design <url>\`.
+- \`/removefeed\` — stop a beat pulling from a feed. Its old articles stay. \`/removefeed design <url>\`.
+- \`/why\` — swipe an article and ask why it was sent — or why it was not.
+
+The reading commands work on a swipe: reply to any article and send \`/summarize\`, \`/why\` or a translation on its own. The beat commands don't need one — they take a slug, and \`/beats\` lists them.
+
+\`/why\` is the one worth knowing about: every beat scores every article it sees and writes down what it made of it, so you can swipe something and ask why it arrived — or swipe one I skipped and see what it scored.
+
+\`/translearn\` and \`/translate\` answer in your own language, with the English kept in view, in the Translations tab — a long article arrives as several messages over a few minutes.
+
+\`/summarize\` answers here in Chat, as one message: the article explained properly rather than compressed. It writes in English unless you name a language after it — \`/summarize fr\`, \`/summarize ru\`, or the language's own name.
+
+**YouTube links need no command at all** 🎬 — paste one here and I'll read its transcript and explain what's actually in it, in your language. It works on a two-hour talk as well as a five-minute one; if a video has no captions there's nothing I can read, and I'll say so rather than guess.
+
+If you want something specific, just ask — search the archive, show me a recent article, or tell me what interests you 😉."
+`;
+
+exports[`Newy > an unknown command 1`] = `
+"/nope isn't a command I know. What I have:
+
+**Reading**
+- \`/start\` — this message.
+- \`/summarize\` — a detailed summary of the article. In English by default — add a language to get it in that one: \`/summarize fr\`.
+- \`/translearn\` — the article in your language, with the English behind every word worth learning.
+- \`/translate\` — the article in your language, with only the key terms shown in English.
+
+**Beats**
+- \`/follow\` — follow a new subject. Say it in any language and I set the beat up and go looking for feeds. \`/follow formula 1\`.
+- \`/beats\` — the beats I follow, with their feeds and what they did this week.
+- \`/beat\` — one beat in full — its rubric, its feeds, its thresholds. \`/beat design\`.
+- \`/pause\` — stop a beat without losing it — nothing is deleted. \`/pause design\`.
+- \`/resume\` — start a paused beat again. \`/resume design\`.
+- \`/addfeed\` — add an RSS feed to a beat. I check it before saving it. \`/addfeed design <url>\`.
+- \`/removefeed\` — stop a beat pulling from a feed. Its old articles stay. \`/removefeed design <url>\`.
+- \`/why\` — swipe an article and ask why it was sent — or why it was not.
+
+For anything else, just say it in plain words."
+`;
+
+exports[`Newy > identity: id, env prefix, tabs, profile 1`] = `
+{
+  "envPrefix": "NEWY_",
+  "id": "newy",
+  "profile": {
+    "description": "Newy tracks your beats in the background — ranking, summarizing and delivering the news that matters to you, no digging required. Ask her anything about what she's found: she'll search past articles, pull up the full text, and explain what a story actually says. She remembers what you tell her about yourself over time, so answers get more personal the longer you talk. She can also sketch a quick diagram when a concept has moving parts worth seeing.",
+    "name": "Newy 📰",
+    "shortDescription": "Your personal news assistant — curated digests, plus a chat that remembers what matters to you.",
+  },
+  "topics": [
+    {
+      "emoji": "💬",
+      "iconCustomEmojiId": null,
+      "slug": "chat",
+      "title": "Chat",
+    },
+    {
+      "emoji": "📰",
+      "iconCustomEmojiId": null,
+      "slug": "news",
+      "title": "News",
+    },
+    {
+      "emoji": "📜",
+      "iconCustomEmojiId": null,
+      "slug": "translations",
+      "title": "Translations",
+    },
+  ],
+}
+`;
+
+exports[`Newy > the / menu 1`] = `
+[
+  {
+    "command": "/start",
+    "description": "What I do, and how to talk to me",
+  },
+  {
+    "command": "/summarize",
+    "description": "Summarize the article you swiped, in any language",
+  },
+  {
+    "command": "/translearn",
+    "description": "Translate the article you swiped, glossed for learning",
+  },
+  {
+    "command": "/translate",
+    "description": "Translate the article you swiped, keeping key terms in English",
+  },
+  {
+    "command": "/follow",
+    "description": "Follow a new subject — I find the feeds for it myself",
+  },
+  {
+    "command": "/beats",
+    "description": "List the beats I follow and how each one is doing",
+  },
+  {
+    "command": "/beat",
+    "description": "Show one beat in full: its rubric, feeds and thresholds",
+  },
+  {
+    "command": "/pause",
+    "description": "Stop a beat from ingesting, ranking and sending",
+  },
+  {
+    "command": "/resume",
+    "description": "Start a paused beat again",
+  },
+  {
+    "command": "/addfeed",
+    "description": "Add an RSS feed to a beat, checking it works first",
+  },
+  {
+    "command": "/removefeed",
+    "description": "Stop a beat pulling from one of its feeds",
+  },
+  {
+    "command": "/why",
+    "description": "Explain how an article was scored, and why it was or was not sent",
+  },
+]
+`;
