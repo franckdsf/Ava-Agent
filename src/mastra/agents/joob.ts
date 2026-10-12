@@ -121,9 +121,9 @@ export const joob = new Agent({
       openrouter: {
         reasoning: { effort: 'high' },
         provider: {
-          only: ['novita/fp8', 'minimax/fp8', 'together', 'parasail/fp8'],
-          order: ['novita/fp8', 'minimax/fp8', 'together', 'parasail/fp8'],
+          sort: 'price',
           allow_fallbacks: true,
+          require_parameters: false,
         },
       },
     },

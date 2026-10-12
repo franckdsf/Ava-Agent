@@ -44,6 +44,20 @@ const ranker = new Agent({
   id: rankerId,
   name: 'Beat Ranker',
   model: env.AVA_MODEL_RSS_RANKER,
+  /**
+   * Low effort, set rather than left to the provider: that is the setting
+   * `pnpm bench ranker` chose the model at. With nothing set, the previous
+   * model reasoned at its own default — ~7k tokens and over a minute a batch,
+   * for no better ranking. `providerOptions` must sit here, not on
+   * `instructions`, or Mastra drops it (see `memory.ts`).
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        reasoning: { effort: 'low' },
+      },
+    },
+  },
   instructions: `
 You score news articles for one beat at a time.
 

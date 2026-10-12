@@ -164,12 +164,11 @@ export const newy = new Agent({
    * also why the two system messages above survived: they only had to become one
    * concatenated string to carry a block that was never going to be read.
    *
-   * `only` fences the model to endpoints that have behaved; `order` is the
-   * preference within that fence, and `allow_fallbacks` can only fall through to
-   * the rest of `only`. Reasoning is high because this is the surface a person
+   * `sort: 'price'` sends each request to the cheapest endpoint first, and
+   * `allow_fallbacks` moves on to the next one when it fails. Reasoning is high because this is the surface a person
    * is talking to and a wrong answer costs more than a slow one — measured at
-   * 41 reasoning tokens against 32 with the field absent, so on m3 it is close
-   * to free. It does not fix the truncated-reply gotcha below; nothing in this
+   * 41 reasoning tokens against 32 with the field absent on `minimax-m3`, so it
+   * was close to free there; not yet re-measured on `deepseek-v4.1-flash`. It does not fix the truncated-reply gotcha below; nothing in this
    * block does.
    */
   defaultOptions: {
@@ -177,9 +176,9 @@ export const newy = new Agent({
       openrouter: {
         reasoning: { effort: 'high' },
         provider: {
-          only: ['novita/fp8', 'minimax/fp8', 'together', 'parasail/fp8'],
-          order: ['novita/fp8', 'minimax/fp8', 'together', 'parasail/fp8'],
+          sort: 'price',
           allow_fallbacks: true,
+          require_parameters: false,
         },
       },
     },

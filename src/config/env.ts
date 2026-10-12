@@ -42,8 +42,17 @@ const coreSchema = z.object({
   /**
    * Cheap and high-volume: scores + labels every incoming headline. Text only,
    * but must support schema-constrained output — the rank step reads `.object`.
+   *
+   * `pnpm bench ranker`, 2026-10-12, 2 beats × 3 runs, at `effort: 'low'` (set
+   * on the agent): tied the previous `deepseek-v4-flash-0731` on the judge — each
+   * first on one beat — at 14.9s median against 76.6s (worst 16.8s against
+   * 178.7s), $0.0048 a batch against $0.0063, and a run-to-run score spread of
+   * 5 points against 13. The old model ran with no effort set and spent ~7k
+   * reasoning tokens a batch. `claude-haiku-5.5 @ low` was cheaper but judged
+   * lower and scored about half as many articles over the digest bar. No votes
+   * existed, so none of this is measured against the reader's taste.
    */
-  AVA_MODEL_RSS_RANKER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
+  AVA_MODEL_RSS_RANKER: gatewayModelId.default('openrouter/deepseek/deepseek-v4.1-flash'),
   /** Strong: writes the digest for the handful of items that survive ranking. */
   AVA_MODEL_RSS_SUMMARIZER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
   /**
@@ -54,7 +63,7 @@ const coreSchema = z.object({
    * moves all of them together, which is the point — retuning the model a reader
    * talks to is a decision about the surface, not about one persona.
    */
-  AVA_MODEL_ORCHESTRATOR: gatewayModelId.default('openrouter/minimax/minimax-m3'),
+  AVA_MODEL_ORCHESTRATOR: gatewayModelId.default('openrouter/deepseek/deepseek-v4.1-flash'),
   /**
    * Weekly memory review: decides which short-term notes become biography.
    *
@@ -89,9 +98,9 @@ const coreSchema = z.object({
    * fields, this one is a reader waiting on their phone for several paragraphs.
    * The two are tuned against different costs and want to move independently.
    *
-   * Not the orchestrator either, deliberately: `minimax-m3` is the model with
-   * the `</think>` truncation documented in AGENTS.md, and a summary that starts
-   * mid-word is this command's worst failure.
+   * Not the orchestrator either, deliberately: that one was chosen for chat, and
+   * its predecessor `minimax-m3` carried the `</think>` truncation documented in
+   * AGENTS.md — a summary that starts mid-word is this command's worst failure.
    */
   AVA_MODEL_SUMMARIZER: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
 
@@ -283,7 +292,8 @@ const coreSchema = z.object({
    * is structurally blind to: `mustHave` scans text, `htmlToText` discards
    * images, `minPageChars` is a text floor.
    *
-   * `minimax-m3` reads images well and costs accordingly. Three rules bound it,
+   * `deepseek-v4.1-flash` reads images and replaced `minimax-m3` here as both
+   * cheaper and smarter — but it is still a call per lead. Three rules bound it,
    * and all three are load-bearing rather than tuning:
    *
    * 1. It runs **only on leads that already cleared the text score**, one call
@@ -298,13 +308,13 @@ const coreSchema = z.object({
    * the model supplies prose, the web supplies facts. A filter reading
    * model-written text lets a lead pass on invented evidence.
    *
-   * Note this is the same model as `AVA_MODEL_ORCHESTRATOR`, and it is the one
-   * with the `</think>` truncation documented in AGENTS.md — which is why the
-   * vision call is schema-constrained rather than free prose. A truncated
+   * Note this is the same model as `AVA_MODEL_ORCHESTRATOR`. The vision call is
+   * schema-constrained rather than free prose, a guard set up against the
+   * `</think>` truncation documented in AGENTS.md for `minimax-m3`, and kept. A truncated
    * judgement inside a JSON field is a short judgement; a truncated message is a
    * sentence that stops mid-word.
    */
-  AVA_MODEL_LEAD_VISION: gatewayModelId.default('openrouter/minimax/minimax-m3'),
+  AVA_MODEL_LEAD_VISION: gatewayModelId.default('openrouter/deepseek/deepseek-v4.1-flash'),
   /**
    * Writes the short brief and the opening line for each lead that cleared the
    * bar.
