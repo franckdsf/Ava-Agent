@@ -37,6 +37,10 @@ calls only in X" is unenforceable until X exists.
 **Target:** one file per bot, holding everything that is *data* about it. Everything else is built
 from it by code written once.
 
+> *As built (slices 4+5):* three places, not one file — the data file is a leaf so workflows and
+> commands can import it without a cycle (C2), and the agent stays in `src/mastra/agents/` for C5.
+> [ADR-0047](../decisions/0047-a-bot-is-data-and-a-command-is-one-object.md).
+
 ```ts
 // src/bots/joob.ts — the whole of what makes Joob, Joob
 export const JOOB: BotDefinition<'chat' | 'jobs' | 'leads'> = {
@@ -158,7 +162,7 @@ New rule checks, each added in the slice that makes it true:
 | --- | --- | --- |
 | C5 model boundary | `new Agent(` / `.generate(` / `.stream(` only in `src/mastra/agents/` | Part 4 |
 | C6 data access | `drizzle-orm` / `db()` only in `src/db/` | Part 5 |
-| C7 bot-agnostic | no bot name outside `src/bots/` | Part 1 |
+| C7 bot-agnostic | no bot name in the code shared by every bot — services, db, lib, config, the registrar, runner, builder and routing. *Corrected when it landed:* "outside `src/bots/`" would have forbidden a bot's own workflows and commands, which Part 1 says it brings | Part 1 |
 | C8 one cadence | every scheduled `createWorkflow` gets its schedule from `definePipeline` | Part 3 |
 
 And from 02: **D1** — number the nine invariants again in AGENTS.md so ~160 citations resolve; D2–D6

@@ -32,7 +32,9 @@ Its parts, each runnable alone:
 | `pnpm verify:cycles` | no runtime import cycle in `src/` or `scripts/` | C2 |
 | `pnpm verify:paths` | no path in `src/` resolved against cwd | C3 |
 | `pnpm verify:catch` | no empty catch, no new swallowed promise beyond `scripts/checks/c4-baseline.json` | C4 |
-| `pnpm verify:rules` | C1–C4 together | |
+| `pnpm verify:bots` | the code shared by every bot names no bot — services, db, lib, config, the registrar, runner, builder and routing | C7 |
+| `pnpm verify:cadence` | every pipeline's claim and schedule come from `definePipeline` | C8 |
+| `pnpm verify:rules` | C1–C4, C7 and C8 together | |
 | `pnpm test` | every `__tests__/**/*.test.ts` — offline; `pnpm test:watch` to iterate | 🧪 |
 
 What each rule holds, and which rules nothing holds yet: [CONVENTIONS.md](CONVENTIONS.md).

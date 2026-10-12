@@ -10,7 +10,7 @@ only a reader does** — because that is the difference between a rule and a hop
 | --- | --- |
 | 🔬 **TYPE** | `pnpm typecheck` makes the violation an error |
 | 🧪 **TEST** | a test under `__tests__/` asserts it, in `pnpm test` |
-| 📐 **SCRIPT** | a rule check — C1–C4, C8 — in `pnpm verify:rules` |
+| 📐 **SCRIPT** | a rule check — C1–C4, C7, C8 — in `pnpm verify:rules` |
 | 🔒 **HOOK** | a git hook refuses the commit |
 | 👁 **REVIEW** | judgement — the invariant-reviewer and you. A guideline, and it will drift |
 | ⏳ | 👁 today, mechanisable, and a candidate for the refactor ([§1](#1-rule-to-mechanism-map)) |
@@ -20,7 +20,7 @@ drift. Writing it in bold and treating it as binding is how documentation become
 the code drifts underneath it — the failure the boilerplate this repo's tooling comes from was built
 against ([audit/](audit/README.md)).
 
-`pnpm verify` runs everything mechanical: typecheck, C1–C4 and C8, the tests. It runs in two places: on
+`pnpm verify` runs everything mechanical: typecheck, C1–C4, C7 and C8, the tests. It runs in two places: on
 demand, and in the `pre-commit` / `pre-merge-commit` hooks, so a failing commit cannot be created.
 **There is no CI** — this repo has no remote yet — so a `--no-verify` commit is caught by nothing.
 A third place is advisory: the `Stop` hook in `.claude/` runs the same C checks against the working set at the
@@ -43,6 +43,7 @@ needs a judgement no script can make, and is settled.
 | No import cycles | 📐 C2 |
 | No path in `src/` resolved against cwd — `resolveFromRoot()` | 📐 C3 |
 | No error swallowed silently — empty `catch {}`, `.catch(() => {})` | 📐 C4 (a ratchet: [§3](#3-known-debt--baselines)) |
+| The code written once for every bot names no bot — a bot is a file in `src/bots/`, and the shared layers take it as an argument | 📐 C7 |
 | A pipeline claims and schedules through `definePipeline` — no `claimCycle` outside the kit, every other `schedule:` marked `// C8: maintenance — <why>` | 📐 C8 |
 | Commit titles open `(feat)` `(fix)` `(hotfix)` `(clean)` | 🔒 `commit-msg` |
 | No AI-attribution trailer on a commit | 🔒 `commit-msg` |

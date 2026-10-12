@@ -8,13 +8,13 @@ import { NEWY_SURFACE } from '../commands/newy.js'
 import { commandMenu, unknown } from '../registrar.js'
 
 // What each bot shows a reader before any conversation: the `/` menu, `/start`, the reply to a
-// command it does not know, and its identity — profile and tabs. Pinned byte for byte ahead of
-// slices 4+5 (docs/plans/bots-as-definitions.md), which rebuild all of it from one registrar and
-// one bot definition: the call sites below change with that refactor, the snapshot does not.
+// command it does not know, and its identity — profile and tabs. Pinned byte for byte before
+// slices 4+5 rebuilt all of it from one registrar and one bot definition (ADR-0047), and passed
+// unchanged through that refactor.
 //
-// The menu, `/start` and the unknown reply are three renderings of one command list. Before the
-// refactor they agree by convention (the two registrars said so in comments); after it, by construction.
-// The snapshot is what proves the construction reproduces what the convention produced.
+// The menu, `/start` and the unknown reply are three renderings of one command list, derived from
+// the same `Command` objects. A snapshot that moves is a change a reader will see: review the diff
+// as a message, then update it deliberately.
 
 beforeAll(async () => {
   // Newy's `/start` lists the live beats — the starter set a fresh volume boots with.

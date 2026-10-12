@@ -15,7 +15,7 @@
 Operating contract for anyone — human or agent — working in this repo.
 
 - **What it is and how to run it:** [README.md](README.md)
-- **Why it looks like this:** [docs/decisions/](docs/decisions/README.md) — 45 ADRs, each declaring
+- **Why it looks like this:** [docs/decisions/](docs/decisions/README.md) — 47 ADRs, each declaring
   the files it governs and the command that proves it still holds
 - **What surprised us:** [docs/GOTCHAS/](docs/GOTCHAS/README.md) — nine routed files; read the one
   whose globs match what you are touching
@@ -158,7 +158,7 @@ whether it writes, calls a model or needs `.env`. **`verify*` is offline and det
 
 | Command | Rule |
 | --- | --- |
-| `pnpm verify` | Before claiming any change works. Typecheck, the C1–C4 and C8 rule checks, the tests — the `pre-commit` hook runs it and refuses the commit if it fails. |
+| `pnpm verify` | Before claiming any change works. Typecheck, the C1–C4, C7 and C8 rule checks, the tests — the `pre-commit` hook runs it and refuses the commit if it fails. |
 | `pnpm db:generate` | **Required** after editing `src/db/schema.ts`, or the migration silently lags the code. |
 | `pnpm workflow:run <target>` | **The only script that is not a dry run.** Real feeds, real model calls, real Telegram messages. Read `--help` first. |
 
@@ -276,8 +276,11 @@ claim before passing it on.
 ## Current state
 
 **Two agents on two bot tokens, one reader.** Newy runs the news pipeline; Joob runs the jobs and
-leads pipelines. `src/bots/` is the registry — a data file per bot — and `transportFor(bot)` is what the
-transport is constructed against. The environment holds only who the reader is:
+leads pipelines. **A bot is a data file in `src/bots/`** — id, env prefix, tabs, profile — and
+everything else is built from it once: `transportFor(bot)`, `createChatAgent` for its agent, and
+`registerBot` for its slash commands, each of which is one `Command` object beside its handler, run
+by `runCommand`. `src/mastra/chat-bots.ts` lists the bots `index.ts` registers; C7 keeps the shared
+half from naming one ([ADR-0047](docs/decisions/0047-a-bot-is-data-and-a-command-is-one-object.md)). The environment holds only who the reader is:
 `AVA_TELEGRAM_USER_ID` is both the allowlist and, in a DM, the chat each bot pushes to
 ([ADR-0041](docs/decisions/0041-one-deployment-one-reader.md)). `OPENROUTER_API_KEY` is the only key
 a deployment must have; `REPLICATE_API_KEY` is optional and `imageTools` is empty without it.
