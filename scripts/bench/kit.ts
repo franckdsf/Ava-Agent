@@ -342,7 +342,9 @@ async function runJudge(prompt: string): Promise<{ verdict: Verdict | null; cost
       'You are ranking model outputs. You are strict, you quote the line you object to, and you never ' +
       'praise a candidate for something every candidate did.',
     defaultOptions: {
-      providerOptions: { openrouter: { reasoning: { enabled: true, effort: 'high' }, usage: { include: true } } },
+      providerOptions: {
+        openrouter: { reasoning: { enabled: true, effort: 'high' }, provider: { sort: 'price' }, usage: { include: true } },
+      },
     },
   })
   const mastra = new Mastra({ agents: { judge }, logger: false })
@@ -355,6 +357,24 @@ async function runJudge(prompt: string): Promise<{ verdict: Verdict | null; cost
   } catch (error) {
     return { verdict: null, cost: undefined, error: error instanceof Error ? error.message : String(error) }
   }
+}
+
+/**
+ * Entrants asked to reason that came back with none.
+ *
+ * Price routing found this on its first run: claude-haiku-5.5 at `low` reported
+ * 0 reasoning tokens where it had reported ~1.5k on default routing — the
+ * cheapest endpoint dropped the setting without an error. `require_parameters`
+ * is meant to prevent that; this is how a table says so when it did not.
+ */
+export function droppedEffort(entrants: Entrant[], rows: Pick<Row, 'key' | 'ok' | 'reasoning'>[]): string[] {
+  return entrants
+    .filter(e => e.effort !== false && e.effort !== 'shipped')
+    .map(entrantKey)
+    .filter(key => {
+      const row = rows.find(r => r.key === key)
+      return row !== undefined && row.ok > 0 && row.reasoning === 0
+    })
 }
 
 /** One entrant's line in the table. */
@@ -472,7 +492,7 @@ export async function runBench<Fixture, Output>(task: BenchTask<Fixture, Output>
           (attempt.output === null
             ? `FAILED after ${(attempt.ms / 1000).toFixed(1)}s — ${attempt.error}`
             : `${(attempt.ms / 1000).toFixed(1)}s · ${cost === undefined ? 'cost n/a' : `$${cost.toFixed(5)}`}` +
-              `${attempt.calls.length > 1 ? ` · ${attempt.calls.length} attempts` : ''}` +
+              `${attempt.calls.some(c => c.error) ? ` · ${attempt.calls.filter(c => c.error).length} failed calls retried` : ''}` +
               `${attempt.flags.length ? ` · ${attempt.flags.length} flags` : ''}`),
       )
     },
@@ -516,7 +536,9 @@ export async function runBench<Fixture, Output>(task: BenchTask<Fixture, Output>
       medianMs: median(ok.map(a => a.ms)),
       costPerRun: costs.some(c => c !== undefined) ? mean(costs.map(c => c ?? NaN)) : undefined,
       reasoning: mean(ok.map(a => a.calls.reduce((sum, call) => sum + call.reasoningTokens, 0))),
-      retries: mine.reduce((sum, a) => sum + Math.max(0, a.calls.length - 1), 0),
+      // Failed calls, not extra calls: a task whose run makes several calls on
+      // purpose (one per article) would otherwise count each as a retry.
+      retries: mine.reduce((sum, a) => sum + a.calls.filter(call => call.error).length, 0),
       metrics: Object.fromEntries([
         ...metricKeys.map(k => [k, mean(ok.map(a => a.metrics[k] ?? NaN))] as const),
         ...acrossKeys.map(k => [k, mean(across.map(m => m[k] ?? NaN))] as const),
@@ -540,6 +562,10 @@ export async function runBench<Fixture, Output>(task: BenchTask<Fixture, Output>
     agreed
       ? `The judge put ${firsts[0]} first on every fixture.`
       : `No winner: the judge's first place differs across fixtures (${firsts.join(', ') || 'none'}) — inside the noise floor.`,
+    ...droppedEffort(entrants.map(({ item }) => item), rows).map(
+      key =>
+        `${key} used no reasoning tokens: the endpoint ignored the effort, so that row measured reasoning off.`,
+    ),
     ...(task.caveats?.(fixtures) ?? []),
   ]
 

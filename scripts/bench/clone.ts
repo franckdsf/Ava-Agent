@@ -52,12 +52,15 @@ export function reasoningFor(effort: Effort): Record<string, unknown> | undefine
 
 /**
  * The provider options a clone sends: the real agent's, with the effort
- * replaced and usage accounting switched on.
+ * replaced, routing sorted by price, and usage accounting switched on.
  *
- * The real agent's provider pinning survives untouched — a translator pinned to
- * a fast endpoint is measured on that endpoint. Usage accounting is what makes
- * the cost column what OpenRouter actually charged, at whichever provider it
- * routed to, rather than a list price multiplied by a guess.
+ * **Every entrant routes cheapest-first**, whatever the agent it was cloned
+ * from sends today, because that is how this repo routes every model it ships:
+ * a model chosen on the fastest endpoint and then run on the cheapest is a
+ * latency and a price nobody measured. The rest of the agent's provider block
+ * (an `only` fence, say) survives. Usage accounting is what makes the cost
+ * column what OpenRouter actually charged, at whichever provider it routed to,
+ * rather than a list price multiplied by a guess.
  */
 export function cloneProviderOptions(
   shipped: Record<string, Record<string, unknown>> | undefined,
@@ -66,6 +69,15 @@ export function cloneProviderOptions(
   const openrouter = { ...(shipped?.openrouter ?? {}) }
   const reasoning = reasoningFor(effort)
   if (reasoning) openrouter.reasoning = reasoning
+  openrouter.provider = {
+    ...(openrouter.provider as Record<string, unknown> | undefined),
+    sort: 'price',
+    // Only endpoints that honour every parameter sent — the effort being
+    // measured and the structured-output format. Without it the cheapest
+    // endpoint can drop the effort silently, and the row measures something
+    // other than its label.
+    require_parameters: true,
+  }
   openrouter.usage = { include: true }
   return { ...shipped, openrouter }
 }

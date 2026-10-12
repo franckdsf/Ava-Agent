@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { cloneProviderOptions } from '../clone.js'
-import { attemptCost, blind, entrantsFor, judgePrompt, pool, renderTable, scoreSpread, spearman, type Row } from '../kit.js'
+import { attemptCost, blind, droppedEffort, entrantsFor, judgePrompt, pool, renderTable, scoreSpread, spearman, type Row } from '../kit.js'
+import { articleWriterFlags } from '../tasks/article-writer.js'
 import { mentionsReader, rankerFlags, voteAgreement, type RankerFixture } from '../tasks/ranker.js'
 
 describe('field', () => {
@@ -65,11 +66,16 @@ describe('pool', () => {
 })
 
 describe('provider options', () => {
-  it('keeps the real pinning, swaps the effort, turns on usage', () => {
-    const shipped = { openrouter: { provider: { order: ['groq'] }, reasoning: { effort: 'high' } } }
+  it('keeps the rest of the provider block, sorts by price, swaps the effort, turns on usage', () => {
+    const shipped = { openrouter: { provider: { only: ['groq'] }, reasoning: { effort: 'high' } } }
     expect(cloneProviderOptions(shipped, false)).toEqual({
-      openrouter: { provider: { order: ['groq'] }, reasoning: { enabled: false }, usage: { include: true } },
+      openrouter: {
+        provider: { only: ['groq'], sort: 'price', require_parameters: true },
+        reasoning: { enabled: false },
+        usage: { include: true },
+      },
     })
+    expect(cloneProviderOptions(undefined, 'low').openrouter?.provider).toEqual({ sort: 'price', require_parameters: true })
     expect(cloneProviderOptions(shipped, 'shipped').openrouter?.reasoning).toEqual({ effort: 'high' })
     expect(cloneProviderOptions(undefined, 2000).openrouter?.reasoning).toEqual({ enabled: true, max_tokens: 2000 })
   })
@@ -110,6 +116,22 @@ describe('table', () => {
     const [, first, second] = table.split('\n')
     expect(first).toMatch(/^A\s+x @ off \*/)
     expect(second).toMatch(/^B\s+dead @ low\s+0\/3\s+0\/3\s+—\s+n\/a/)
+  })
+})
+
+describe('dropped effort', () => {
+  it('names an entrant asked to reason that reported none, never one at off or shipped', () => {
+    const entrants = [
+      { model: 'openrouter/a/haiku', effort: 'low' as const },
+      { model: 'openrouter/a/haiku', effort: false as const },
+      { model: 'openrouter/b/v41', effort: 'low' as const },
+    ]
+    const rows = [
+      { key: 'a/haiku @ low', ok: 6, reasoning: 0 },
+      { key: 'a/haiku @ off', ok: 6, reasoning: 0 },
+      { key: 'b/v41 @ low', ok: 6, reasoning: 1937 },
+    ]
+    expect(droppedEffort(entrants, rows)).toEqual(['a/haiku @ low'])
   })
 })
 
@@ -187,5 +209,32 @@ describe('ranker checks', () => {
 
   it('spread is the mean gap between one entrant\'s runs', () => {
     expect(scoreSpread([[r('a', 80), r('b', 20)], [r('a', 70), r('b', 20)]])).toBe(5)
+  })
+})
+
+describe('article writer checks', () => {
+  const story = (title: string) => ({ id: 'x', beat: 'AI', title, source: 's', reason: null, body: 'b' })
+  const fixture = { stories: [story('Mistral ships a new open-weights coding model'), story('Short')] }
+
+  it('a summary about its subject has no flags, even one naming a paper or an author', () => {
+    const ok = { lede: 'Mistral released Devstral 3, an open-weights coding model; the paper reports 61% on SWE-bench.', points: ['Apache 2.0.'] }
+    expect(articleWriterFlags([ok, ok], fixture)).toEqual([])
+  })
+
+  it('names the failed article, the frame, the URL, the title echo and the extra points', () => {
+    const flags = articleWriterFlags(
+      [
+        { lede: 'This article covers Mistral ships a new open-weights coding model.', points: ['a', 'b', 'c', 'd'] },
+        null,
+      ],
+      fixture,
+    )
+    expect(flags).toEqual([
+      'article 1: 4 points, the limit is 3',
+      'article 1: talks about the article rather than its subject — "This article covers Mistral ships a new open-weights coding model."',
+      'article 1: repeats the title verbatim',
+      'article 2: every attempt failed — production would send the bare excerpt',
+    ])
+    expect(articleWriterFlags([{ lede: 'See https://x.dev', points: [] }], fixture)).toEqual(['article 1: contains a URL'])
   })
 })

@@ -133,6 +133,20 @@ const articleWriter = new Agent({
   id: articleWriterId,
   name: 'Beat Article Writer',
   model: env.AVA_MODEL_RSS_SUMMARIZER,
+  /**
+   * Reasoning off, said explicitly: left unset, a provider applies its own
+   * default and the previous model thought for a minute per four articles.
+   * `pnpm bench article-writer` measured `low` against off on this prompt — twice
+   * the cost, judged worse. Cheapest endpoint first, as the ranker routes.
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        reasoning: { enabled: false },
+        provider: { sort: 'price' },
+      },
+    },
+  },
   instructions: `
 You summarize one article at a time for a reader following a particular beat.
 The beat is named with each article; it tells you what the reader cares about,

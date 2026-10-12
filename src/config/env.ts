@@ -53,8 +53,22 @@ const coreSchema = z.object({
    * existed, so none of this is measured against the reader's taste.
    */
   AVA_MODEL_RSS_RANKER: gatewayModelId.default('openrouter/deepseek/deepseek-v4.1-flash'),
-  /** Strong: writes the digest for the handful of items that survive ranking. */
-  AVA_MODEL_RSS_SUMMARIZER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
+  /**
+   * Strong: writes the digest for the handful of items that survive ranking.
+   *
+   * `pnpm bench article-writer`, 2026-10-12, 2 × 4 delivered articles × 3 runs,
+   * price-sorted routing, with **reasoning off** (set on the agent): judged
+   * level with the previous `deepseek-v4-flash-0731` at 12.8s against 60.1s for
+   * four articles and $0.0013 against $0.0020. The same model at `low` cost twice
+   * as much and was judged worse — on prose, thinking bought nothing here.
+   * `gpt-5.6-luna @ low` tied on the judge at a higher price; `claude-haiku-5.5`
+   * came last, padding points and writing about "the article". The judge ranked
+   * mostly on rule-keeping (≤ 3 points, no filler), which code also checks.
+   * "Level" means each was placed above the other on one of the two fixtures
+   * (ranks 3/1 against 2/2) — inside the noise floor, as the table said. The
+   * field it ran is recorded in `scripts/bench/tasks/article-writer.ts`.
+   */
+  AVA_MODEL_RSS_SUMMARIZER: gatewayModelId.default('openrouter/deepseek/deepseek-v4.1-flash'),
   /**
    * Conversational surface in Telegram. Vision-capable: images arrive inline.
    *

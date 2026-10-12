@@ -65,4 +65,25 @@ export const bench = {
    * judge reads carefully, and is still three bands of ten.
    */
   jobBatch: 30,
+
+  /**
+   * Articles per article-writer fixture. The writer is called once per article,
+   * so one article per fixture would give the judge two summaries to compare per
+   * run; four, from different beats where possible, show whether a model is
+   * good or got lucky on one easy story.
+   */
+  writerBatch: 4,
+
+  /**
+   * The shortest stored body an article-writer fixture accepts. Below this a
+   * feed carried a teaser, not the article, and the writer is summarizing an
+   * excerpt — a different task from the one production mostly does.
+   */
+  writerMinBodyChars: 1_500,
+
+  /**
+   * A title shorter than this is not flagged when a summary repeats it: "Rust
+   * 2.0" inside a lede is naming the subject, a whole headline is echoing it.
+   */
+  titleEchoMinChars: 20,
 } as const
