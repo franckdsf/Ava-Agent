@@ -6,7 +6,6 @@ import type { Pipeline } from './pipeline-kit.js'
 import { PIPELINES } from './pipelines.js'
 import { storage } from './storage.js'
 import { curateAll } from './workflows/curate-all.js'
-import { findJobs } from './workflows/find-jobs.js'
 
 /**
  * A boot fires a pipeline that has stopped running — a week without news, three
@@ -30,7 +29,7 @@ import { findJobs } from './workflows/find-jobs.js'
  * and it explicitly does not move the cadence: the next scheduled digest still happens.
  *
  * **Staleness is read from the pipelines' own tables**, not from a marker this
- * module writes. `feed_state.lastFetchedAt` for news and, for jobs and every
+ * module writes. `feed_state.lastFetchedAt` for news and, for every
  * pipeline on the kit, its `pipeline_cycles` row are written by the runs
  * themselves, which means a catch-up that starts and then crashes still counts
  * as having spent the cycle — the same reasoning the gates are built on.
@@ -146,14 +145,14 @@ export function catchupTarget(pipeline: Pipeline): CatchupTarget {
 }
 
 /**
- * Every pipeline, in the order a boot considers them: the two not yet on the
+ * Every pipeline, in the order a boot considers them: news, not yet on the
  * kit, then every one that is.
  *
  * `workflowId` is never written out by hand: a schedule row is keyed by the id in
  * `createWorkflow`, which is the kebab-case one and *not* the key it is
  * registered under in `index.ts`. Spelling either by hand is a silent miss — an
  * unknown id lists no schedules and the catch-up decides, correctly and
- * uselessly, to do nothing. The legacy two read it off the workflow; a kit
+ * uselessly, to do nothing. News reads it off the workflow; a kit
  * pipeline's workflow takes it from the definition.
  */
 export const CATCHUP_TARGETS: CatchupTarget[] = [
@@ -162,12 +161,6 @@ export const CATCHUP_TARGETS: CatchupTarget[] = [
     workflowId: curateAll.id,
     staleAfterDays: catchup.newsStaleAfterDays,
     lastRunAt: lastFeedFetchAt,
-  },
-  {
-    label: 'jobs',
-    workflowId: findJobs.id,
-    staleAfterDays: catchup.jobsStaleAfterDays,
-    lastRunAt: () => lastCycleStart('jobs'),
   },
   ...PIPELINES.map(catchupTarget),
 ]
@@ -203,7 +196,7 @@ async function workersReady(mastra: Mastra): Promise<boolean> {
  * **The window this does not close.** A container in a crash loop could fire a
  * catch-up on each boot. What bounds it is that every run writes its own
  * staleness marker in the first seconds — ingest stamps `feed_state`, and
- * the jobs claim and a kit pipeline's claim stamp
+ * a kit pipeline's claim stamps
  * `pipeline_cycles` before anything else — so the next boot sees a fresh
  * pipeline and stands down. A restart inside that first window would start a
  * second run; a process restarting every few seconds has worse problems, and

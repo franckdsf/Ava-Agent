@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 
 import { catchup } from '../../config/catchup.js'
-import { jobPipeline } from '../../config/jobs.js'
 import {
   CATCHUP_TARGETS,
   catchupTarget,
@@ -12,7 +11,8 @@ import {
   type ScheduleFire,
 } from '../boot-catchup.js'
 import { definePipeline, healthyCeilingHours } from '../pipeline-kit.js'
-import { LEADS } from '../pipelines.js'
+import { JOBS as JOBS_PIPELINE, LEADS, PIPELINES } from '../pipelines.js'
+import { findJobs } from '../workflows/find-jobs.js'
 import { findLeads } from '../workflows/find-leads.js'
 
 // `decideCatchup` runs unattended, once, on a path that is invisible when it is right and expensive
@@ -97,20 +97,6 @@ describe('the staleness gate, per pipeline', () => {
     )
   })
 
-  // The guard on the one coupling nothing else enforces. A daily fire gated at `intervalHours`
-  // runs every other fire — 48h apart on the usual rhythm, and up to `intervalHours + 24` after a
-  // run that started off it, which is what a catch-up run itself produces. The bar has to clear
-  // that ceiling, or a boot on an ordinary day spends a scoring call on a pipeline that is
-  // perfectly healthy. Raising `jobPipeline.intervalHours` past 48 is what breaks this, and this
-  // case is the only thing that would say so.
-  const healthyCeilingHours = jobPipeline.intervalHours + 24
-  it(`jobs at the top of its healthy range (${healthyCeilingHours}h) is left alone`, () => {
-    expectDecision(
-      decide({ lastRunAt: now - hours(healthyCeilingHours), schedules: [active('jobs-daily', 10)], staleAfterDays: JOBS }),
-      { fire: false },
-    )
-  })
-
   it('a pipeline that has never run fires', () => {
     expectDecision(decide({ lastRunAt: null, schedules: [active('nightly', 10)] }), { fire: true, scheduleId: 'nightly' })
   })
@@ -175,29 +161,42 @@ describe('the imminent-fire gate', () => {
   })
 })
 
-// Leads was unknown to the catch-up until slice 2 (audit F1). Its bar is checked against its
-// cadence by `definePipeline` itself, so these cases state the result rather than guard a coupling.
+// Leads was unknown to the catch-up until slice 2 (audit F1), and jobs kept its bar in prose until
+// slice 3. Each bar is now checked against its cadence by `definePipeline` itself, at load, so these
+// cases state the result rather than guard a coupling.
+const kit = [
+  { pipeline: JOBS_PIPELINE, workflowId: findJobs.id, bar: catchup.jobsStaleAfterDays },
+  { pipeline: LEADS, workflowId: findLeads.id, bar: catchup.leadsStaleAfterDays },
+]
+
 describe('a pipeline on the kit', () => {
-  const ceiling = healthyCeilingHours(LEADS)
-
-  it('leads is a target, under the id its workflow declares its schedule with', () => {
-    const target = CATCHUP_TARGETS.find(entry => entry.label === LEADS.id)
-    expect(target?.workflowId).toBe(findLeads.id)
-    expect(target?.staleAfterDays).toBe(catchup.leadsStaleAfterDays)
+  it('every pipeline on the kit has a case here', () => {
+    expect(kit.map(entry => entry.pipeline.id).sort()).toEqual(PIPELINES.map(pipeline => pipeline.id).sort())
   })
 
-  it(`leads at the top of its healthy range (${ceiling}h) is left alone`, () => {
-    expectDecision(
-      decide({ lastRunAt: now - hours(ceiling), schedules: [active('leads-daily', 10)], staleAfterDays: LEADS.staleAfterDays }),
-      { fire: false },
-    )
-  })
+  describe.each(kit)('$pipeline.id', ({ pipeline, workflowId, bar }) => {
+    const ceiling = healthyCeilingHours(pipeline)
+    const schedule = pipeline.scheduleId
 
-  it(`leads idle ${LEADS.staleAfterDays}d fires`, () => {
-    expectDecision(
-      decide({ lastRunAt: now - days(LEADS.staleAfterDays), schedules: [active('leads-daily', 10)], staleAfterDays: LEADS.staleAfterDays }),
-      { fire: true, scheduleId: 'leads-daily' },
-    )
+    it('is a target, under the id its workflow declares its schedule with', () => {
+      const target = CATCHUP_TARGETS.find(entry => entry.label === pipeline.id)
+      expect(target?.workflowId).toBe(workflowId)
+      expect(target?.staleAfterDays).toBe(bar)
+    })
+
+    it(`at the top of its healthy range (${ceiling}h) is left alone`, () => {
+      expectDecision(
+        decide({ lastRunAt: now - hours(ceiling), schedules: [active(schedule, 10)], staleAfterDays: bar }),
+        { fire: false },
+      )
+    })
+
+    it(`idle ${bar}d fires`, () => {
+      expectDecision(
+        decide({ lastRunAt: now - days(bar), schedules: [active(schedule, 10)], staleAfterDays: bar }),
+        { fire: true, scheduleId: schedule },
+      )
+    })
   })
 
   // Against the real SQLite: the gate and the catch-up read one row, so a run that stopped

@@ -1,10 +1,8 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows'
 import { z } from 'zod'
-import { env } from '../../config/env.js'
 import { jobPipeline, jobScout } from '../../config/jobs.js'
 import { JOOB_TOPICS } from '../../config/joob-topics.js'
 import { runNotices } from '../../config/run-notices.js'
-import { claimCycle, hoursSince } from '../../db/cycles.js'
 import { activeSearches } from '../../db/job-searches.js'
 import {
   activeJobSources,
@@ -26,8 +24,9 @@ import {
   type DeliveredRecently,
   type JobVerdict,
 } from '../../db/jobs.js'
-import { finishRun, startRun } from '../../db/runs.js'
+import { finishRun } from '../../db/runs.js'
 import type { Job, JobSearch, NewJob } from '../../db/schema.js'
+import { JOBS } from '../pipelines.js'
 import { joobTelegram } from '../../services/joob-telegram.js'
 import { fetchJobSource, type RawPosting } from '../../services/job-fetch.js'
 import { fetchSonarSource } from '../../services/job-scout.js'
@@ -166,58 +165,25 @@ const ingest = createStep({
       cv: '',
     }
 
-    // The gate, taken as a single guarded write rather than a read followed by
-    // one. `pipeline_runs` is the log, but it is no longer what decides: asking
-    // it "when did the last run start?" and inserting the answer several awaits
-    // later left a window in which two fires arriving together both read
-    // yesterday and both went. At boot — where `migrate()` runs on the first
-    // query and replayed fires land milliseconds apart — that window is at its
-    // widest ([ADR-0034](../../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)).
-    //
-    // The interval is unchanged. What changed is that only one caller can be
-    // told it has elapsed.
-    const cycle = await claimCycle('jobs', jobPipeline.intervalHours * 3_600_000, {
-      force: inputData.force,
-    })
-    if (!cycle.claimed) {
-      const elapsedHours = hoursSince(cycle.lastStartedAt)
-      await setState({
-        ...idle,
-        note: `Only ${elapsedHours.toFixed(1)}h since the last run; the interval is ${jobPipeline.intervalHours}h.`,
-      })
-      return []
-    }
-
-    /**
-     * From the claim to here, nothing has been spent — and everything in this
-     * block can end the run without spending anything.
-     *
-     * A claim is written before any work on purpose, so that two fires cannot
-     * both pass the gate. The cost is that a run which stops on its first
-     * statement still burns the interval, and that is not theoretical: on
-     * 2026-08-23 this very run-log insert lost the write lock to a simultaneous
-     * fire with `SQLITE_BUSY`, and a run that had fetched nothing cost the
-     * pipeline its cycle. Handing the claim back here is honest because no
-     * source has been fetched and no model has been called; past this point it
-     * would not be, which is why the window closes on the next line.
-     */
-    let wanted: JobSearch[]
-    let runId: string
-    try {
+    // The gate is one guarded write, so two fires arriving together cannot both
+    // be told the interval has elapsed — at boot, replayed fires land
+    // milliseconds apart ([ADR-0034](../../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)).
+    // Nothing inside the window fetches a source or calls a model, so a run that
+    // stops there — no searches, or the run row losing the write lock as on
+    // 2026-08-23 — hands the cycle back. Everything after it has spent it.
+    const opened = await JOBS.open({ force: inputData.force }, async ({ abandon }) => {
       const searches = await activeSearches()
-      wanted = inputData.searches
+      const wanted = inputData.searches
         ? searches.filter(search => inputData.searches?.includes(search.slug))
         : searches
-      if (wanted.length === 0) {
-        await cycle.release()
-        await setState({ ...idle, note: 'Nothing to look for — no active searches. Use /target.' })
-        return []
-      }
-      runId = await startRun('jobs')
-    } catch (error) {
-      await cycle.release()
-      throw error
+      if (wanted.length === 0) return abandon('Nothing to look for — no active searches. Use /target.')
+      return wanted
+    })
+    if (!opened.ok) {
+      await setState({ ...idle, note: opened.note })
+      return []
     }
+    const { value: wanted, runId } = opened
 
     // The CV. A failure here stops the run rather than scoring against nothing:
     // unscored postings simply wait, and the next run picks them all up. It is
@@ -917,25 +883,14 @@ export function renderJobsFinish(report: z.infer<typeof runReport>): string {
 }
 
 export const findJobs = createWorkflow({
-  id: 'find-jobs',
+  id: JOBS.workflowId,
   inputSchema: runInput,
   outputSchema: runReport,
   stateSchema: runState,
-  // Twice a day, gated by `pipeline_cycles` — see the note at the head of this
-  // file for why the cron does not express the cadence itself, and
-  // `jobPipeline.runHours` for why two fires are still one run.
-  schedule: [
-    {
-      // Still `jobs-daily`, and deliberately: the id names the *cadence*, which
-      // is one run a day, not the number of fires. It is also the key of the
-      // stored schedule row — renaming it strands the old row, and a stranded
-      // row is still active, which is how one pipeline ends up with two.
-      id: 'jobs-daily',
-      cron: `0 ${jobPipeline.runHours.join(',')} * * *`,
-      timezone: env.AGENT_TIMEZONE,
-      inputData: {},
-    },
-  ],
+  // 08:00 and 20:00 under the kept `jobs-daily` id, gated by the `jobs` cycle
+  // claim — see the note at the head of this file for why the cron does not
+  // express the cadence itself. The kit renders it from `JOBS`.
+  schedule: JOBS.schedule,
 })
   .then(ingest)
   .foreach(scoreSearch)

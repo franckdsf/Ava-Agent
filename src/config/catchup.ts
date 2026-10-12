@@ -30,31 +30,21 @@ export const catchup = {
    *
    * **The bar must clear the pipeline's own healthy range**, or a boot spends the
    * run's scoring call — this system's single most expensive request — on a cycle
-   * the next 08:00 would have started anyway. At the current 20h gate a daily
-   * fire runs *every* fire, so the healthy range is 24h, stretching to ~48h after
-   * a run that started off the 08:00 rhythm (which is exactly what a catch-up run
-   * produces). Seventy-two hours sits clear above that.
+   * the next fire would have started anyway. `definePipeline` refuses to load a
+   * bar at or under that ceiling (`src/mastra/pipeline-kit.ts`): the 20h gate,
+   * plus the widest gap between the 08:00 and 20:00 fires (12h), plus a DST
+   * hour — 33h.
    *
-   * **Three is now conservative rather than tight, and deliberately left there.**
-   * It was calibrated against a 44h gate, where the ceiling was 68h and 72h was
-   * the next safe step. Lowering the gate to 20h dropped the ceiling to ~48h, so
-   * this could be two — but two days *is* 48h, which puts the bar exactly on the
-   * ceiling, and that is the collision this comment exists to prevent. The cost
-   * of leaving it at three is a jobs digest up to a day later after an outage.
-   *
-   * **So this is coupled to `jobPipeline.intervalHours`, with nothing enforcing
-   * it.** Raise that gate past 48h and the healthy ceiling climbs back through
-   * 72h, and the only symptom is boots quietly spending scoring calls.
-   * `src/mastra/__tests__/boot-catchup.test.ts` has the case that fails when it
-   * happens, and `pnpm verify` runs it on every commit.
+   * **Three is conservative rather than tight, and deliberately left there.** It
+   * was calibrated against a 44h gate and a single fire. Two days would clear
+   * today's ceiling by fifteen hours; the cost of three is a jobs digest up to a
+   * day later after an outage.
    */
   jobsStaleAfterDays: 3,
 
   /**
-   * The same for leads, and **the first bar a machine checks against its
-   * cadence**: `definePipeline` refuses to load one at or under the pipeline's
-   * healthy ceiling (`src/mastra/pipeline-kit.ts`), so the coupling the jobs
-   * comment above warns about cannot be broken silently here.
+   * The same for leads, checked against its cadence by `definePipeline` the same
+   * way.
    *
    * The ceiling is the 44h gate plus the widest gap between the 09:00 and 21:00
    * fires (12h) plus a DST hour — 57h. Three days clears it by fifteen. Four
