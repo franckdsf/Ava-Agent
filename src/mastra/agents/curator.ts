@@ -8,7 +8,7 @@ import type { Beat } from '../../db/beats.js'
 import type { FeedbackSignal } from '../../db/feedback.js'
 import { memoriesForCuration, type Memory } from '../../db/memories.js'
 import type { Article, ArticleRanking, PendingArticle } from '../../db/types.js'
-import { withRetry } from '../../services/structured-output.js'
+import { leakedStructure, withRetry } from '../../services/structured-output.js'
 
 /**
  * One ranker and one article writer for every beat — not one pair per beat.
@@ -376,5 +376,8 @@ export async function writeArticleSummary(mastra: Mastra, prompt: string): Promi
       mastra
         .getLogger()
         ?.warn(`Article writer attempt ${attempt}/${pipeline.modelAttempts} failed`, error),
+    // The same guard as the job writer's: debris from a broken JSON answer is
+    // retried rather than sent, since the schema sees only strings.
+    summary => leakedStructure([summary.lede, ...summary.points], Object.keys(summarySchema.shape)),
   )
 }

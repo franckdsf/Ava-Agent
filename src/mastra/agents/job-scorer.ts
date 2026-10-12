@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { jobPipeline } from '../../config/jobs.js'
 import type { JobSearch } from '../../db/schema.js'
-import { withRetry } from '../../services/structured-output.js'
+import { leakedStructure, withRetry } from '../../services/structured-output.js'
 
 /**
  * The two model calls in a job run, and they are deliberately two.
@@ -344,5 +344,9 @@ export async function writeJobBrief(
       mastra
         .getLogger()
         ?.warn(`Job writer attempt ${attempt}/${jobPipeline.modelAttempts} failed`, error),
+    // A brief carrying its own JSON debris is retried, not sent — the schema
+    // accepts it because every field is still a string.
+    brief =>
+      leakedStructure([brief.summary, ...brief.fits, ...brief.watchOuts], Object.keys(jobSummarySchema.shape)),
   )
 }
