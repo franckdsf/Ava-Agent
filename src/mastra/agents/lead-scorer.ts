@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { LEAD_SIGNAL_LABELS, leadPipeline, type LeadSignalKind } from '../../config/leads.js'
 import type { ClientProfile, Lead, LeadSignal } from '../../db/schema.js'
-import { withRetry } from '../../services/structured-output.js'
+import { leakedStructure, withRetry } from '../../services/structured-output.js'
 
 /**
  * The three model calls the leads pipeline makes about a company
@@ -71,6 +71,20 @@ const scorer = new Agent({
   id: leadScorerId,
   name: 'Lead Scorer',
   model: env.AVA_MODEL_LEAD_SCORER,
+  /**
+   * Low effort, routed by price — chosen by analogy with the job scorer, not
+   * measured here (the lead tables were empty when the bench ran): same shape,
+   * one batch judged against a whole portfolio, and on the job side `pnpm bench
+   * job-scorer` found reasoning off clearly worse at exactly that.
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        reasoning: { effort: 'low' },
+        provider: { sort: 'price' },
+      },
+    },
+  },
   instructions: `
 You judge whether a company is worth approaching by one specific freelancer or
 studio, whose portfolio you are given in full.
@@ -139,6 +153,19 @@ const vision = new Agent({
   id: leadVisionId,
   name: 'Lead Vision',
   model: env.AVA_MODEL_LEAD_VISION,
+  /**
+   * Reasoning off, routed by price — a choice, not a measurement: describing
+   * what a site's images look like is closer to the writers, where `pnpm bench`
+   * found reasoning bought nothing, than to the scorers.
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        reasoning: { enabled: false },
+        provider: { sort: 'price' },
+      },
+    },
+  },
   instructions: `
 You look at the images on a company's own website and judge whether a specific
 visual professional — a photographer, an ad creative, a designer — could make
@@ -184,6 +211,20 @@ const writer = new Agent({
   id: leadWriterId,
   name: 'Lead Writer',
   model: env.AVA_MODEL_LEAD_WRITER,
+  /**
+   * Reasoning off, routed by price — by analogy with the job writer, the same
+   * model writing the same kind of brief: `pnpm bench job-writer` measured off
+   * level with the default at half the latency, and the default leaked JSON
+   * into a field. Not measured on leads.
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        reasoning: { enabled: false },
+        provider: { sort: 'price' },
+      },
+    },
+  },
   instructions: `
 You write the short brief a person reads on their phone about one company that
 might want to hire them.
@@ -396,5 +437,8 @@ export async function writeLeadBrief(
       mastra
         .getLogger()
         ?.warn(`Lead writer attempt ${attempt}/${leadPipeline.modelAttempts} failed`, error),
+    // The guard the job and article writers carry: debris from a broken JSON
+    // answer is retried, not sent, since the schema sees only strings.
+    brief => leakedStructure([brief.summary, brief.angle, ...brief.watchOuts], Object.keys(leadBriefSchema.shape)),
   )
 }

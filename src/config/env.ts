@@ -141,8 +141,16 @@ const coreSchema = z.object({
    * Cheap and schema-constrained, like the ranker. It runs once per beat ever
    * created, over one line of input, and needs no search — which is the whole
    * reason it is not the scout below.
+   *
+   * `pnpm bench beat-namer`, 2026-10-12, 8 written subjects × 3 runs, price-
+   * routed, with **reasoning off** (set on the agent): tied v4.1-flash at `low`
+   * on the judge — each first on one fixture, both with the sharpest rubrics —
+   * at ~17s a beat against ~60s and a quarter of the cost. gpt-5.6-luna was
+   * faster but its rubrics read as boilerplate. The previous
+   * `deepseek-v4-flash-0731` failed 12 of 24 beats outright, one run timing out
+   * at ten minutes: `/beat` was broken on it, not slow.
    */
-  AVA_MODEL_BEAT_NAMER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
+  AVA_MODEL_BEAT_NAMER: gatewayModelId.default('openrouter/deepseek/deepseek-v4.1-flash'),
   /**
    * `/follow`: proposes websites that publish about the subject.
    *
@@ -170,8 +178,18 @@ const coreSchema = z.object({
    * hidden by the ranker's ±10 noise floor; a bad filter is deterministic, and
    * `/target` echoes every field back, so the reader sees a wrong parse and can
    * say it again.
+   *
+   * `pnpm bench job-targeter`, 2026-10-12, 8 written requests labelled with what
+   * they must parse to × 3 runs, latency-routed: gpt-5.6-luna at `effort: 'low'`
+   * (set on the agent), 7.8s median, 9.2s worst, a fifth of v4.1-flash's cost.
+   * The judge put v4.1-flash at `low` first on both fixtures, but both reasons it
+   * gave misread the app: it took `mustHave: ["Go","Rust"]` as an AND filter
+   * (`filterJobs` keeps a posting mentioning any) and `seniority: ["manager"]`
+   * as invalid (`SENIORITY` has it). On what code can check the two were level.
+   * The previous `deepseek-v4-flash-0731` failed 10 of 24 parses and timed out
+   * at ten minutes in two runs of six.
    */
-  AVA_MODEL_JOB_TARGETER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
+  AVA_MODEL_JOB_TARGETER: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
 
   /**
    * The `sonar` job source: proposes companies hiring for one saved search.
@@ -287,9 +305,10 @@ const coreSchema = z.object({
    * so the saving from a cheaper model is a rounding error against a command
    * someone is sitting and waiting for.
    *
-   * The job targeter is left alone deliberately: it has the same exposure, but
-   * changing it is a decision about the job pipeline and belongs to whoever
-   * measures that one.
+   * Kept on gpt-5.6-luna, now at `effort: 'low'` (set on the agent) — the job
+   * targeter's measured setting for the same one-sentence parse, by analogy:
+   * `pnpm bench job-targeter` found it level on what code can check, at half
+   * the wait and a fifth of the cost of the alternative.
    */
   AVA_MODEL_LEAD_TARGETER: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
   /**
@@ -303,8 +322,13 @@ const coreSchema = z.object({
    * only ever sees leads that already cleared a bar.
    *
    * Must support schema-constrained output — the step reads `.object`.
+   *
+   * Moved with the job scorer on 2026-10-12, at `effort: 'low'` (set on the
+   * agent) — **by analogy, not measured**: the lead tables were empty when
+   * `pnpm bench` ran, and the job scorer is the same call over postings instead
+   * of companies. See `AVA_MODEL_JOB_SCORER` for what was measured.
    */
-  AVA_MODEL_LEAD_SCORER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
+  AVA_MODEL_LEAD_SCORER: gatewayModelId.default('openrouter/deepseek/deepseek-v4.1-flash'),
   /**
    * The `sonar` lead source: which companies recently raised, launched or
    * rebranded such that they now need what the reader sells

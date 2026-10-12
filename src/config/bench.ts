@@ -107,4 +107,18 @@ export const bench = {
    * against. Four, as the old `models:check` counted it.
    */
   longGlossWords: 4,
+
+  /**
+   * Limits the bench checks that a prompt states in prose. Each mirrors the
+   * instructions named beside it — change both, or the bench grades against a
+   * rule the model was no longer given.
+   */
+  promptLimits: {
+    /** Job targeter: "at most 48 characters" for the slug (`src/mastra/agents/job-targeter.ts`). */
+    targeterSlugChars: 48,
+    /** Job targeter: "three or four at most" must-haves. */
+    targeterMustHaves: 4,
+    /** Memory reviewer: "in at most 12 words" per reason (`src/mastra/agents/memory.ts`). */
+    reviewerReasonWords: 12,
+  },
 } as const

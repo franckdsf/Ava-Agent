@@ -31,6 +31,12 @@ export interface BenchTask<Fixture, Output> {
   field: readonly Candidate[]
   /** Read from the database. Frozen to `.data/bench/fixtures/<title>.json` by the kit, not here. */
   fixtures(count: number): Promise<Fixture[]>
+  /**
+   * The fixtures are written in the task file, not read from the database —
+   * so they are never frozen: a frozen copy would quietly outlive an edit to
+   * the labels it was taken from.
+   */
+  written?: boolean
   /** One line naming a fixture, for progress lines and the transcript. */
   describe(fixture: Fixture): string
   /** The real function. `null` is a failed run, as `withRetry` exhausting its attempts is in production. */
@@ -444,6 +450,7 @@ export function renderTable(rows: Row[]): string {
 
 async function frozenFixtures<Fixture>(task: BenchTask<Fixture, unknown>, count: number, refresh: boolean): Promise<Fixture[]> {
   const path = join('.data', 'bench', 'fixtures', `${task.title}.json`)
+  if (task.written) return task.fixtures(count)
   if (!refresh) {
     try {
       const saved = JSON.parse(await readFile(path, 'utf8')) as Fixture[]

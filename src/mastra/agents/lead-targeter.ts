@@ -62,6 +62,18 @@ const targeter = new Agent({
   id: leadTargeterId,
   name: 'Lead Targeter',
   model: env.AVA_MODEL_LEAD_TARGETER,
+  /**
+   * Low effort, latency-routed — the job targeter's measured setting, for the
+   * same parse of one sentence the reader waits on. See `AVA_MODEL_LEAD_TARGETER`.
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        reasoning: { effort: 'low' },
+        provider: { sort: 'latency' },
+      },
+    },
+  },
   instructions: `
 You turn one sentence about the clients a freelancer wants into a structured
 profile used to find them.

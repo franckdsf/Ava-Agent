@@ -63,6 +63,19 @@ const targeter = new Agent({
   id: jobTargeterId,
   name: 'Job Targeter',
   model: env.AVA_MODEL_JOB_TARGETER,
+  /**
+   * Low effort, latency-routed: the reader waits on `/target`. `pnpm bench
+   * job-targeter` placed luna at `low` a little above luna off on the judge, at
+   * the same wait — see `AVA_MODEL_JOB_TARGETER` for the model.
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        reasoning: { effort: 'low' },
+        provider: { sort: 'latency' },
+      },
+    },
+  },
   instructions: `
 You turn a sentence about the work someone wants into a structured job search.
 
@@ -162,6 +175,19 @@ const advisor = new Agent({
   id: advisorId,
   name: 'Job Target Advisor',
   model: env.AVA_MODEL_JOB_TARGETER,
+  /**
+   * Shares the targeter's model by design, and moved with it to gpt-5.6-luna
+   * on 2026-10-12 — **not benched itself**, so no effort is
+   * set and the provider's default applies. Routed by price: it follows a
+   * `/target` that already answered, so nobody is waiting on this one.
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        provider: { sort: 'price' },
+      },
+    },
+  },
   instructions: `
 You help someone tighten a job search that is currently too vague to filter
 anything out.

@@ -125,13 +125,22 @@ export const memoryReviewer = new Agent({
    * the product: it runs once a week, over a few dozen rows, and decides which
    * facts about the reader survive. Latency is free here in a way it is nowhere
    * else, and a wrong tier decision is only recoverable while the row still
-   * exists. No provider pin for the same reason — a slow endpoint costs nothing
+   * exists. Routed by price for the same reason — a slow endpoint costs nothing
    * on a weekly batch.
+   *
+   * `pnpm bench memory-reviewer`, 2026-10-12, kept as shipped: on labelled
+   * fixtures v4-pro at `high` kept 7 of 9 borderline notes — which the rule says
+   * to keep — level with v4.1-flash at `high` at half its cost and latency;
+   * v4.1-flash off kept 4, luna off 1. A rerun put v4-pro at 42% against luna
+   * at `medium`/`high` 25%: the number moves between runs, the order did not.
+   * Thinking is the product here, measured.
    */
   defaultOptions: {
     providerOptions: {
       openrouter: {
         reasoning: { effort: 'high' },
+        // Cheapest endpoint first: weekly, nobody waits on it.
+        provider: { sort: 'price' },
       },
     },
   },

@@ -39,6 +39,19 @@ const namer = new Agent({
   id: namerId,
   name: 'Beat Namer',
   model: env.AVA_MODEL_BEAT_NAMER,
+  /**
+   * Reasoning off and price-routed, as `pnpm bench beat-namer` chose: `low`
+   * wrote rubrics no better at four times the wait. Price rather than latency
+   * because `/beat` spends its time in the scout's search after this, not here.
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        reasoning: { enabled: false },
+        provider: { sort: 'price' },
+      },
+    },
+  },
   instructions: `
 You turn a subject a reader typed into the definition of a news "beat".
 

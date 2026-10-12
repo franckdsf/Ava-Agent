@@ -4,6 +4,8 @@ import { cloneProviderOptions } from '../clone.js'
 import { attemptCost, blind, droppedEffort, entrantKey, entrantsFor, judgePrompt, pool, renderTable, scoreSpread, spearman, type Row } from '../kit.js'
 import { articleWriterFlags } from '../tasks/article-writer.js'
 import { jobWriterFlags } from '../tasks/job-writer.js'
+import { jobTargeterFlags } from '../tasks/job-targeter.js'
+import { memoryReviewerFlags } from '../tasks/memory-reviewer.js'
 import { summarizerFlags } from '../tasks/summarizer.js'
 import { translatorFlags } from '../tasks/translator.js'
 import { mentionsReader, rankerFlags, voteAgreement, type RankerFixture } from '../tasks/ranker.js'
@@ -306,5 +308,53 @@ describe('translator and summarizer checks', () => {
       'a "#" or "##" heading, which the template owns',
       'contains a link',
     ])
+  })
+})
+
+describe('memory reviewer checks', () => {
+  const fixture = {
+    name: 't',
+    long: [{ fact: 'They live in Lyon.', happenedOn: '2025-01-01' }],
+    short: [
+      { fact: 'They moved to Grenoble.', happenedOn: '2026-09-01', label: 'keep' as const },
+      { fact: 'They had sushi.', happenedOn: '2026-09-02', label: 'drop' as const },
+      { fact: 'They reside in Lyon.', happenedOn: '2026-09-03', label: 'duplicate' as const },
+    ],
+  }
+  const p = (id: string) => ({ id, fact: '', reason: 'still true' })
+
+  it('keeping the lasting fact and nothing else is clean; an ordinary day kept is not a flag', () => {
+    expect(memoryReviewerFlags([p('short-1')], fixture)).toEqual([])
+    expect(memoryReviewerFlags([p('short-1'), p('short-2')], fixture)).toEqual([])
+  })
+
+  it('a lost lasting fact and a kept duplicate are flags', () => {
+    expect(memoryReviewerFlags([p('short-3')], fixture)).toEqual([
+      '1 lasting fact(s) left to be deleted, e.g. "They moved to Grenoble."',
+      'kept a duplicate of a lasting note: "They reside in Lyon."',
+    ])
+  })
+})
+
+describe('job targeter checks', () => {
+  const parsed = {
+    slug: 'senior-frontend-paris', label: 'Senior frontend, Paris', domain: null, locations: ['Paris'], remote: 'any' as const,
+    seniority: ['senior'], contractTypes: [], mustHave: ['frontend'], dealbreakers: [], minCompensation: null, currency: null, notes: '',
+  }
+  const fixture = {
+    requests: [{ text: 'senior frontend, Paris', remote: ['any' as const], locations: ['Paris'], seniority: ['senior'], minCompensation: null, empty: ['contractTypes' as const, 'dealbreakers' as const] }],
+  }
+
+  it('a parse that states only what was said is clean', () => {
+    expect(jobTargeterFlags([parsed], fixture)).toEqual([])
+  })
+
+  it('an invented contract, a guessed pay floor and a bad slug are named', () => {
+    expect(jobTargeterFlags([{ ...parsed, contractTypes: ['permanent'], minCompensation: 50000, slug: 'Senior:Paris' }], fixture)).toEqual([
+      'request 1: pay floor 50000, the request says none',
+      'request 1: invented contractTypes: permanent',
+      'request 1: slug "Senior:Paris" breaks the format',
+    ])
+    expect(jobTargeterFlags([null], fixture)).toEqual(['request 1: no parse — the reader gets the usage line'])
   })
 })
