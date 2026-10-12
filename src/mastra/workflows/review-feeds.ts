@@ -21,7 +21,10 @@ import {
   type RetriableFeed,
 } from '../../db/beats.js'
 import { escapeMarkdown } from '../../services/telegram.js'
-import { newyTelegram } from '../../services/newy-telegram.js'
+import { transportFor } from '../../bots/index.js'
+import { NEWY_BOT } from '../../bots/newy.js'
+
+const newyTelegram = transportFor(NEWY_BOT)
 
 /**
  * The weekly feed review — drop what earns nothing, re-test it a month later,

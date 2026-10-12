@@ -1,6 +1,6 @@
 import type { Mastra } from '@mastra/core'
 import { JOB_COMMANDS, jobCommands, type JobCommand } from '../../config/job-commands.js'
-import { JOOB_TOPICS } from '../../config/joob-topics.js'
+import { JOOB_TOPICS } from '../../bots/joob.js'
 import {
   activeSearches,
   getSearch,
@@ -11,10 +11,13 @@ import {
 import type { JobSearch, SuggestedCriteria, TargetSuggestion } from '../../db/schema.js'
 import { constraintCount } from '../../services/job-filter.js'
 import { fetchPortfolio } from '../../services/portfolio.js'
-import { joobTelegram } from '../../services/joob-telegram.js'
 import { domainLabel } from '../../config/job-taxonomy.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { parseTarget, suggestTighterTarget, type ParsedTarget } from '../agents/job-targeter.js'
+import { transportFor } from '../../bots/index.js'
+import { JOOB_BOT } from '../../bots/joob.js'
+
+const joobTelegram = transportFor(JOOB_BOT)
 
 /**
  * `/target`, `/targets` and `/untarget` — what Joob is looking for.

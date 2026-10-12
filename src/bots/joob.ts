@@ -1,4 +1,14 @@
-import type { TopicDefinition, TopicList } from './topics.js'
+import type { BotProfile } from '../config/bot-profile.js'
+import type { TopicDefinition, TopicList } from '../config/topics.js'
+import type { BotDefinition } from './index.js'
+
+/**
+ * Joob — what it is before anyone talks to it: its token's prefix, its tabs, its profile.
+ *
+ * Data only, and a leaf for the reason `newy.ts` is: `find-jobs` and `find-leads` import this to
+ * reach its transport. Its agent is `src/mastra/agents/joob.ts`; its commands and `/start` are in
+ * `src/mastra/commands/`.
+ */
 
 /**
  * The tabs in Joob's chat.
@@ -14,7 +24,6 @@ import type { TopicDefinition, TopicList } from './topics.js'
  * keyed `(chatId, slug)` and these are different chats. See the note on
  * `beatTopicSlug` in `topics.ts`.
  */
-
 export const JOOB_TOPICS = {
   /** Conversational surface. Joob answers here and nowhere else. */
   chat: {
@@ -66,4 +75,28 @@ export const JOOB_TOPICS = {
 
 export type JoobTopicSlug = keyof typeof JOOB_TOPICS
 
-export const JOOB_TOPIC_LIST: TopicList<JoobTopicSlug> = Object.values(JOOB_TOPICS)
+const JOOB_TOPIC_LIST: TopicList<JoobTopicSlug> = Object.values(JOOB_TOPICS)
+
+/** Its name and the two descriptions, pushed at boot by `publishProfile()`. See `BotProfile`. */
+const joobProfile: BotProfile = {
+  name: 'Joob 💼',
+
+  shortDescription:
+    'Your job scout — postings read against your CV, with what fits and what ' +
+    "doesn't spelled out.",
+
+  description:
+    "Joob watches the job boards so you don't have to. Every couple of days it " +
+    'reads your CV, scores what has been posted against it, and sends only the ' +
+    'roles worth your time — each one with the reasons it fits and the places it ' +
+    'falls short. Ask about anything it has found, or tell it what you are ' +
+    'looking for and it will remember. It shares what it knows about you with ' +
+    'Newy, so telling either one something teaches both.',
+}
+
+export const JOOB_BOT: BotDefinition<JoobTopicSlug> = {
+  id: 'joob',
+  envPrefix: 'JOOB_',
+  topics: JOOB_TOPIC_LIST,
+  profile: joobProfile,
+}

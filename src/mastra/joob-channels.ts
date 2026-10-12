@@ -1,14 +1,16 @@
 import type { Mastra } from '@mastra/core'
 import type { AgentChannels } from '@mastra/core/channels'
-import { JOOB_BOT } from '../config/bots.js'
+import { JOOB_BOT } from '../bots/joob.js'
 import { JOB_COMMANDS } from '../config/job-commands.js'
 import { LEAD_COMMANDS } from '../config/lead-commands.js'
-import { JOOB_TOPICS } from '../config/joob-topics.js'
-import { joobTelegram } from '../services/joob-telegram.js'
+import { JOOB_TOPICS } from '../bots/joob.js'
 import { escapeMarkdown } from '../services/telegram.js'
 import { publishCommands, publishProfile } from '../services/telegram-topics.js'
 import { isLeadCommand, runLeadCommand } from './commands/clients.js'
 import { isJobCommand, runJobCommand } from './commands/targets.js'
+import { transportFor } from '../bots/index.js'
+
+const joobTelegram = transportFor(JOOB_BOT)
 
 /**
  * Joob's slash commands, its menu and its profile.

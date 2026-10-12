@@ -1,6 +1,6 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows'
 import { z } from 'zod'
-import { JOOB_TOPICS } from '../../config/joob-topics.js'
+import { JOOB_TOPICS } from '../../bots/joob.js'
 import { LEAD_SIGNAL_LABELS, leadPipeline, type LeadSignalKind } from '../../config/leads.js'
 import {
   activeProfiles,
@@ -24,7 +24,6 @@ import { hiringSignalsFromJobs, idOf, resolveLeadPage } from '../../services/lea
 import { scoutProspects } from '../../services/lead-scout.js'
 import { proposeProspects } from '../agents/lead-scout.js'
 import { LEADS } from '../pipelines.js'
-import { joobTelegram } from '../../services/joob-telegram.js'
 import { fetchPortfolio } from '../../services/portfolio.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import {
@@ -36,6 +35,10 @@ import {
   writeLeadBrief,
 } from '../agents/lead-scorer.js'
 import type { ClientProfile, Lead, LeadSignal } from '../../db/schema.js'
+import { transportFor } from '../../bots/index.js'
+import { JOOB_BOT } from '../../bots/joob.js'
+
+const joobTelegram = transportFor(JOOB_BOT)
 
 /**
  * The prospecting run

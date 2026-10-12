@@ -276,7 +276,7 @@ claim before passing it on.
 ## Current state
 
 **Two agents on two bot tokens, one reader.** Newy runs the news pipeline; Joob runs the jobs and
-leads pipelines. `src/config/bots.ts` is the registry and `createTelegramTransport(bot)` is what the
+leads pipelines. `src/bots/` is the registry — a data file per bot — and `transportFor(bot)` is what the
 transport is constructed against. The environment holds only who the reader is:
 `AVA_TELEGRAM_USER_ID` is both the allowlist and, in a DM, the chat each bot pushes to
 ([ADR-0041](docs/decisions/0041-one-deployment-one-reader.md)). `OPENROUTER_API_KEY` is the only key

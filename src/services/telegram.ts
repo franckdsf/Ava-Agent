@@ -1,7 +1,7 @@
 import { createTelegramAdapter } from '@chat-adapter/telegram'
 import { ConsoleLogger } from '@mastra/core/logger'
 import { allowedTelegramUserIds, telegramEnv } from '../config/env.js'
-import type { BotDefinition } from '../config/bots.js'
+import type { BotDefinition } from '../bots/index.js'
 import { pipeline } from '../config/pipeline.js'
 import { chunkText } from './article.js'
 import { beatTopicSlug, type TabSlug } from '../config/topics.js'

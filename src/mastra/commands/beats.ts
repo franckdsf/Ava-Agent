@@ -26,16 +26,18 @@ import {
   type Beat,
 } from '../../db/beats.js'
 import { nameBeat } from '../agents/scout.js'
-import { NEWY_BOT } from '../../config/bots.js'
+import { NEWY_BOT } from '../../bots/newy.js'
 import { db, migrate } from '../../db/client.js'
 import { articleBeats, articles } from '../../db/schema.js'
 import { scopeArxivFeed } from '../../services/arxiv.js'
 import { checkFeed, normalizeFeedUrl, sourceLabel } from '../../services/feed-check.js'
 import { escapeMarkdown } from '../../services/telegram.js'
-import { newyTelegram } from '../../services/newy-telegram.js'
 import { setBeatTopicOpen } from '../../services/telegram-topics.js'
 import { quotedSource } from '../../services/quoted-article.js'
 import type { SlashCommandEvent } from './article-context.js'
+import { transportFor } from '../../bots/index.js'
+
+const newyTelegram = transportFor(NEWY_BOT)
 
 /**
  * The beat-management commands — `/beats`, `/beat`, `/pause`, `/resume`,

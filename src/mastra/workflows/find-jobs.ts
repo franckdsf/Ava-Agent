@@ -1,7 +1,7 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows'
 import { z } from 'zod'
 import { jobPipeline, jobScout } from '../../config/jobs.js'
-import { JOOB_TOPICS } from '../../config/joob-topics.js'
+import { JOOB_TOPICS } from '../../bots/joob.js'
 import { runNotices } from '../../config/run-notices.js'
 import { activeSearches } from '../../db/job-searches.js'
 import {
@@ -27,7 +27,6 @@ import {
 import { finishRun } from '../../db/runs.js'
 import type { Job, JobSearch, NewJob } from '../../db/schema.js'
 import { JOBS } from '../pipelines.js'
-import { joobTelegram } from '../../services/joob-telegram.js'
 import { fetchJobSource, type RawPosting } from '../../services/job-fetch.js'
 import { fetchSonarSource } from '../../services/job-scout.js'
 import { cvSkillTags, filterJobs, rankByCvOverlap } from '../../services/job-filter.js'
@@ -48,6 +47,10 @@ import {
   scoreBatch,
   writeJobBrief,
 } from '../agents/job-scorer.js'
+import { transportFor } from '../../bots/index.js'
+import { JOOB_BOT } from '../../bots/joob.js'
+
+const joobTelegram = transportFor(JOOB_BOT)
 
 /**
  * The daily job run.

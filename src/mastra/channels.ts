@@ -1,23 +1,25 @@
 import type { Mastra } from '@mastra/core'
 import type { AgentChannels, ChannelHandler } from '@mastra/core/channels'
 import { BEAT_COMMANDS } from '../config/beat-commands.js'
-import { NEWY_BOT } from '../config/bots.js'
+import { NEWY_BOT } from '../bots/newy.js'
 import { env } from '../config/env.js'
 import { activeBeats } from '../db/beats.js'
-import { NEWY_TOPICS, type NewyTopicSlug } from '../config/newy-topics.js'
+import { NEWY_TOPICS, type NewyTopicSlug } from '../bots/newy.js'
 import type { ChatSurface } from './chat-surface.js'
 import { pipeline } from '../config/pipeline.js'
 import { summary } from '../config/summary.js'
 import { TRANSLATIONS } from '../config/translation.js'
 import type { Article } from '../db/types.js'
 import { quotedSource } from '../services/quoted-article.js'
-import { newyTelegram } from '../services/newy-telegram.js'
 import { escapeMarkdown } from '../services/telegram.js'
 import type { QuotedMessage } from '../services/telegram-reply.js'
 import { publishCommands, publishProfile } from '../services/telegram-topics.js'
 import { isBeatCommand, runBeatCommand } from './commands/beats.js'
 import { isSummaryCommand, runSummary } from './commands/summarize.js'
 import { isTranslationCommand, runTranslation } from './commands/translate.js'
+import { transportFor } from '../bots/index.js'
+
+const newyTelegram = transportFor(NEWY_BOT)
 
 /**
  * The inbound half of the tab split: Newy only ever speaks in the Chat tab.

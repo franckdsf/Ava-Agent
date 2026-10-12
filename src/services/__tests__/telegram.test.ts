@@ -1,7 +1,7 @@
 import { ConsoleLogger } from '@mastra/core/logger'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { JOOB_BOT } from '../../config/bots.js'
+import { JOOB_BOT } from '../../bots/joob.js'
 import { createTelegramTransport } from '../telegram.js'
 
 // Audit F5: a notice must never affect the run sending it, and must never fail without a word.

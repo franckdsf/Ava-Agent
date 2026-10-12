@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { JOOB_BOT, NEWY_BOT } from '../../config/bots.js'
+import { JOOB_BOT } from '../../bots/joob.js'
+import { NEWY_BOT } from '../../bots/newy.js'
 import { seedBeats } from '../../db/beats.js'
 import * as newy from '../channels.js'
 import * as joob from '../joob-channels.js'

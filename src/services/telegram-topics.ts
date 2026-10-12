@@ -5,7 +5,7 @@ import {
   type TabSlug,
 } from '../config/topics.js'
 import { profileOverflows, type BotProfile } from '../config/bot-profile.js'
-import type { BotDefinition } from '../config/bots.js'
+import type { BotDefinition } from '../bots/index.js'
 import { telegramEnv } from '../config/env.js'
 import { forgetTopic, rememberTopic, renameTopic, topicIds } from '../db/topics.js'
 
@@ -146,8 +146,8 @@ export async function profileDrift(bot: BotDefinition<string>): Promise<ProfileF
 }
 
 /**
- * Brings a bot's name and descriptions in line with its entry in
- * `src/config/bots.ts`.
+ * Brings a bot's name and descriptions in line with its definition in
+ * `src/bots/`.
  *
  * Called at boot beside `publishCommands`, so a container brought up against a
  * fresh bot token provisions its own identity — the point being that the only

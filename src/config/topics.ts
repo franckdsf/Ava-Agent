@@ -5,9 +5,9 @@
  * apart when Joob got its own bot and its own chat
  * ([ADR-0023](../../docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md)).
  * What is left here is what is true of a tab whoever owns it: the shape of a
- * definition, how a name is rendered, and the beat namespace. **Newy's own tabs
- * are in `newy-topics.ts`**, Joob's in `joob-topics.ts`, and each bot's set
- * reaches the transport through `bots.ts`.
+ * definition, how a name is rendered, and the beat namespace. **Each bot's own
+ * tabs are in its file in `src/bots/`**, and reach the transport through its
+ * definition there.
  *
  * A tab set is still static per bot and decided in config — adding a tab means
  * adding an entry to that bot's file. Beats are the exception and always were:

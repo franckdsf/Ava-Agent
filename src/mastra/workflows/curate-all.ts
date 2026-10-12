@@ -22,7 +22,6 @@ import { articleBody, fetchOgImage, looksLikeSiteChrome } from '../../services/a
 import { clusterItems, dedupeByCluster } from '../../services/cluster.js'
 import { dedupeFeeds, fetchFeeds } from '../../services/rss.js'
 import { escapeMarkdown } from '../../services/telegram.js'
-import { newyTelegram } from '../../services/newy-telegram.js'
 import {
   rankBatch,
   renderArticleForWriter,
@@ -33,6 +32,10 @@ import {
   type ArticleSummary,
 } from '../agents/curator.js'
 import { NEWS } from '../pipelines.js'
+import { transportFor } from '../../bots/index.js'
+import { NEWY_BOT } from '../../bots/newy.js'
+
+const newyTelegram = transportFor(NEWY_BOT)
 
 /**
  * One workflow for every beat, on one schedule carrying every digest hour.

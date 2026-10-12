@@ -1,5 +1,5 @@
 import type { AgentChannels, ChannelHandler } from '@mastra/core/channels'
-import type { BotDefinition } from '../config/bots.js'
+import type { BotDefinition } from '../bots/index.js'
 import { telegramChatId } from '../config/env.js'
 import type { TelegramTransport } from '../services/telegram.js'
 

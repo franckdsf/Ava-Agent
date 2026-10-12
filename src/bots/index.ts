@@ -1,22 +1,22 @@
-import { joobProfile, newyProfile, type BotProfile } from './bot-profile.js'
-import { JOOB_TOPIC_LIST, type JoobTopicSlug } from './joob-topics.js'
-import { NEWY_TOPIC_LIST, type NewyTopicSlug } from './newy-topics.js'
-import type { TopicList } from './topics.js'
+import type { BotProfile } from '../config/bot-profile.js'
+import type { TopicList } from '../config/topics.js'
+import { createTelegramTransport, type TelegramTransport } from '../services/telegram.js'
+import { JOOB_BOT } from './joob.js'
+import { NEWY_BOT } from './newy.js'
 
 /**
  * The bots this process runs, one per agent.
  *
  * An agent owns a token, a chat and a tab set
  * ([ADR-0023](../../docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md)),
- * and this is where those three are tied together. Everything that used to read
- * `telegramEnv()` from module scope — the outbound transport, topic
- * provisioning, the profile and menu publishers — is constructed against an
- * entry here instead.
+ * and a file beside this one ties those three together for each. Everything that
+ * acts on a bot — the outbound transport, topic provisioning, the profile and menu
+ * publishers — is constructed against a definition rather than written per bot.
  *
  * Nothing *below* the surface is split. One process, one Mastra instance, one
  * database, one migration set, one `memories` table, one
- * `AVA_MODEL_ORCHESTRATOR`. The registry is the seam, and it is deliberately
- * thin: a bot is an identity plus a set of tabs, not a second application.
+ * `AVA_MODEL_ORCHESTRATOR`. A bot is an identity plus a set of tabs, not a second
+ * application.
  */
 
 /**
@@ -59,20 +59,6 @@ export interface BotDefinition<Slug extends string = string> {
   profile: BotProfile
 }
 
-export const NEWY_BOT: BotDefinition<NewyTopicSlug> = {
-  id: 'newy',
-  envPrefix: 'NEWY_',
-  topics: NEWY_TOPIC_LIST,
-  profile: newyProfile,
-}
-
-export const JOOB_BOT: BotDefinition<JoobTopicSlug> = {
-  id: 'joob',
-  envPrefix: 'JOOB_',
-  topics: JOOB_TOPIC_LIST,
-  profile: joobProfile,
-}
-
 /**
  * Every bot, for the paths that must act on all of them — provisioning at boot,
  * and `pnpm telegram:check`.
@@ -82,3 +68,27 @@ export const JOOB_BOT: BotDefinition<JoobTopicSlug> = {
  * not about what one machine happens to have in its `.env`.
  */
 export const BOTS: readonly BotDefinition<string>[] = [NEWY_BOT, JOOB_BOT]
+
+const transports = new Map<string, TelegramTransport<string>>()
+
+/**
+ * A bot's outbound transport — one per bot per process.
+ *
+ * Memoised because the caches inside the transport are the point: a digest
+ * resolves the tab set once per process, not once per article, and a second
+ * transport for the same bot would be correct but would pay for the tabs again.
+ * That is why each bot used to have a named singleton file; this is those files
+ * written once.
+ *
+ * Nothing is constructed eagerly — the adapter is built on first send — so a
+ * module that takes its transport at import stays free while the bot's token is
+ * unset, which is the normal state for Joob until it is provisioned.
+ */
+export function transportFor<Slug extends string>(bot: BotDefinition<Slug>): TelegramTransport<Slug> {
+  let transport = transports.get(bot.id)
+  if (!transport) {
+    transport = createTelegramTransport(bot) as TelegramTransport<string>
+    transports.set(bot.id, transport)
+  }
+  return transport as unknown as TelegramTransport<Slug>
+}

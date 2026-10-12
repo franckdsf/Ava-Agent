@@ -2,14 +2,16 @@ import { createTelegramAdapter } from '@chat-adapter/telegram'
 import { Agent } from '@mastra/core/agent'
 import type { AgentChannels } from '@mastra/core/channels'
 import { Memory } from '@mastra/memory'
-import { JOOB_BOT } from '../../config/bots.js'
+import { JOOB_BOT } from '../../bots/joob.js'
 import { env, telegramChannelEnv } from '../../config/env.js'
-import { JOOB_TOPICS, type JoobTopicSlug } from '../../config/joob-topics.js'
-import { joobTelegram } from '../../services/joob-telegram.js'
+import { JOOB_TOPICS, type JoobTopicSlug } from '../../bots/joob.js'
 import { routeToChatTab, type ChatSurface } from '../chat-surface.js'
 import { memoryTools } from '../tools/memory.js'
 import { targetTools } from '../tools/targets.js'
 import { memoryInstructions } from './memory.js'
+import { transportFor } from '../../bots/index.js'
+
+const joobTelegram = transportFor(JOOB_BOT)
 
 /**
  * Joob — the job agent, in its own bot and its own chat.

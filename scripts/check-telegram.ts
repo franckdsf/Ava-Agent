@@ -1,5 +1,5 @@
 import { profileOverflows } from '../src/config/bot-profile.js'
-import { BOTS, type BotDefinition } from '../src/config/bots.js'
+import { BOTS, type BotDefinition } from '../src/bots/index.js'
 import { telegramEnv } from '../src/config/env.js'
 import { topicTabName } from '../src/config/topics.js'
 import { topicIds } from '../src/db/topics.js'

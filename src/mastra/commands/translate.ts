@@ -2,7 +2,6 @@ import type { Mastra } from '@mastra/core'
 import { TRANSLATIONS, type TranslationCommand, translation } from '../../config/translation.js'
 import { capText, chunkText } from '../../services/article.js'
 import { escapeMarkdown } from '../../services/telegram.js'
-import { newyTelegram } from '../../services/newy-telegram.js'
 import { type Translation, translateChunk } from '../agents/translator.js'
 import {
   articleHeading,
@@ -10,6 +9,10 @@ import {
   type SlashCommandEvent,
   type Source,
 } from './article-context.js'
+import { transportFor } from '../../bots/index.js'
+import { NEWY_BOT } from '../../bots/newy.js'
+
+const newyTelegram = transportFor(NEWY_BOT)
 
 /**
  * `/translearn` and `/translate` — the article in the reader's own language,

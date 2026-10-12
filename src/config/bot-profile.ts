@@ -2,12 +2,11 @@
  * What a bot looks like before anyone talks to it — its name, and the two
  * descriptions Telegram shows in different places.
  *
- * Config rather than a BotFather chore, for the reason the command menu is
- * ([`channels.ts`](../mastra/channels.ts)): a fresh deployment should end up
+ * Config rather than a BotFather chore, for the reason the command menu is: a fresh deployment should end up
  * looking like the running one without a human retyping three fields into a
  * chat with @BotFather. Everything here is pushed at boot by `publishProfile()`.
  *
- * **This is now per bot, and that is the whole reason there are two bots.** Of
+ * **Each bot has its own, in its file in `src/bots/`, and that is the whole reason there are two bots.** Of
  * the four profile methods only `setMyCommands` takes a `scope`; `setMyName`,
  * `setMyDescription` and `setMyShortDescription` take `language_code` and
  * nothing else. One token therefore means one name for every agent behind it —
@@ -59,39 +58,6 @@ export interface BotProfile {
    * and asterisks would arrive as backticks and asterisks.
    */
   description: string
-}
-
-export const newyProfile: BotProfile = {
-  name: 'Newy 📰',
-
-  shortDescription:
-    'Your personal news assistant — curated digests, plus a chat that remembers ' +
-    'what matters to you.',
-
-  description:
-    'Newy tracks your beats in the background — ranking, summarizing and ' +
-    'delivering the news that matters to you, no digging required. Ask her ' +
-    "anything about what she's found: she'll search past articles, pull up the " +
-    'full text, and explain what a story actually says. She remembers what you ' +
-    'tell her about yourself over time, so answers get more personal the longer ' +
-    'you talk. She can also sketch a quick diagram when a concept has moving ' +
-    'parts worth seeing.',
-}
-
-export const joobProfile: BotProfile = {
-  name: 'Joob 💼',
-
-  shortDescription:
-    'Your job scout — postings read against your CV, with what fits and what ' +
-    "doesn't spelled out.",
-
-  description:
-    "Joob watches the job boards so you don't have to. Every couple of days it " +
-    'reads your CV, scores what has been posted against it, and sends only the ' +
-    'roles worth your time — each one with the reasons it fits and the places it ' +
-    'falls short. Ask about anything it has found, or tell it what you are ' +
-    'looking for and it will remember. It shares what it knows about you with ' +
-    'Newy, so telling either one something teaches both.',
 }
 
 /**

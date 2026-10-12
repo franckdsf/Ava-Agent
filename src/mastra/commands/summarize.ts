@@ -1,7 +1,6 @@
 import type { Mastra } from '@mastra/core'
 import { summary } from '../../config/summary.js'
 import { escapeMarkdown } from '../../services/telegram.js'
-import { newyTelegram } from '../../services/newy-telegram.js'
 import { summarizeSource } from '../agents/summarizer.js'
 import {
   articleHeading,
@@ -9,6 +8,10 @@ import {
   type SlashCommandEvent,
   type Source,
 } from './article-context.js'
+import { transportFor } from '../../bots/index.js'
+import { NEWY_BOT } from '../../bots/newy.js'
+
+const newyTelegram = transportFor(NEWY_BOT)
 
 /**
  * `/summarize [language]` — the swiped article explained at length.

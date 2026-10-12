@@ -1,6 +1,6 @@
 import type { Mastra } from '@mastra/core'
 import { LEAD_COMMANDS, type LeadCommand } from '../../config/lead-commands.js'
-import { JOOB_TOPICS } from '../../config/joob-topics.js'
+import { JOOB_TOPICS } from '../../bots/joob.js'
 import { LEAD_SIGNAL_KINDS, LEAD_SIGNAL_LABELS, leadPipeline } from '../../config/leads.js'
 import {
   activeProfiles,
@@ -10,9 +10,12 @@ import {
   upsertProfile,
 } from '../../db/leads.js'
 import type { ClientProfile } from '../../db/schema.js'
-import { joobTelegram } from '../../services/joob-telegram.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { parseClient, slugify, type ParsedClient } from '../agents/lead-targeter.js'
+import { transportFor } from '../../bots/index.js'
+import { JOOB_BOT } from '../../bots/joob.js'
+
+const joobTelegram = transportFor(JOOB_BOT)
 
 /**
  * `/client`, `/clients`, `/unclient` and `/reclient` — who Joob prospects for

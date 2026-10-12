@@ -14,8 +14,11 @@ import { scopeArxivFeed } from '../../services/arxiv.js'
 import { checkFeed, sourceLabel } from '../../services/feed-check.js'
 import { discoverFeeds, type SiteDiscovery } from '../../services/feed-discovery.js'
 import { escapeMarkdown } from '../../services/telegram.js'
-import { newyTelegram } from '../../services/newy-telegram.js'
 import { proposeSites } from '../agents/scout.js'
+import { transportFor } from '../../bots/index.js'
+import { NEWY_BOT } from '../../bots/newy.js'
+
+const newyTelegram = transportFor(NEWY_BOT)
 
 /**
  * Finding the feeds for a beat the reader just asked for.

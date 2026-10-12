@@ -1,6 +1,6 @@
 ---
 id: 0024
-applies_to: ["src/mastra/workflows/find-jobs.ts", "src/mastra/agents/joob.ts", "src/services/joob-telegram.ts", "src/config/jobs.ts"]
+applies_to: ["src/mastra/workflows/find-jobs.ts", "src/mastra/agents/joob.ts", "src/bots/joob.ts", "src/config/jobs.ts"]
 status: amended
 supersedes: []
 verify: "pnpm jobs:check"

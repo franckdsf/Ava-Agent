@@ -1,4 +1,14 @@
-import type { TopicDefinition, TopicList } from './topics.js'
+import type { BotProfile } from '../config/bot-profile.js'
+import type { TopicDefinition, TopicList } from '../config/topics.js'
+import type { BotDefinition } from './index.js'
+
+/**
+ * Newy — what she is before anyone talks to her: her token's prefix, her tabs, her profile.
+ *
+ * Data only, and a leaf on purpose: workflows and commands import this to reach her transport, so
+ * it cannot import them back. What she *does* is built from it elsewhere — her agent in
+ * `src/mastra/agents/newy.ts`, her commands and `/start` in `src/mastra/commands/`.
+ */
 
 /**
  * The tabs in Newy's chat.
@@ -12,7 +22,6 @@ import type { TopicDefinition, TopicList } from './topics.js'
  * Joob owning a tab whose slug is also `chat` is not a collision — see the note
  * on `beatTopicSlug` in `topics.ts`.
  */
-
 export const NEWY_TOPICS = {
   /** Conversational surface. Newy answers here. */
   chat: {
@@ -66,4 +75,29 @@ export const NEWY_TOPICS = {
 
 export type NewyTopicSlug = keyof typeof NEWY_TOPICS
 
-export const NEWY_TOPIC_LIST: TopicList<NewyTopicSlug> = Object.values(NEWY_TOPICS)
+const NEWY_TOPIC_LIST: TopicList<NewyTopicSlug> = Object.values(NEWY_TOPICS)
+
+/** Her name and the two descriptions, pushed at boot by `publishProfile()`. See `BotProfile`. */
+const newyProfile: BotProfile = {
+  name: 'Newy 📰',
+
+  shortDescription:
+    'Your personal news assistant — curated digests, plus a chat that remembers ' +
+    'what matters to you.',
+
+  description:
+    'Newy tracks your beats in the background — ranking, summarizing and ' +
+    'delivering the news that matters to you, no digging required. Ask her ' +
+    "anything about what she's found: she'll search past articles, pull up the " +
+    'full text, and explain what a story actually says. She remembers what you ' +
+    'tell her about yourself over time, so answers get more personal the longer ' +
+    'you talk. She can also sketch a quick diagram when a concept has moving ' +
+    'parts worth seeing.',
+}
+
+export const NEWY_BOT: BotDefinition<NewyTopicSlug> = {
+  id: 'newy',
+  envPrefix: 'NEWY_',
+  topics: NEWY_TOPIC_LIST,
+  profile: newyProfile,
+}
