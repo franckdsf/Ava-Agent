@@ -22,6 +22,10 @@ RUN corepack enable
 # fails outright and, if it did not, `mastra build` would fail for want of a
 # bundler. Copying it after the install is too late to be seen.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# The install runs the `prepare` script, and a failing prepare fails the install,
+# so the script has to be here before the source is. It skips what the image
+# has no use for: there is no git and no skills folder in here.
+COPY scripts/prepare.mjs ./scripts/
 RUN pnpm install --frozen-lockfile
 
 COPY . .

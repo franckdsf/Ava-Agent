@@ -207,6 +207,6 @@ Five scripts carry no obligation. They are listed so the gap is deliberate rathe
 | --- | --- |
 | `pnpm dev` | Mastra Studio. `workflow:run` needs it running; nothing else here does. |
 | `pnpm build` | Bundles to `.mastra/output`. The Dockerfile runs it; `verify` is what a change is judged on. |
-| `pnpm prepare` | Points git at `.githooks/`. pnpm runs it on install; run it by hand only on a clone installed before the hooks existed. |
+| `pnpm prepare` | Points git at `.githooks/` and copies `.agents/skills/` into `.claude/skills/`, where Claude Code reads them. pnpm runs it on every install; run it by hand after changing a skill in `.agents/`. |
 | `pnpm start` | Runs the built bundle. Deployment only. |
 | `pnpm db:studio` | Browses the database. Read what you like — no rule attaches to looking. |

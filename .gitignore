@@ -26,3 +26,6 @@ backups/
 # Editor / OS
 .DS_Store
 *.log
+
+# Copied from .agents/skills/ by `pnpm prepare` — .agents/ is the one tracked copy.
+.claude/skills/
