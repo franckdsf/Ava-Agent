@@ -181,8 +181,21 @@ Rules that matter:
    * schema validation — three fields of prose does not sound like much until a
    * model spends its budget on the first one. 2000 is several times what a
    * well-behaved response needs, and an unused allowance costs nothing.
+   *
+   * Reasoning off, said explicitly: `pnpm bench job-writer` measured it level
+   * with the provider's default at half the latency, and the default leaked
+   * JSON fragments into a field twice in 48 briefs (none in 24 with it off).
+   * Cheapest endpoint first.
    */
-  defaultOptions: { modelSettings: { maxOutputTokens: 2000 } },
+  defaultOptions: {
+    modelSettings: { maxOutputTokens: 2000 },
+    providerOptions: {
+      openrouter: {
+        reasoning: { enabled: false },
+        provider: { sort: 'price' },
+      },
+    },
+  },
 })
 
 export const jobAgents = { [jobScorerId]: scorer, [jobWriterId]: writer }

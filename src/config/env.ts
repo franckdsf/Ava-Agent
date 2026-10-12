@@ -238,6 +238,15 @@ const coreSchema = z.object({
    * A handful of calls per run over one posting each, and the only job-side
    * output a human actually reads — so it is tuned like `AVA_MODEL_SUMMARIZER`
    * rather than like the scorer. It never sees the CV.
+   *
+   * `pnpm bench job-writer`, 2026-10-12, 2 × 4 delivered postings × 3 runs,
+   * price-routed: kept, with **reasoning off** (set on the agent). Judged level
+   * with luna at its provider default — each first on one fixture, 8.7/10
+   * against 8.0 — at 9.0s against 18.2s for four briefs and $0.0016 against
+   * $0.0021. With reasoning on — the default and `low`, 48 briefs — luna twice
+   * leaked its own JSON into a field ("…experience.], / watchOuts"), which the
+   * schema accepts as a string; none in the 24 briefs with it off. deepseek-v4.1-flash invented facts and took up
+   * to two minutes; claude-haiku-5.5 added watch-outs the scorer never found.
    */
   AVA_MODEL_JOB_WRITER: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
 

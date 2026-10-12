@@ -86,4 +86,10 @@ export const bench = {
    * 2.0" inside a lede is naming the subject, a whole headline is echoing it.
    */
   titleEchoMinChars: 20,
+
+  /**
+   * How many "fits" a job brief may carry. Mirrors "two to four" in the job
+   * writer's instructions (`src/mastra/agents/job-scorer.ts`) — change both.
+   */
+  jobBriefFits: { min: 2, max: 4 },
 } as const

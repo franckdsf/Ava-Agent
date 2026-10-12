@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { cloneProviderOptions } from '../clone.js'
 import { attemptCost, blind, droppedEffort, entrantsFor, judgePrompt, pool, renderTable, scoreSpread, spearman, type Row } from '../kit.js'
 import { articleWriterFlags } from '../tasks/article-writer.js'
+import { jobWriterFlags } from '../tasks/job-writer.js'
 import { mentionsReader, rankerFlags, voteAgreement, type RankerFixture } from '../tasks/ranker.js'
 
 describe('field', () => {
@@ -237,5 +238,33 @@ describe('article writer checks', () => {
       'article 2: every attempt failed — production would send the bare excerpt',
     ])
     expect(articleWriterFlags([{ lede: 'See https://x.dev', points: [] }], fixture)).toEqual(['article 1: contains a URL'])
+  })
+})
+
+describe('job writer checks', () => {
+  const winner = (salaryText: string | null, mismatches: string[]) => ({
+    search: 'Front end',
+    verdict: { fit: 80, reason: 'React', mismatches },
+    posting: { id: 'j', title: 'Dev', company: 'Acme', location: null, remote: 'remote', salaryText, contractType: null, description: null },
+  })
+  const fixture = { winners: [winner(null, ['seniority: wants 10 years']), winner('€70k', [])] }
+  const good = { summary: 'A React role at a fintech, sent for the stack.', fits: ['React', 'TypeScript'], watchOuts: ['Asks for ten years.'] }
+
+  it('a faithful brief has no flags, and stated pay may be repeated', () => {
+    expect(jobWriterFlags([good, { ...good, summary: 'Pays €70k.', watchOuts: [] }], fixture)).toEqual([])
+    const funded = { winners: [{ ...fixture.winners[0]!, posting: { ...fixture.winners[0]!.posting, description: 'We raised $20M.' } }] }
+    expect(jobWriterFlags([{ ...good, fits: ['Raised $20M', 'React'] }], funded)).toEqual([])
+  })
+
+  it('names invented pay, dropped watch-outs, the fit count and markdown', () => {
+    expect(
+      jobWriterFlags([{ summary: 'Pays around 80k.', fits: ['**React**'], watchOuts: [] }, null], fixture),
+    ).toEqual([
+      'posting 1: 1 fits, the rule is 2 to 4',
+      'posting 1: no watch-outs, but the scorer found 1',
+      'posting 1: names an amount the posting does not state — "Pays around 80k."',
+      'posting 1: markdown inside a field — "**React**"',
+      "posting 2: every attempt failed — production would send the scorer's bare reason",
+    ])
   })
 })
