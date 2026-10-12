@@ -149,6 +149,7 @@ describe('judge prompt', () => {
     const attempt = { key: 'k', fixture: 0, run: 0, ms: 1, calls: [], output: 'x', flags: [] as string[], metrics: {} }
     const base = { rules: 'R', given: 'G', criteria: ['C'], runs: 1, render: (o: string) => o }
     expect(judgePrompt({ ...base, candidates: [{ label: 'A', attempts: [attempt] }] })).not.toMatch(/verified by code/)
+    expect(judgePrompt({ ...base, candidates: [{ label: 'A', attempts: [attempt] }] })).toMatch(/format is not under evaluation/)
     expect(judgePrompt({ ...base, candidates: [{ label: 'A', attempts: [{ ...attempt, flags: ['bad'] }] }] })).toMatch(
       /verified by code/,
     )

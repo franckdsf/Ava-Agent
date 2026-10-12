@@ -311,6 +311,13 @@ export function judgePrompt<Output>(input: {
     '',
     '# What each candidate returned',
     '',
+    // Without this the judge grades the bench's rendering: a ranker shown as
+    // `id | score | …` lines was scored 2/10 for "not returning JSON" when it
+    // had, and the app had already parsed it.
+    "Every answer below already passed the app's own schema validation — one that did not is shown " +
+      'as FAILED — and is shown in a compact rendering, not as the model emitted it. The output format ' +
+      'is not under evaluation: judge only the content.',
+    '',
     ...input.candidates.map(c => [`## Candidate ${c.label}`, ...c.attempts.map((a, i) => run(c.label, a, i))].join('\n\n')),
     '',
     '# How to weigh them',

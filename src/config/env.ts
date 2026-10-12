@@ -50,7 +50,8 @@ const coreSchema = z.object({
    * 5 points against 13. The old model ran with no effort set and spent ~7k
    * reasoning tokens a batch. `claude-haiku-5.5 @ low` was cheaper but judged
    * lower and scored about half as many articles over the digest bar. No votes
-   * existed, so none of this is measured against the reader's taste.
+   * existed, so none of this is measured against the reader's taste. Re-run on
+   * price-routed, 2026-10-12: 18.6s median, $0.0050 a batch.
    */
   AVA_MODEL_RSS_RANKER: gatewayModelId.default('openrouter/deepseek/deepseek-v4.1-flash'),
   /**
@@ -226,7 +227,9 @@ const coreSchema = z.object({
    * Haiku cost 45% more and sent fewer postings over the bar. Reasoning off was
    * clearly worse on both deepseeks: one v4.1 run returned a single verdict for
    * thirty postings. Stored fits, not reader verdicts, so none of this is
-   * measured against what the reader would have applied to.
+   * measured against what the reader would have applied to. Re-run on
+   * price-routed, 2026-10-12: 34.3s median, $0.0038 a batch — slower and
+   * cheaper than default routing, the trade `sort: 'price'` makes.
    */
   AVA_MODEL_JOB_SCORER: gatewayModelId.default('openrouter/deepseek/deepseek-v4.1-flash'),
   /**
