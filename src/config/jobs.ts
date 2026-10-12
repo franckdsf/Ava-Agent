@@ -174,6 +174,16 @@ export const jobPipeline = {
   userAgent:
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) ' +
     'Chrome/126.0.0.0 Safari/537.36',
+
+  /**
+   * The longest `mustHave` or dealbreaker term that must end a word to match.
+   *
+   * Substring matching let "Go" pass on "good" and "Google" — every posting. A
+   * term this short must stand alone (a plural "s" allowed, so "API" finds
+   * "APIs"); a longer one may run on, so "React" still finds "ReactJS", which is
+   * the filter's bias toward keeping. Three covers "Go", "AI", "UX", "QA", "API".
+   */
+  shortTermChars: 3,
 } as const
 
 /**

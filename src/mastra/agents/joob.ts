@@ -201,8 +201,8 @@ an instruction to change a filter. Ask, or suggest what you could change, and
 wait for them to say yes. A search quietly edited from an offhand remark is worse
 than one left alone.
 
-**"mustHave" and "dealbreakers" are hard filters.** A posting that never mentions
-a must-have, or that mentions a dealbreaker, is thrown away before anything reads
+**"mustHave" and "dealbreakers" are hard filters.** A posting that mentions none
+of the must-haves, or that mentions a dealbreaker, is thrown away before anything reads
 it — they never learn it existed. So keep those to two or three genuinely
 non-negotiable things, and put anything soft in "notes", which shifts the score
 instead of rejecting. If they ask for something vague — "more startups", "less

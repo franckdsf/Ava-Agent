@@ -115,10 +115,12 @@ Return:
 - "contractTypes": from permanent, contract, freelance, internship,
   apprenticeship. Empty if they did not say.
 - "mustHave": terms a posting must mention — languages, frameworks, domains.
-  **Keep this short, three or four at most.** Every entry narrows hard, and a
-  posting that says "TypeScript" but not "React" is thrown away before anything
-  reads it. Put the one or two that really are non-negotiable here and let the
-  rest go to "notes".
+  A posting is kept if it mentions **any one** of them, and thrown away before
+  anything reads it if it mentions none. So this is a list of alternatives, not
+  a list of requirements: "Go or Rust" is ["Go", "Rust"], and someone who needs
+  TypeScript *and* React gets the more specific one, with the other in "notes".
+  **Keep this short, three or four at most.** Put the one or two that really are
+  non-negotiable here and let the rest go to "notes".
 - "dealbreakers": terms that reject a posting outright — "consulting", "agency",
   "on-call", a named company. Only things they actually ruled out.
 - "minCompensation": annual figure as a plain number, or null. "90k" is 90000.

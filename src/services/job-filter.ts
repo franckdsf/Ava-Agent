@@ -1,4 +1,5 @@
 import { domainLabel, isKnownDomain } from '../config/job-taxonomy.js'
+import { jobPipeline } from '../config/jobs.js'
 import type { Job, JobSearch } from '../db/schema.js'
 import { deriveCvTags, deriveTags, tagsOfKind } from './job-tags.js'
 
@@ -31,11 +32,34 @@ export interface FilterVerdict {
 
 const lower = (values: string[]): string[] => values.map(value => value.toLowerCase())
 
+const WORD_CHAR = /[\p{L}\p{N}]/u
+
+/**
+ * A term as a pattern that matches it where a reader would say it is mentioned.
+ *
+ * Substring matching made a must-have of "Go" pass on "good", "Google" and
+ * "ago" — every posting — and "Rust" pass on "trust". So a term must start a
+ * word; and a short one must also end one, allowing a plural ("APIs"). A long
+ * term may run on ("React" in "ReactJS"), which is the bias toward keeping. An
+ * edge that is not itself a letter or digit gets no boundary, so ".NET" still
+ * matches "ASP.NET" and "C++" ends where it ends.
+ */
+function termPattern(term: string): RegExp {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const start = WORD_CHAR.test(term.at(0) ?? '') ? '(?<![\\p{L}\\p{N}])' : ''
+  const end = term.length <= jobPipeline.shortTermChars && WORD_CHAR.test(term.at(-1) ?? '') ? 's?(?![\\p{L}\\p{N}])' : ''
+  return new RegExp(`${start}${escaped}${end}`, 'iu')
+}
+
+/** The first term the posting's searchable text mentions, if any. */
+function firstMention(job: Job, terms: string[]): string | undefined {
+  const haystack = `${job.title}\n${job.company}\n${job.description ?? ''}`
+  return terms.find(term => termPattern(term.trim()).test(haystack))
+}
+
 /** Whether any term appears in the posting's searchable text. */
 function mentions(job: Job, terms: string[]): boolean {
-  if (terms.length === 0) return false
-  const haystack = `${job.title}\n${job.company}\n${job.description ?? ''}`.toLowerCase()
-  return lower(terms).some(term => haystack.includes(term))
+  return firstMention(job, terms) !== undefined
 }
 
 /**
@@ -91,11 +115,9 @@ export function filterJob(job: Job, search: JobSearch, tags: string[] = jobTags(
 
   // Anything the reader ruled out, in the posting's own words. Checked before
   // the positive rules because a dealbreaker outranks every other signal.
-  if (search.dealbreakers.length > 0 && mentions(job, search.dealbreakers)) {
-    const hit = lower(search.dealbreakers).find(term =>
-      `${job.title} ${job.company} ${job.description ?? ''}`.toLowerCase().includes(term),
-    )
-    return { keep: false, reason: `mentions "${hit}", which you ruled out` }
+  const hit = firstMention(job, search.dealbreakers)
+  if (hit !== undefined) {
+    return { keep: false, reason: `mentions "${hit.toLowerCase()}", which you ruled out` }
   }
 
   // Remote. Only the two absolute answers filter; `preferred` and `any` do not,
