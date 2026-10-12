@@ -70,6 +70,22 @@ const scorer = new Agent({
   id: jobScorerId,
   name: 'Job Scorer',
   model: env.AVA_MODEL_JOB_SCORER,
+  /**
+   * Low effort, set rather than left to the provider — the setting `pnpm bench
+   * job-scorer` chose the model at. Off was measured and is worse here: judging
+   * fit against a whole CV is where the thinking earns its tokens.
+   */
+  defaultOptions: {
+    providerOptions: {
+      openrouter: {
+        reasoning: { effort: 'low' },
+        // Cheapest endpoint first, falling back on failure, as Newy and Joob
+        // route. Agents move to it as they are benched, not all at once — one
+        // still pinned to endpoints has not been re-measured yet.
+        provider: { sort: 'price' },
+      },
+    },
+  },
   instructions: `
 You judge how well job postings suit one specific person, whose CV you are given
 in full.

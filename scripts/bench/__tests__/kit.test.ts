@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { cloneProviderOptions } from '../clone.js'
-import { attemptCost, blind, entrantsFor, judgePrompt, pool, renderTable, type Row } from '../kit.js'
-import { mentionsReader, rankerFlags, scoreSpread, voteAgreement, type RankerFixture } from '../tasks/ranker.js'
+import { attemptCost, blind, entrantsFor, judgePrompt, pool, renderTable, scoreSpread, spearman, type Row } from '../kit.js'
+import { mentionsReader, rankerFlags, voteAgreement, type RankerFixture } from '../tasks/ranker.js'
 
 describe('field', () => {
   const field = [
@@ -110,6 +110,15 @@ describe('table', () => {
     const [, first, second] = table.split('\n')
     expect(first).toMatch(/^A\s+x @ off \*/)
     expect(second).toMatch(/^B\s+dead @ low\s+0\/3\s+0\/3\s+—\s+n\/a/)
+  })
+})
+
+describe('spearman', () => {
+  it('is 1 for the same order, -1 reversed, NaN when one side is flat', () => {
+    expect(spearman([[1, 10], [2, 20], [3, 30]])).toBeCloseTo(1)
+    expect(spearman([[1, 30], [2, 20], [3, 10]])).toBeCloseTo(-1)
+    expect(spearman([[1, 5], [2, 5], [3, 5]])).toBeNaN()
+    expect(spearman([[1, 1], [2, 2]])).toBeNaN()
   })
 })
 

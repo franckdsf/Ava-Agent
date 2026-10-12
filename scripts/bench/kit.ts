@@ -178,6 +178,66 @@ export function attemptCost(calls: Call[]): number | undefined {
   return reported.length ? reported.reduce((a, b) => a + b, 0) : undefined
 }
 
+/**
+ * The ids a batch answer left out or answered twice — the failure every
+ * one-call-per-batch scorer shares. In production the missed ones stay
+ * unscored and the doubled one is written twice, so both are flags, not notes.
+ */
+export function coverageFlags(expected: string[], returned: string[], noun: string): string[] {
+  const seen = new Map<string, number>()
+  for (const id of returned) seen.set(id, (seen.get(id) ?? 0) + 1)
+  const flags: string[] = []
+  const missing = expected.filter(id => !seen.has(id))
+  if (missing.length) flags.push(`${missing.length} of ${expected.length} ${noun} not scored: ${missing.slice(0, 5).join(', ')}`)
+  const twice = [...seen].filter(([, n]) => n > 1).map(([id]) => id)
+  if (twice.length) flags.push(`scored more than once: ${twice.slice(0, 5).join(', ')}`)
+  return flags
+}
+
+/**
+ * How far an entrant disagrees with itself: for each item, the gap between its
+ * highest and lowest score across runs, averaged. A scorer whose verdict on the
+ * same input swings by 13 points sends an item on one run and drops it on the
+ * next — the judge sees that only as anecdotes, this column sees all of it.
+ */
+export function scoreSpread(runs: { id: string; score: number }[][]): number {
+  const byId = new Map<string, number[]>()
+  for (const run of runs) for (const r of run) byId.set(r.id, [...(byId.get(r.id) ?? []), r.score])
+  const gaps = [...byId.values()].filter(scores => scores.length > 1).map(s => Math.max(...s) - Math.min(...s))
+  return gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : NaN
+}
+
+/** Spearman's rank correlation, ties averaged. `NaN` under three pairs or with no variance on either side. */
+export function spearman(pairs: [number, number][]): number {
+  if (pairs.length < 3) return NaN
+  const ranks = (values: number[]): number[] => {
+    const order = values.map((v, i) => [v, i] as const).sort((a, b) => a[0] - b[0])
+    const out = new Array<number>(values.length)
+    for (let i = 0; i < order.length; ) {
+      let j = i
+      while (j + 1 < order.length && order[j + 1]?.[0] === order[i]?.[0]) j += 1
+      for (let k = i; k <= j; k += 1) out[order[k]?.[1] as number] = (i + j) / 2
+      i = j + 1
+    }
+    return out
+  }
+  const a = ranks(pairs.map(p => p[0]))
+  const b = ranks(pairs.map(p => p[1]))
+  const ma = mean(a)
+  const mb = mean(b)
+  let num = 0
+  let da = 0
+  let db = 0
+  for (let i = 0; i < a.length; i += 1) {
+    const x = (a[i] as number) - ma
+    const y = (b[i] as number) - mb
+    num += x * y
+    da += x * x
+    db += y * y
+  }
+  return da && db ? num / Math.sqrt(da * db) : NaN
+}
+
 const verdictSchema = z.object({
   rows: z
     .array(

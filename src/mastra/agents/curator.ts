@@ -55,6 +55,10 @@ const ranker = new Agent({
     providerOptions: {
       openrouter: {
         reasoning: { effort: 'low' },
+        // Cheapest endpoint first, falling back on failure, as Newy and Joob
+        // route. Agents move to it as they are benched, not all at once — one
+        // still pinned to endpoints has not been re-measured yet.
+        provider: { sort: 'price' },
       },
     },
   },

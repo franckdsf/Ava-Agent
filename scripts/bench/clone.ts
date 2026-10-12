@@ -141,14 +141,16 @@ export async function clone(
     name: agentId,
     model,
     instructions: await agent.getInstructions(),
-    // Only the provider options are carried over; the rest of what
-    // `getDefaultOptions` resolves is Mastra's own defaulting, and re-passing it
-    // would pin the bench to today's internals.
+    // The provider options and the model settings are carried over — the job
+    // writer's output cap is part of what it costs and what can truncate it. The
+    // rest of what `getDefaultOptions` resolves is Mastra's own defaulting, and
+    // re-passing it would pin the bench to today's internals.
     defaultOptions: {
       providerOptions: cloneProviderOptions(
         defaults.providerOptions as Record<string, Record<string, unknown>> | undefined,
         effort,
       ),
+      ...(defaults.modelSettings ? { modelSettings: defaults.modelSettings } : {}),
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any)

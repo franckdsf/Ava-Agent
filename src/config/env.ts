@@ -204,8 +204,17 @@ const coreSchema = z.object({
    * cost for the other. They share a default value and nothing else.
    *
    * Must support schema-constrained output — the step reads `.object`.
+   *
+   * `pnpm bench job-scorer`, 2026-10-12, 2 searches × 30 postings × 3 runs, at
+   * `effort: 'low'` (set on the agent): judged level with the previous
+   * `deepseek-v4-flash-0731` and `claude-haiku-5.5 @ low` — the three within half
+   * a rank — at 25.5s median against 96.7s and $0.0052 a batch against $0.0109.
+   * Haiku cost 45% more and sent fewer postings over the bar. Reasoning off was
+   * clearly worse on both deepseeks: one v4.1 run returned a single verdict for
+   * thirty postings. Stored fits, not reader verdicts, so none of this is
+   * measured against what the reader would have applied to.
    */
-  AVA_MODEL_JOB_SCORER: gatewayModelId.default('openrouter/deepseek/deepseek-v4-flash-0731'),
+  AVA_MODEL_JOB_SCORER: gatewayModelId.default('openrouter/deepseek/deepseek-v4.1-flash'),
   /**
    * Writes the brief for each posting that cleared the bar.
    *

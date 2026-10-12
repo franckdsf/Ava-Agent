@@ -29,7 +29,7 @@ import {
   renderRankingPrompt,
   renderReaderProfile,
 } from '../../../src/mastra/agents/curator.js'
-import type { BenchTask } from '../kit.js'
+import { coverageFlags, scoreSpread, type BenchTask } from '../kit.js'
 
 export interface RankerFixture {
   beat: { slug: string; title: string; rubric: string; subtopics: string[]; digestThreshold: number }
@@ -69,14 +69,11 @@ export function voteAgreement(rankings: ArticleRanking[], votes: Record<string, 
 
 /** Everything code can prove wrong with one ranking of one batch. */
 export function rankerFlags(rankings: ArticleRanking[], fixture: RankerFixture): string[] {
-  const flags: string[] = []
-  const seen = new Map<string, number>()
-  for (const r of rankings) seen.set(r.id, (seen.get(r.id) ?? 0) + 1)
-
-  const missing = fixture.articles.filter(a => !seen.has(a.id)).map(a => a.id)
-  if (missing.length) flags.push(`${missing.length} of ${fixture.articles.length} articles not scored: ${missing.slice(0, 5).join(', ')}`)
-  const twice = [...seen].filter(([, n]) => n > 1).map(([id]) => id)
-  if (twice.length) flags.push(`scored more than once: ${twice.slice(0, 5).join(', ')}`)
+  const flags = coverageFlags(
+    fixture.articles.map(a => a.id),
+    rankings.map(r => r.id),
+    'articles',
+  )
 
   const labels = new Set(fixture.beat.subtopics)
   const offList = [...new Set(rankings.map(r => r.subtopic).filter(s => !labels.has(s)))]
@@ -108,14 +105,6 @@ export function mentionsReader(reason: string): boolean {
     /\breader'?s? (interests?|profile|notes|votes|taste)\b/i.test(reason) ||
     /(?<!about )\byour?\b/i.test(reason)
   )
-}
-
-/** Mean absolute disagreement with itself: for each article, the gap between this entrant's highest and lowest score. */
-export function scoreSpread(runs: ArticleRanking[][]): number {
-  const byId = new Map<string, number[]>()
-  for (const run of runs) for (const r of run) byId.set(r.id, [...(byId.get(r.id) ?? []), r.score])
-  const gaps = [...byId.values()].filter(scores => scores.length > 1).map(s => Math.max(...s) - Math.min(...s))
-  return gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : NaN
 }
 
 async function readFixtures(count: number): Promise<RankerFixture[]> {

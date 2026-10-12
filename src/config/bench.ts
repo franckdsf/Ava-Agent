@@ -57,4 +57,12 @@ export const bench = {
    * every article readable, and is still enough for scores to spread.
    */
   rankerBatch: 40,
+
+  /**
+   * Postings per job-scorer fixture. Production sends up to
+   * `maxJobsPerScoringRun` (90) behind a ~20k-token CV; thirty keeps the judge's
+   * prompt — CV, postings and every entrant's every verdict — inside what a
+   * judge reads carefully, and is still three bands of ten.
+   */
+  jobBatch: 30,
 } as const
