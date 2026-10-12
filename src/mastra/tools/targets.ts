@@ -1,6 +1,6 @@
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { jobCommands } from '../../config/job-commands.js'
+import { jobCommands } from '../../config/jobs.js'
 import { knownSeniority, seniorityIds } from '../../config/job-taxonomy.js'
 import { activeSearches, getSearch, saveSearch } from '../../db/job-searches.js'
 import type { JobSearch } from '../../db/schema.js'

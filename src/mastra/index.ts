@@ -16,7 +16,8 @@ import { summarizer, summarizerId } from './agents/summarizer.js'
 import { translator, translatorId } from './agents/translator.js'
 import { catchUpOnBoot } from './boot-catchup.js'
 import { registerChatCommands } from './channels.js'
-import { registerJoobCommands } from './joob-channels.js'
+import { JOOB_SURFACE } from './commands/joob.js'
+import { registerBot } from './registrar.js'
 import { storage } from './storage.js'
 import { curateAll } from './workflows/curate-all.js'
 import { findJobs } from './workflows/find-jobs.js'
@@ -117,7 +118,7 @@ void registerChatCommands(mastra, newy.getChannels()).catch(error => {
 // `JOOB_TELEGRAM_BOT_TOKEN` is unset and the registrar returns immediately, so
 // this costs nothing until the bot is provisioned. Independent of Newy's on
 // purpose: one bot failing to come up must not take the other's surface with it.
-void registerJoobCommands(mastra, joob.getChannels()).catch(error => {
+void registerBot(mastra, JOOB_SURFACE, joob.getChannels()).catch(error => {
   mastra.getLogger()?.error("Failed to register Joob's Telegram commands", error)
 })
 

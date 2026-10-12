@@ -116,7 +116,7 @@ so a new bot provisions clean tabs and Joob's rows are untouched.
 ### `/client`, `/clients`, `/unclient`, `/reclient`
 
 Mirroring the four job commands in
-[`job-commands.ts`](../../src/config/job-commands.ts), parsed by their own
+[`targets.ts`](../../src/mastra/commands/targets.ts), parsed by their own
 targeter into a `client_profiles` row that is deliberately **smaller** than a
 search: label, the request verbatim, industries (empty means any), locations, the
 signal kinds that count, dealbreakers, a minimum deal size, notes, and

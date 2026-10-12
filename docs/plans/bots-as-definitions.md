@@ -72,7 +72,6 @@ src/mastra/commands/translate.ts Newy   /translearn, /translate
 src/mastra/commands/summarize.ts Newy   /summarize
 src/mastra/commands/targets.ts   Joob   /target /targets /retarget /untarget
 src/mastra/commands/clients.ts   Joob   /client /clients /reclient /unclient
-src/mastra/commands/criteria.ts  code   the criteria echo targets and clients share (reply, describeChanges, renderCriteria)
 src/mastra/commands/newy.ts      Newy   her sections and her /start text
 src/mastra/commands/joob.ts      Joob   its sections and its /start text
 src/mastra/registrar.ts          code   registerBot — catch-all, menu, list, unknown, profile
@@ -93,6 +92,12 @@ commands need a bot's transport, so they import its definition — which therefo
 commands or agent. `src/bots/<bot>.ts` stays a leaf. And slice 6's C5 puts `new Agent(` in
 `src/mastra/agents/`, so the prompt, tools and builder live there. Each part is in the layer it
 belongs to and none is a copy — P6 is about copies, not file count.
+
+**No `criteria.ts` (re-opened at step 4).** Part 2's shared criteria helper for `targets.ts` and
+`clients.ts` does not hold: the two render different fields in different formats (`Field — a → **b**`
+against `- industries: a → b`), so sharing them would change what the reader sees or be a
+parameterised helper as long as the two. What they did share — the dispatcher and the try/catch — is
+gone into `Command` and `runCommand`.
 
 **Telegram surface** — unchanged, by construction and by test. **One deliberate exception, below:**
 the failure message after a command throws.
@@ -190,7 +195,7 @@ pnpm telegram:check                           both bots: profile current, six ta
    bot's — Part 1 says so of a third agent ("its commands and its workflows"). C7 forbids a bot name
    in *code* (comments exempt) in `src/services/`, `src/db/`, `src/lib/`, `src/config/`,
    `mastra/registrar.ts`, `mastra/chat-surface.ts`, `mastra/quoted-message.ts`,
-   `commands/command.ts`, `commands/criteria.ts`, `agents/chat-agent.ts`. Names come from `BOTS`, not
+   `commands/command.ts`, `agents/chat-agent.ts`. Names come from `BOTS`, not
    a list in the check. Those layers name a bot in code today only in files this slice moves, so C7
    lands with no baseline.
 
@@ -205,7 +210,7 @@ before Newy moves. Each step ends with `pnpm verify` green and is its own `(clea
 1. bot-surface.test.ts on 3a12894, green; measure the before  → the surface is pinned before anything moves
 2. src/bots/ + transportFor; every importer switched          → bots, *-topics, *-telegram configs deleted
 3. command.ts + runCommand + its test; @limitation removed    → the ack race tested on the real code
-4. Joob's commands as Command objects + criteria.ts;
+4. Joob's commands as Command objects;
    registrar.ts + commands/joob.ts; joob-channels.ts deleted  → Joob from the shared registrar, test green
 5. chat-agent.ts; agents/joob.ts on it                        → Joob built by the builder
 6. Newy's commands as Command objects; quoted-message.ts;

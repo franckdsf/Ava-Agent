@@ -2,7 +2,7 @@ import type { Mastra } from '@mastra/core'
 import { Agent } from '@mastra/core/agent'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
-import { jobCommands } from '../../config/job-commands.js'
+import { jobCommands } from '../../config/jobs.js'
 import { domainIds, isKnownDomain, knownSeniority, seniorityIds } from '../../config/job-taxonomy.js'
 
 /**

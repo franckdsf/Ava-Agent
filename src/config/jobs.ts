@@ -556,3 +556,53 @@ export const jobScout = {
    */
   minPageChars: 400,
 } as const
+
+/**
+ * The limits on `/target`, `/retarget` and `/untarget`, and on the tools that edit a search.
+ */
+export const jobCommands = {
+  /**
+   * A slug, as the reader may type it into `/untarget`.
+   *
+   * Same shape beats use, and checked here so a typo is answered rather than
+   * looked up. Forbids a colon for the reason `beatCommands.slugPattern` does —
+   * nothing reader-supplied may collide with a namespaced key.
+   */
+  slugPattern: /^[a-z0-9][a-z0-9-]{0,47}$/,
+
+  /**
+   * Longest request `/target` accepts.
+   *
+   * Generous enough for a couple of sentences in any language, short enough that
+   * a pasted job advert does not become a search definition. Unlike `/follow`
+   * there is no web search downstream, so the cost of a long one is only a
+   * larger parse prompt — but a reader pasting an entire posting means something
+   * different from what this command does, and refusing is a better answer than
+   * silently producing a search shaped like one advert.
+   */
+  requestMaxChars: 400,
+
+  /** Searches `/targets` lists in full before it stops and says how many are left. */
+  maxSearchesShown: 15,
+
+  /**
+   * How many searches may be active at once.
+   *
+   * Every active search costs a slice of the scoring prompt on every run, and
+   * they compete for the same postings — past a handful the marginal one mostly
+   * duplicates another. A cap that is reached is a prompt to prune rather than a
+   * limit worth raising.
+   */
+  maxActiveSearches: 8,
+
+  /**
+   * Below this many hard constraints, a target is treated as too broad and the
+   * advisor is asked for a tighter one.
+   *
+   * Three, because one constraint on its own — a stack, or a level — still lets
+   * most of a board through. Measured on a real target with **zero**: the filter
+   * dropped 5 postings out of 240, and the scorer's capped batch was filled with
+   * whatever had been published most recently.
+   */
+  minConstraints: 3,
+} as const

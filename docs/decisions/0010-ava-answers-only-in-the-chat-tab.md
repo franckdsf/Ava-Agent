@@ -1,6 +1,6 @@
 ---
 id: 0010
-applies_to: ["src/mastra/channels.ts", "src/mastra/chat-surface.ts", "src/mastra/joob-channels.ts"]
+applies_to: ["src/mastra/channels.ts", "src/mastra/chat-surface.ts", "src/mastra/registrar.ts"]
 status: accepted
 supersedes: []
 ---

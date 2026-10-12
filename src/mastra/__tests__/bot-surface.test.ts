@@ -4,7 +4,8 @@ import { JOOB_BOT } from '../../bots/joob.js'
 import { NEWY_BOT } from '../../bots/newy.js'
 import { seedBeats } from '../../db/beats.js'
 import * as newy from '../channels.js'
-import * as joob from '../joob-channels.js'
+import { JOOB_SURFACE } from '../commands/joob.js'
+import { commandMenu, unknown } from '../registrar.js'
 
 // What each bot shows a reader before any conversation: the `/` menu, `/start`, the reply to a
 // command it does not know, and its identity — profile and tabs. Pinned byte for byte ahead of
@@ -40,12 +41,12 @@ describe('Joob', () => {
     expect(JOOB_BOT).toMatchSnapshot()
   })
   it('the / menu', () => {
-    expect(joob.commandMenu()).toMatchSnapshot()
+    expect(commandMenu(JOOB_SURFACE)).toMatchSnapshot()
   })
   it('/start', () => {
-    expect(joob.welcome()).toMatchSnapshot()
+    expect(JOOB_SURFACE.welcome(JOOB_SURFACE)).toMatchSnapshot()
   })
   it('an unknown command', () => {
-    expect(joob.unknown('/nope')).toMatchSnapshot()
+    expect(unknown(JOOB_SURFACE, '/nope')).toMatchSnapshot()
   })
 })

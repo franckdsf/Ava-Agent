@@ -1,6 +1,5 @@
 import type { Mastra } from '@mastra/core'
-import { commands } from '../../config/commands.js'
-import { LEAD_COMMANDS, type LeadCommand } from '../../config/lead-commands.js'
+import type { JoobTopicSlug } from '../../bots/joob.js'
 import { JOOB_TOPICS } from '../../bots/joob.js'
 import { LEAD_SIGNAL_KINDS, LEAD_SIGNAL_LABELS, leadPipeline } from '../../config/leads.js'
 import {
@@ -13,125 +12,93 @@ import {
 import type { ClientProfile } from '../../db/schema.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { parseClient, slugify, type ParsedClient } from '../agents/lead-targeter.js'
-import { transportFor } from '../../bots/index.js'
-import { JOOB_BOT } from '../../bots/joob.js'
-
-const joobTelegram = transportFor(JOOB_BOT)
+import type { Command } from './command.js'
 
 /**
  * `/client`, `/clients`, `/unclient` and `/reclient` — who Joob prospects for
  * ([ADR-0038](../../../docs/decisions/0038-leads-a-prospecting-pipeline-in-joobs-chat.md)).
  *
- * The lead-side twin of `targets.ts`, and built to the same three rules. All four
+ * The lead-side twin of `targets.ts`, and built to the same rules. All four
  * answer in Chat, as one message each. They write `client_profiles` and nothing
  * else — the configuration half of [invariant 8](../../AGENTS.md#invariants) —
  * so none of them starts a run and nothing here can reach a fit score, a vision
  * verdict or a delivery.
  *
+ * They live beside the job commands in Joob's chat rather than in a bot of their
+ * own. ADR-0038: a job, a mission and a client are three shapes of *find me paid
+ * work*, for one person, on one cadence, against one portfolio — and the day the
+ * two command sets start confusing each other is the day the bot splits.
+ *
+ * **"Client", not "ICP".** The reader's language, not sales jargon — the same
+ * rule that made these `/target` rather than `/query`.
+ *
  * Only `/client` and `/reclient` call a model, which is the inbound
  * human-triggered category invariant 2 carves out: a person typing, not a cron
- * fire nobody watches.
+ * fire nobody watches. They are the two with a `working` message.
+ *
+ * **The holding message says what not to do.** A parse was measured at 9s on one
+ * run and 232.8s on the next; a reader left in silence retypes the command in
+ * different words, and because `/client` upserts on the slug the *model*
+ * produces, that makes a second row competing for the same companies — the
+ * duplicate `/reclient` exists to repair.
  */
 
-export { isLeadCommand } from '../../config/lead-commands.js'
+export const client: Command<JoobTopicSlug> = {
+  name: '/client',
+  description: 'Tell me what you sell and who should buy it',
+  help:
+    'tell me who you want to work with, in a sentence. `/client I shoot product ' +
+    'photos for DTC skincare brands that just raised`. I show you what I understood.',
+  usage:
+    '`/client <what you sell, and to whom>` — for example `/client ad creative for ' +
+    'seed-stage SaaS, English-speaking, no crypto`.',
+  working: "Reading that — give me a moment. I'll show you exactly what I understood, and you can correct me then.",
+  run: ({ mastra, args }) => addClient(mastra, args),
+}
 
-/** The slash-command event, without importing the Chat SDK's own types. */
-interface SlashEvent {
-  command: string
-  args?: string
-  text?: string
+export const clients: Command<JoobTopicSlug> = {
+  name: '/clients',
+  description: 'List who I am currently prospecting for',
+  help: 'everything I am currently prospecting for, with the filters for each.',
+  usage: '`/clients` — takes no arguments.',
+  run: async () => renderProfiles(await allProfiles()),
+}
+
+export const unclient: Command<JoobTopicSlug> = {
+  name: '/unclient',
+  description: 'Stop prospecting for one kind of client',
+  help: 'stop prospecting for one of them. Nothing already sent is lost. `/unclient dtc-skincare`.',
+  usage: '`/unclient <slug>` — `/clients` lists the slugs.',
+  run: ({ args }) => removeClient(args),
 }
 
 /**
- * Runs one command and answers in Chat, saying it is working if it takes a while.
+ * Re-parses an existing profile in place, keeping its slug.
  *
- * **The adapter dispatches slash commands without awaiting them**
- * (`processUpdate` and `handleSlashCommandUpdate` are both fire-and-forget), so a
- * slow parse here never blocks Joob's other traffic. What it does block is the
- * reader's understanding: the typing indicator expires after about five seconds
- * and then nothing happens, for as long as the model takes.
+ * The same command `/retarget` is for searches, and it exists for the same
+ * measured reason ([ADR-0036](../../../docs/decisions/0036-a-source-may-declare-its-field-and-a-search-may-be-re-read.md)):
+ * `/client` upserts on the slug the *model* produces, so re-describing a
+ * profile in different words can silently create a second row competing for the
+ * same companies while the first keeps running with the criteria the reader was
+ * trying to change.
  *
- * So the acknowledgement is on a timer. Under `commands.ackAfterMs` the
- * reader gets exactly one message, as before; over it they get "working on it"
- * and then the result. The ack is **awaited before the result is sent**, because
- * two sends racing could otherwise deliver the answer first and the promise to
- * answer second.
+ * With no new wording it re-runs today's parser over the request already
+ * stored — the backfill case, for a profile written before the parser gained a
+ * field.
  */
-async function runAndAnswer(
-  mastra: Mastra,
-  event: SlashEvent,
-  command: LeadCommand,
-): Promise<void> {
-  // Only the two commands that call a model can be slow. `/clients` and
-  // `/unclient` are a query and an update, and announcing those would be noise.
-  const mayBeSlow = command === '/client' || command === '/reclient'
-  let acknowledged: Promise<unknown> | null = null
-  const timer = mayBeSlow
-    ? setTimeout(() => {
-        acknowledged = joobTelegram
-          .notify(working(command), 'chat')
-      }, commands.ackAfterMs)
-    : null
-
-  try {
-    const text = await reply(mastra, event, command)
-    if (timer) clearTimeout(timer)
-    if (acknowledged) await acknowledged
-    await joobTelegram.sendToTelegram(text, 'chat')
-  } catch (error) {
-    if (timer) clearTimeout(timer)
-    if (acknowledged) await acknowledged
-    throw error
-  }
+export const reclient: Command<JoobTopicSlug> = {
+  name: '/reclient',
+  description: 'Re-read one client profile, keeping its name',
+  help:
+    're-read one of them without creating a second. `/reclient dtc-skincare` re-runs ' +
+    'what you already said; add new wording to change it.',
+  usage: '`/reclient <slug> [new wording]` — `/clients` lists the slugs.',
+  working: "Re-reading that one — give me a moment. I'll show you what changed.",
+  run: ({ mastra, args }) => reread(mastra, args),
 }
 
-/**
- * The holding message. It says what is happening and, crucially, **what not to
- * do** — a reader who retypes the command in different words gets a second row
- * under a second slug, which is the duplicate this whole mechanism exists to
- * prevent.
- */
-function working(command: LeadCommand): string {
-  return command === '/reclient'
-    ? "Re-reading that one — give me a moment. I'll show you what changed."
-    : "Reading that — give me a moment. I'll show you exactly what I understood, and you can correct me then."
-}
-
-/**
- * The entry point `joob-channels.ts` calls.
- *
- * Wraps the above so **every branch ends in a message**: a slash command is
- * swallowed before the agent ever sees it, so one that fails silently is
- * indistinguishable from one that was never registered.
- */
-export async function runLeadCommand(
-  mastra: Mastra,
-  event: SlashEvent,
-  command: LeadCommand,
-): Promise<void> {
-  try {
-    await runAndAnswer(mastra, event, command)
-  } catch (error) {
-    // Every branch ends in a message: a command that fails silently is
-    // indistinguishable from one that was never registered.
-    await joobTelegram
-      .notify(
-        `\`${escapeMarkdown(command)}\` failed: ${escapeMarkdown(
-          error instanceof Error ? error.message : String(error),
-        )}`,
-        'chat',
-      )
-  }
-}
-
-async function reply(mastra: Mastra, event: SlashEvent, command: LeadCommand): Promise<string> {
-  const argument = (event.args ?? event.text ?? '').trim()
-
-  if (command === '/clients') return renderProfiles(await allProfiles())
-  if (command === '/unclient') return unclient(argument)
-  if (command === '/reclient') return reclient(mastra, argument)
-  return client(mastra, argument)
-}
+/** Joob's prospecting commands, in menu order. */
+export const CLIENT_COMMANDS: Command<JoobTopicSlug>[] = [client, clients, unclient, reclient]
 
 /**
  * Parses a request and writes the profile, then shows every field back.
@@ -143,8 +110,8 @@ async function reply(mastra: Mastra, event: SlashEvent, command: LeadCommand): P
  * parse visible immediately, and saying it again more precisely overwrites the
  * row.
  */
-async function client(mastra: Mastra, request: string): Promise<string> {
-  if (!request) return LEAD_COMMANDS['/client'].usage
+async function addClient(mastra: Mastra, request: string): Promise<string> {
+  if (!request) return client.usage
 
   const parsed = await parseClient(mastra, request)
   const now = Date.now()
@@ -188,8 +155,8 @@ async function client(mastra: Mastra, request: string): Promise<string> {
  * `fitThreshold` is preserved rather than re-read, because a bar the reader tuned
  * by hand is not something a re-parse of their *wording* knows about.
  */
-async function reclient(mastra: Mastra, argument: string): Promise<string> {
-  if (!argument) return LEAD_COMMANDS['/reclient'].usage
+async function reread(mastra: Mastra, argument: string): Promise<string> {
+  if (!argument) return reclient.usage
 
   const [rawSlug, ...rest] = argument.split(/\s+/)
   const slug = slugify(rawSlug ?? '')
@@ -294,7 +261,7 @@ function renderProfiles(profiles: ClientProfile[]): string {
   if (active.length === 0) {
     return [
       "I'm not prospecting for anyone yet.",
-      LEAD_COMMANDS['/client'].usage,
+      client.usage,
     ].join('\n\n')
   }
 
@@ -316,8 +283,8 @@ function renderProfiles(profiles: ClientProfile[]): string {
   ].join('\n\n')
 }
 
-async function unclient(slug: string): Promise<string> {
-  if (!slug) return LEAD_COMMANDS['/unclient'].usage
+async function removeClient(slug: string): Promise<string> {
+  if (!slug) return unclient.usage
 
   const normalized = slugify(slug)
   const profile = await getProfile(normalized)

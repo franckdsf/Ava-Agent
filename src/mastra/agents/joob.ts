@@ -2,16 +2,13 @@ import { createTelegramAdapter } from '@chat-adapter/telegram'
 import { Agent } from '@mastra/core/agent'
 import type { AgentChannels } from '@mastra/core/channels'
 import { Memory } from '@mastra/memory'
-import { JOOB_BOT } from '../../bots/joob.js'
+import { JOOB_BOT, JOOB_TOPICS } from '../../bots/joob.js'
 import { env, telegramChannelEnv } from '../../config/env.js'
-import { JOOB_TOPICS, type JoobTopicSlug } from '../../bots/joob.js'
-import { routeToChatTab, type ChatSurface } from '../chat-surface.js'
+import { routeToChatTab } from '../chat-surface.js'
+import { JOOB_SURFACE } from '../commands/joob.js'
 import { memoryTools } from '../tools/memory.js'
 import { targetTools } from '../tools/targets.js'
 import { memoryInstructions } from './memory.js'
-import { transportFor } from '../../bots/index.js'
-
-const joobTelegram = transportFor(JOOB_BOT)
 
 /**
  * Joob — the job agent, in its own bot and its own chat.
@@ -47,12 +44,6 @@ const channel = telegramChannelEnv(JOOB_BOT)
 
 /** Assigned right after construction, for the reason `newyChannels` is. */
 let joobChannels: AgentChannels | null = null
-
-export const JOOB_SURFACE: ChatSurface<JoobTopicSlug> = {
-  bot: JOOB_BOT,
-  transport: joobTelegram,
-  chatTab: 'chat',
-}
 
 /**
  * No `withQuotedMessage` here, unlike Newy.

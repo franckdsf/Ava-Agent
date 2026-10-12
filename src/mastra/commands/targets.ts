@@ -1,6 +1,7 @@
 import type { Mastra } from '@mastra/core'
-import { JOB_COMMANDS, jobCommands, type JobCommand } from '../../config/job-commands.js'
+import type { JoobTopicSlug } from '../../bots/joob.js'
 import { JOOB_TOPICS } from '../../bots/joob.js'
+import { jobCommands } from '../../config/jobs.js'
 import {
   activeSearches,
   getSearch,
@@ -14,61 +15,98 @@ import { fetchPortfolio } from '../../services/portfolio.js'
 import { domainLabel } from '../../config/job-taxonomy.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { parseTarget, suggestTighterTarget, type ParsedTarget } from '../agents/job-targeter.js'
-import { transportFor } from '../../bots/index.js'
-import { JOOB_BOT } from '../../bots/joob.js'
-
-const joobTelegram = transportFor(JOOB_BOT)
+import type { Command } from './command.js'
 
 /**
- * `/target`, `/targets` and `/untarget` — what Joob is looking for.
+ * `/target`, `/targets`, `/retarget` and `/untarget` — what Joob is looking for.
  *
- * All three answer in Chat, as one message each. They write `job_searches` and
+ * All four answer in Chat, as one message each. They write `job_searches` and
  * nothing else, which is the configuration half of
- * [invariant 8](../../AGENTS.md#invariants); none of them starts a run, and
- * nothing here can reach a fit score or a delivery.
+ * [invariant 8](../../AGENTS.md#invariants): configuration a *future* run reads,
+ * never anything a run produced. None of them starts a run, and nothing here can
+ * reach a fit score or a delivery.
  *
- * Only `/target` calls a model. That is the inbound, human-triggered category
- * invariant 2 carves out — a person typing, not a cron fire nobody watches.
+ * `/target` and `/retarget` take free text and put a model between the reader and
+ * the row, the same shape `/follow` uses
+ * ([ADR-0020](../../../docs/decisions/0020-feed-discovery-from-a-subject.md)): a
+ * phone is a bad place to type `loc=Paris sen=senior,staff`. That is the inbound,
+ * human-triggered category invariant 2 carves out — a person typing, not a cron
+ * fire nobody watches. `/targets` and `/untarget` are deterministic — listing and
+ * archiving need no judgement, and a model that could archive on inference would
+ * eventually archive on inference.
+ *
+ * The two that call a model say they are working when the parse runs long, with
+ * the wording `/client` and `/reclient` use: it says what is happening and what
+ * not to do — retyping the command in different words is what makes a second row.
  */
 
-export { isJobCommand } from '../../config/job-commands.js'
+const READING = "Reading that — give me a moment. I'll show you exactly what I understood, and you can correct me then."
+const RE_READING = "Re-reading that one — give me a moment. I'll show you what changed."
 
-/** The slash-command event, without importing the Chat SDK's own types. */
-interface SlashEvent {
-  command: string
-  args?: string
-  text?: string
+export const target: Command<JoobTopicSlug> = {
+  name: '/target',
+  description: 'Tell me what kind of role to look for, in your own words',
+  help:
+    'tell me what to look for, in a sentence. `/target senior frontend in Paris ' +
+    'or remote EU, TypeScript, no consultancies`. I show you what I understood.',
+  usage:
+    '`/target <what you want>` — for example `/target staff backend, remote in Europe, ' +
+    'Go or Rust, at least 90k euros`.',
+  working: READING,
+  run: ({ mastra, args }) => addTarget(mastra, args),
 }
 
-export async function runJobCommand(
-  mastra: Mastra,
-  event: SlashEvent,
-  command: JobCommand,
-): Promise<void> {
-  try {
-    await joobTelegram.sendToTelegram(await reply(mastra, event, command), 'chat')
-  } catch (error) {
-    // Every branch must end in a message: a command that fails silently is
-    // indistinguishable from one that was never registered, which is the whole
-    // bug the catch-all handler exists to prevent.
-    await joobTelegram
-      .notify(
-        `\`${escapeMarkdown(command)}\` failed: ${escapeMarkdown(
-          error instanceof Error ? error.message : String(error),
-        )}`,
-        'chat',
-      )
-  }
+export const targets: Command<JoobTopicSlug> = {
+  name: '/targets',
+  description: 'List what I am currently looking for',
+  help: 'everything I am currently looking for, with the filters for each.',
+  usage: '`/targets` — takes no arguments.',
+  run: async () => renderSearches(await activeSearches()),
 }
 
-async function reply(mastra: Mastra, event: SlashEvent, command: JobCommand): Promise<string> {
-  const argument = (event.args ?? event.text ?? '').trim()
-
-  if (command === '/targets') return renderSearches(await activeSearches())
-  if (command === '/untarget') return untarget(argument)
-  if (command === '/retarget') return retarget(mastra, argument)
-  return target(mastra, argument)
+export const untarget: Command<JoobTopicSlug> = {
+  name: '/untarget',
+  description: 'Stop looking for one kind of role',
+  help: 'stop looking for one of them. Nothing already sent is lost. `/untarget frontend`.',
+  usage: '`/untarget <slug>` — `/targets` lists the slugs.',
+  run: ({ args }) => removeTarget(args),
 }
+
+/**
+ * **Re-parses an existing search in place, and the "in place" is the point.**
+ *
+ * `/target` already upserts, so saying the same thing again *usually* updates
+ * the row — but only if the model produces the same slug from the new wording,
+ * and it is under no obligation to. When it doesn't, the reader gets a second
+ * row competing for the same postings and the old one keeps running with the
+ * criteria they were trying to change. Naming the slug removes the guess.
+ *
+ * The reason it exists at all is a real failure this repo already had: the
+ * `domain` column was added after three searches were created, so all three
+ * held null and the filter's largest saving silently never fired. A parser
+ * that gains a field cannot reach a row already written, and without this
+ * command the only fix is hand-editing the database — which is how the fix
+ * gets skipped the second time.
+ *
+ * Argument optional on purpose. With no new wording it re-parses the request
+ * already stored, which is exactly the backfill case; with new wording it
+ * replaces the criteria and keeps the row's identity and history.
+ */
+export const retarget: Command<JoobTopicSlug> = {
+  name: '/retarget',
+  description: 'Re-read one of my searches, optionally with new wording',
+  help:
+    're-read one of my searches with the current parser, keeping its name and history. ' +
+    '`/retarget frontend` re-reads what you already said; `/retarget frontend senior only, no agencies` replaces it.',
+  usage:
+    '`/retarget <slug> [new wording]` — `/targets` lists the slugs. ' +
+    'Leave the wording out to just re-read the existing request.',
+  working: RE_READING,
+  run: ({ mastra, args }) => reread(mastra, args),
+}
+
+/** Joob's job-search commands, in the order they are used: define, review, remove, repair. */
+export const TARGET_COMMANDS: Command<JoobTopicSlug>[] = [target, targets, untarget, retarget]
 
 /**
  * Parses a request and writes the search, then shows every field back.
@@ -79,13 +117,13 @@ async function reply(mastra: Mastra, event: SlashEvent, command: JobCommand): Pr
  * missed. Showing all of it means a bad parse is visible immediately, and saying
  * it again more precisely overwrites the row (`saveSearch` upserts on slug).
  */
-async function target(mastra: Mastra, request: string): Promise<string> {
-  if (!request) return usage('/target')
+async function addTarget(mastra: Mastra, request: string): Promise<string> {
+  if (!request) return target.usage
   if (request.length > jobCommands.requestMaxChars) {
     return [
       `That's ${request.length} characters, and I cap a target at ${jobCommands.requestMaxChars}.`,
       "If you're pasting a job advert, that's a different thing from a standing search — tell me what about it you want more of instead.",
-      JOB_COMMANDS['/target'].usage,
+      target.usage,
     ].join('\n\n')
   }
 
@@ -247,7 +285,7 @@ function renderSearches(searches: JobSearch[]): string {
   if (searches.length === 0) {
     return [
       "I'm not looking for anything yet.",
-      JOB_COMMANDS['/target'].usage,
+      target.usage,
     ].join('\n\n')
   }
 
@@ -286,11 +324,11 @@ function renderSearches(searches: JobSearch[]): string {
  * postings away before anything reads them. A diff makes a bad re-parse visible
  * in the one moment the reader is looking.
  */
-async function retarget(mastra: Mastra, argument: string): Promise<string> {
+async function reread(mastra: Mastra, argument: string): Promise<string> {
   const [slug = '', ...words] = argument.split(/\s+/).filter(Boolean)
-  if (!slug) return usage('/retarget')
+  if (!slug) return retarget.usage
   if (!jobCommands.slugPattern.test(slug)) {
-    return `\`${escapeMarkdown(slug)}\` isn't a slug I could have made. ${JOB_COMMANDS['/retarget'].usage}`
+    return `\`${escapeMarkdown(slug)}\` isn't a slug I could have made. ${retarget.usage}`
   }
 
   const existing = await getSearch(slug)
@@ -371,10 +409,10 @@ function describeChanges(before: JobSearch, after: ParsedTarget): string[] {
   return lines.map(escapeMarkdown)
 }
 
-async function untarget(slug: string): Promise<string> {
-  if (!slug) return usage('/untarget')
+async function removeTarget(slug: string): Promise<string> {
+  if (!slug) return untarget.usage
   if (!jobCommands.slugPattern.test(slug)) {
-    return `\`${escapeMarkdown(slug)}\` isn't a slug I could have made. ${JOB_COMMANDS['/untarget'].usage}`
+    return `\`${escapeMarkdown(slug)}\` isn't a slug I could have made. ${untarget.usage}`
   }
 
   const search = await getSearch(slug)
@@ -388,8 +426,4 @@ async function untarget(slug: string): Promise<string> {
     `Stopped looking for **${escapeMarkdown(search.label)}**.`,
     'Nothing it already sent you is lost, and the definition is kept — say it again with `/target` and it comes back.',
   ].join('\n\n')
-}
-
-function usage(command: JobCommand): string {
-  return JOB_COMMANDS[command].usage
 }
