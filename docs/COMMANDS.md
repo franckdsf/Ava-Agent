@@ -122,6 +122,14 @@ is why the drop list prints the reason beside every company. A free-text argumen
 the parsed fields, so inventing them here would measure a profile the reader never made. Zero
 proposals is a model failure or an empty search, not "no leads" — the script exits non-zero on it.
 
+### `pnpm bench <task>`
+
+**Required before** changing `AVA_MODEL_RSS_RANKER`.
+
+**Writes fixtures and transcripts to `.data/bench/`, and no database rows (it applies pending migrations, as every read does) · calls models · needs `.env`**
+
+Runs a field of models × reasoning efforts through the real function a workflow calls — the clone keeps the live agent's prompt and provider options and swaps only the model and the effort — against fixtures read once from the database and frozen under `.data/bench/fixtures/` (`--refresh` re-reads them; they carry the reader's notes, which is why they stay under `.data/`). The incumbent is always in the field at the effort production sends. Each entrant's runs are flagged by code, then ranked blind by a judge model per fixture; the table gives ok and clean runs, median latency, the cost OpenRouter reported, reasoning tokens, retries, the judge's rank and the task's own numbers. **A winner is named only when the judge agreed across fixtures** — otherwise the table says the task is inside its noise floor. Read the transcript under `.data/bench/runs/` before changing a knob. `--models a,b` narrows the field by substring, `--runs` and `--fixtures` override [src/config/bench.ts](../src/config/bench.ts). Tasks so far: `ranker`.
+
 ### `pnpm models:check`
 
 **Required before** changing `AVA_MODEL_TRANSLATOR` or `AVA_MODEL_SUMMARIZER`.

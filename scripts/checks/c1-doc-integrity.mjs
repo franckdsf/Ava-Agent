@@ -29,9 +29,7 @@ const findings = [];
 const PLANNED = new Set([
   // What the refactor's blueprint becomes (docs/audit/README.md).
   "docs/ARCHITECTURE.md",
-  // The model bench (docs/plans/model-bench.md). A planned command is listed as `pnpm <script>`.
-  "src/config/bench.ts",
-  "pnpm bench",
+  // A planned command is listed as `pnpm <script>`.
 ]);
 
 /** pnpm's own commands, which a doc may name without them being scripts. */
@@ -240,7 +238,10 @@ for (const doc of docs) {
 /* ── 5. PLANNED only ever shrinks ─────────────────────────────────────────────────────── */
 
 for (const planned of PLANNED) {
-  if (!existsSync(path.join(ROOT, planned))) continue;
+  const landed = planned.startsWith("pnpm ")
+    ? scripts.has(planned.slice("pnpm ".length))
+    : existsSync(path.join(ROOT, planned));
+  if (!landed) continue;
 
   findings.push({
     file: "scripts/checks/c1-doc-integrity.mjs",
