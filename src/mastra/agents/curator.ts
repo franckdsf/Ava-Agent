@@ -1,5 +1,14 @@
+import type { Mastra } from '@mastra/core'
 import { Agent } from '@mastra/core/agent'
+import { z } from 'zod'
 import { env } from '../../config/env.js'
+import { memoryConfig } from '../../config/memory.js'
+import { pipeline } from '../../config/pipeline.js'
+import type { Beat } from '../../db/beats.js'
+import type { FeedbackSignal } from '../../db/feedback.js'
+import { memoriesForCuration, type Memory } from '../../db/memories.js'
+import type { Article, ArticleRanking, PendingArticle } from '../../db/types.js'
+import { withRetry } from '../../services/structured-output.js'
 
 /**
  * One ranker and one article writer for every beat — not one pair per beat.
@@ -150,4 +159,190 @@ Language:
 export const curatorAgents: Record<string, Agent> = {
   [rankerId]: ranker,
   [articleWriterId]: articleWriter,
+}
+
+export function renderInterestProfile(signals: FeedbackSignal[]): string {
+  if (signals.length === 0) return 'No feedback recorded yet. Judge on the rubric alone.'
+  const line = (signal: FeedbackSignal) => `- ${signal.title} (${signal.source})`
+  const liked = signals.filter(s => s.vote === 'up').map(line)
+  const disliked = signals.filter(s => s.vote === 'down').map(line)
+  return [
+    liked.length ? `Recently marked USEFUL:\n${liked.join('\n')}` : '',
+    disliked.length ? `Recently marked NOT USEFUL:\n${disliked.join('\n')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+/**
+ * What Newy has written down about the reader, rendered for the ranker.
+ *
+ * The 👍/👎 profile above says what they thought of articles; this says who they
+ * are — and the two answer different halves of "would they want this?". A vote
+ * can only teach the ranker about a pattern it has already sent, so a beat with
+ * no votes yet has nothing but the rubric. The notes are the signal that exists
+ * from the first run
+ * ([ADR-0016](../../../docs/decisions/0016-reader-notes-in-the-ranker.md)).
+ *
+ * **Not scoped to the beat, and that is deliberate.** "No Android articles" is a
+ * statement about the reader, not about one tab, so it reaches every ranker —
+ * including a beat created after the note was written. A note that stops being
+ * true is superseded by a later one rather than edited, which is the mechanism
+ * `memories` already has.
+ *
+ * **Never throws.** A failed read here would take down a whole curation run over
+ * the part of it that is an enhancement; ranking without the notes is exactly how
+ * the pipeline behaved before they existed.
+ *
+ * Dates and oldest-first ordering are carried through rather than stripped: "left
+ * Acme (2025-11)" then "joined Globex (2026-03)" only reads as a job change in
+ * that order, and a ranker that reads it as two current employers weights the
+ * wrong company.
+ */
+export async function renderReaderProfile(): Promise<string> {
+  let notes: { long: Memory[]; short: Memory[] }
+  try {
+    notes = await memoriesForCuration()
+  } catch {
+    return 'Unavailable this run. Judge on the rubric and the votes alone.'
+  }
+
+  const line = (note: Memory) => `- ${note.happenedOn} — ${note.fact}`
+  if (notes.long.length === 0 && notes.short.length === 0) {
+    return 'Nothing recorded yet. Judge on the rubric and the votes alone.'
+  }
+
+  return [
+    notes.long.length ? `Lasting:\n${notes.long.map(line).join('\n')}` : '',
+    notes.short.length
+      ? `Recent (last ${memoryConfig.shortTermDays} days):\n${notes.short.map(line).join('\n')}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+function renderArticlesForRanking(articles: PendingArticle[]): string {
+  return articles
+    .map(article =>
+      [
+        `id: ${article.id}`,
+        `source: ${article.source}`,
+        `title: ${article.title}`,
+        article.excerpt ? `excerpt: ${article.excerpt}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    )
+    .join('\n\n---\n\n')
+}
+
+const rankingSchema = z.object({
+  rankings: z.array(
+    z.object({
+      id: z.string(),
+      score: z.number().min(0).max(100),
+      subtopic: z.string(),
+      reason: z.string(),
+    }),
+  ),
+})
+
+/**
+ * The ranker's prompt for one beat's batch.
+ *
+ * The rubric and the subtopic labels travel here rather than in the
+ * instructions — see this file's header. The two profiles arrive already
+ * rendered, because rendering them reads the database and this stays a pure
+ * function: `pnpm bench` sends a frozen batch through it, swapping only the model.
+ */
+export function renderRankingPrompt(input: {
+  beat: Pick<Beat, 'title' | 'rubric' | 'subtopics'>
+  profile: string
+  reader: string
+  articles: PendingArticle[]
+}): string {
+  return [
+    `## Beat: ${input.beat.title}`,
+    '',
+    '## Rubric',
+    input.beat.rubric,
+    '',
+    `## Subtopic labels (choose exactly one per article)`,
+    input.beat.subtopics.join(', '),
+    '',
+    '## Reader interest profile',
+    input.profile,
+    '',
+    '## What is known about the reader',
+    input.reader,
+    '',
+    `## Articles to score (${input.articles.length})`,
+    renderArticlesForRanking(input.articles),
+  ].join('\n')
+}
+
+/**
+ * Scores one beat's batch. One call, retried.
+ *
+ * Returns an empty list rather than throwing when every attempt failed, as
+ * `scoreBatch` does for jobs: the caller leaves the batch unranked so the next
+ * run picks it up whole. An id the model echoes that was not in the batch is
+ * dropped here.
+ */
+export async function rankBatch(
+  mastra: Mastra,
+  prompt: string,
+  batchIds: Set<string>,
+  beatSlug: string,
+): Promise<ArticleRanking[]> {
+  const agent = mastra.getAgent(rankerId)
+  const ranking = await withRetry<z.infer<typeof rankingSchema>>(
+    pipeline.modelAttempts,
+    () => agent.generate(prompt, { structuredOutput: { schema: rankingSchema } }),
+    (attempt, error) =>
+      mastra
+        .getLogger()
+        ?.warn(`Beat ranker attempt ${attempt}/${pipeline.modelAttempts} failed for ${beatSlug}`, error),
+  )
+  return (ranking?.rankings ?? []).filter(verdict => batchIds.has(verdict.id))
+}
+
+const summarySchema = z.object({
+  lede: z.string(),
+  points: z.array(z.string()),
+})
+
+export function renderArticleForWriter(beat: Beat, article: Article, reason: string | null, body: string): string {
+  return [
+    `beat: ${beat.title}`,
+    `title: ${article.title}`,
+    `source: ${article.source}`,
+    reason ? `why it ranked: ${reason}` : null,
+    '',
+    body ? `article:\n${body}` : 'article: (no body available — only the title above)',
+  ]
+    .filter(value => value !== null)
+    .join('\n')
+}
+
+/** What the article writer returns: the paragraph and the bullets the digest message is built from. */
+export type ArticleSummary = z.infer<typeof summarySchema>
+
+/**
+ * Writes one winning article's summary. Retried; null when every attempt failed.
+ *
+ * The caller degrades to the article's own excerpt rather than throwing inside a
+ * `Promise.all` that would lose every other message the beat won.
+ */
+export async function writeArticleSummary(mastra: Mastra, prompt: string): Promise<ArticleSummary | null> {
+  const agent = mastra.getAgent(articleWriterId)
+  return withRetry<ArticleSummary>(
+    pipeline.modelAttempts,
+    () => agent.generate(prompt, { structuredOutput: { schema: summarySchema } }),
+    (attempt, error) =>
+      mastra
+        .getLogger()
+        ?.warn(`Article writer attempt ${attempt}/${pipeline.modelAttempts} failed`, error),
+  )
 }

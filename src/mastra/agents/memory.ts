@@ -9,7 +9,7 @@ import { memoriesForPrompt, type Memory } from '../../db/memories.js'
  * The block of notes prepended to Agent's instructions on every turn.
  *
  * Rendered here rather than in `src/db/` for the same reason
- * `renderInterestProfile` sits in the workflow that consumes it: the shape of a
+ * `renderInterestProfile` sits beside the ranker that reads it: the shape of a
  * prompt belongs next to the prompt, and the repository stays a repository.
  */
 

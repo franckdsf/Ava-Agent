@@ -43,7 +43,8 @@ import { fetchPortfolio, PortfolioError } from '../../services/portfolio.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import {
   jobSummarySchema,
-  renderPostingForScoring,
+  renderJobBriefPrompt,
+  renderJobScoringPrompt,
   scoreBatch,
   writeJobBrief,
 } from '../agents/job-scorer.js'
@@ -433,16 +434,7 @@ const scoreSearch = createStep({
     // value.
     const returned = await scoreBatch(
       mastra,
-      [
-        '## The person',
-        state.cv,
-        '',
-        '## What they are looking for right now',
-        renderSearchForScoring(search),
-        '',
-        `## Postings to judge (${batch.length})`,
-        batch.map(renderPostingForScoring).join('\n\n---\n\n'),
-      ].join('\n'),
+      renderJobScoringPrompt(state.cv, search, batch),
       new Set(batch.map(job => job.id)),
     )
     const answered = new Set(returned.map(verdict => verdict.id))
@@ -521,26 +513,6 @@ function dedupe(kept: Job[], seen: DeliveredRecently): {
   }
 
   return { unique, duplicates }
-}
-
-function renderSearchForScoring(search: JobSearch): string {
-  const list = (values: string[]) => (values.length > 0 ? values.join(', ') : 'no preference stated')
-  return [
-    `title: ${search.label}`,
-    `in their own words: ${search.request}`,
-    `locations: ${list(search.locations)}`,
-    `remote: ${search.remote}`,
-    `seniority: ${list(search.seniority)}`,
-    `contract: ${list(search.contractTypes)}`,
-    `must involve: ${list(search.mustHave)}`,
-    `ruled out: ${list(search.dealbreakers)}`,
-    search.minCompensation
-      ? `pay floor: ${search.minCompensation.toLocaleString('en-US')} ${search.currency ?? ''}`.trim()
-      : 'pay floor: none stated',
-    search.notes ? `other: ${search.notes}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n')
 }
 
 /**
@@ -636,17 +608,7 @@ const deliverSearch = createStep({
 
     const messages = await Promise.all(
       winners.map(async winner => {
-        const written = await writeJobBrief(
-          mastra,
-          [
-            `search: ${search.label}`,
-            `fit: ${winner.fit}/100`,
-            `why it scored that: ${winner.reason ?? '—'}`,
-            `mismatches found: ${(winner.mismatches ?? []).join('; ') || 'none'}`,
-            '',
-            renderPostingForScoring(winner.job),
-          ].join('\n'),
-        )
+        const written = await writeJobBrief(mastra, renderJobBriefPrompt(search, winner, winner.job))
 
         // Retried inside `writeJobBrief`; null means every attempt failed. The
         // scorer already decided this posting is worth sending and wrote a

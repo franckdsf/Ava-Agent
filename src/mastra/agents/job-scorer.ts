@@ -3,6 +3,7 @@ import { Agent } from '@mastra/core/agent'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { jobPipeline } from '../../config/jobs.js'
+import type { JobSearch } from '../../db/schema.js'
 import { withRetry } from '../../services/structured-output.js'
 
 /**
@@ -197,6 +198,64 @@ export function renderPostingForScoring(job: {
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+type ScorablePosting = Parameters<typeof renderPostingForScoring>[0]
+
+function renderSearchForScoring(search: JobSearch): string {
+  const list = (values: string[]) => (values.length > 0 ? values.join(', ') : 'no preference stated')
+  return [
+    `title: ${search.label}`,
+    `in their own words: ${search.request}`,
+    `locations: ${list(search.locations)}`,
+    `remote: ${search.remote}`,
+    `seniority: ${list(search.seniority)}`,
+    `contract: ${list(search.contractTypes)}`,
+    `must involve: ${list(search.mustHave)}`,
+    `ruled out: ${list(search.dealbreakers)}`,
+    search.minCompensation
+      ? `pay floor: ${search.minCompensation.toLocaleString('en-US')} ${search.currency ?? ''}`.trim()
+      : 'pay floor: none stated',
+    search.notes ? `other: ${search.notes}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+/**
+ * The batch scoring prompt: the CV once, the search once, then every posting.
+ *
+ * Beside the agent rather than in the workflow step, so anything that has to
+ * send the scorer exactly what a run sends — `pnpm bench` swapping only the
+ * model — builds it from the same function.
+ */
+export function renderJobScoringPrompt(cv: string, search: JobSearch, postings: ScorablePosting[]): string {
+  return [
+    '## The person',
+    cv,
+    '',
+    '## What they are looking for right now',
+    renderSearchForScoring(search),
+    '',
+    `## Postings to judge (${postings.length})`,
+    postings.map(renderPostingForScoring).join('\n\n---\n\n'),
+  ].join('\n')
+}
+
+/** The writer's prompt for one winning posting: the scorer's verdict, then the posting. */
+export function renderJobBriefPrompt(
+  search: Pick<JobSearch, 'label'>,
+  verdict: { fit: number; reason: string | null; mismatches: string[] | null },
+  posting: ScorablePosting,
+): string {
+  return [
+    `search: ${search.label}`,
+    `fit: ${verdict.fit}/100`,
+    `why it scored that: ${verdict.reason ?? '—'}`,
+    `mismatches found: ${(verdict.mismatches ?? []).join('; ') || 'none'}`,
+    '',
+    renderPostingForScoring(posting),
+  ].join('\n')
 }
 
 /** What the scorer returned for one posting, already validated against the batch. */

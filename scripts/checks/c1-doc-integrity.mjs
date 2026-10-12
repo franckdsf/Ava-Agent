@@ -29,6 +29,9 @@ const findings = [];
 const PLANNED = new Set([
   // What the refactor's blueprint becomes (docs/audit/README.md).
   "docs/ARCHITECTURE.md",
+  // The model bench (docs/plans/model-bench.md). A planned command is listed as `pnpm <script>`.
+  "src/config/bench.ts",
+  "pnpm bench",
 ]);
 
 /** pnpm's own commands, which a doc may name without them being scripts. */
@@ -181,7 +184,7 @@ for (const doc of docs) {
   const commands = codeOnly(raw);
   for (const match of commands.matchAll(/\bpnpm (?:run )?([a-z][a-z0-9:-]*)\b/g)) {
     const script = match[1];
-    if (scripts.has(script) || PNPM_BUILTINS.has(script)) continue;
+    if (scripts.has(script) || PNPM_BUILTINS.has(script) || PLANNED.has(`pnpm ${script}`)) continue;
 
     findings.push({
       file,

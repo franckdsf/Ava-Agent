@@ -27,7 +27,14 @@ import { LEADS } from '../pipelines.js'
 import { joobTelegram } from '../../services/joob-telegram.js'
 import { fetchPortfolio } from '../../services/portfolio.js'
 import { escapeMarkdown } from '../../services/telegram.js'
-import { judgeLeadVisuals, scoreLeadBatch, writeLeadBrief } from '../agents/lead-scorer.js'
+import {
+  judgeLeadVisuals,
+  renderLeadBriefPrompt,
+  renderLeadScoringPrompt,
+  renderLeadVisionPrompt,
+  scoreLeadBatch,
+  writeLeadBrief,
+} from '../agents/lead-scorer.js'
 import type { ClientProfile, Lead, LeadSignal } from '../../db/schema.js'
 
 /**
@@ -287,7 +294,7 @@ const scoreProfile = createStep({
     }
     if (kept.length === 0) return empty
 
-    const prompt = renderScoringPrompt(state.portfolio, profile, kept)
+    const prompt = renderLeadScoringPrompt(state.portfolio, profile, kept)
     const batchIds = new Set(kept.map(entry => entry.signal.id))
     const verdicts = await scoreLeadBatch(mastra, prompt, batchIds)
 
@@ -381,16 +388,7 @@ const deliverProfile = createStep({
         const page = await resolveLeadPage(lead.url)
         if (page.images.length > 0) {
           visionCalls += 1
-          const judged = await judgeLeadVisuals(
-            mastra,
-            [
-              `What this person sells: ${profile.offer}`,
-              `The company: ${lead.company} (${lead.url})`,
-              '',
-              'Look at the images from their page and answer the schema.',
-            ].join('\n'),
-            page.images,
-          )
+          const judged = await judgeLeadVisuals(mastra, renderLeadVisionPrompt(profile, lead), page.images)
           if (judged) {
             visual = `${judged.observation} Opportunity: ${judged.opportunity}. Angle: ${judged.angle}`
             await saveVisionVerdict(lead.id, visual)
@@ -400,20 +398,7 @@ const deliverProfile = createStep({
 
       const written = await writeLeadBrief(
         mastra,
-        [
-          `client profile: ${profile.label}`,
-          `what you sell: ${profile.offer}`,
-          `fit: ${candidate.fit}/100`,
-          `why it scored that: ${candidate.reason || '—'}`,
-          `mismatches found: ${candidate.mismatches.join('; ') || 'none'}`,
-          `signal: ${LEAD_SIGNAL_LABELS[signal.kind as LeadSignalKind] ?? signal.kind} — ${signal.summary}`,
-          `signal seen: ${new Date(signal.occurredAt).toISOString().slice(0, 10)}`,
-          ...(visual ? [`what their images look like: ${visual}`] : []),
-          '',
-          `company: ${lead.company}`,
-          `site: ${lead.url}`,
-          `their page says: ${(lead.pageText ?? '').slice(0, leadPipeline.scorerPageChars)}`,
-        ].join('\n'),
+        renderLeadBriefPrompt(profile, candidate, signal, lead, visual),
       )
 
       // The writer already retried. A failure degrades to the scorer's own
@@ -531,51 +516,6 @@ async function signalFor(id: string): Promise<LeadSignal | null> {
   await migrate()
   const [row] = await db().select().from(leadSignals).where(eq(leadSignals.id, id)).limit(1)
   return row ?? null
-}
-
-/**
- * The batch scoring prompt: the portfolio once, the profile once, then every
- * candidate.
- *
- * The portfolio enters **once for the whole batch**, which is the entire reason
- * the scorer is a batch call — the same argument ADR-0024 makes for the job
- * scorer, where a per-posting call would have put a 20k-token document in front
- * of the model forty times.
- */
-export function renderScoringPrompt(
-  portfolio: string,
-  profile: ClientProfile,
-  entries: { signal: LeadSignal; lead: Lead }[],
-): string {
-  const candidates = entries.map(entry => {
-    const age = Math.round((Date.now() - entry.signal.occurredAt) / 86_400_000)
-    return [
-      `id: ${entry.signal.id}`,
-      `company: ${entry.lead.company}`,
-      `site: ${entry.lead.url}`,
-      `location: ${entry.lead.location ?? 'unstated'}`,
-      `signal: ${LEAD_SIGNAL_LABELS[entry.signal.kind as LeadSignalKind] ?? entry.signal.kind} — ${entry.signal.summary}`,
-      `signal age: ${age} day${age === 1 ? '' : 's'}`,
-      `their page says: ${(entry.lead.pageText ?? '').slice(0, leadPipeline.scorerPageChars)}`,
-    ].join('\n')
-  })
-
-  return [
-    "THE READER'S PORTFOLIO",
-    portfolio,
-    '',
-    'WHO THEY WANT TO WORK WITH',
-    `label: ${profile.label}`,
-    `they sell: ${profile.offer}`,
-    `in their words: ${profile.request}`,
-    `industries: ${profile.industries.join(', ') || 'any'}`,
-    `locations: ${profile.locations.join(', ') || 'anywhere'}`,
-    `minimum engagement: ${profile.minDealSize ? `${profile.minDealSize} ${profile.currency ?? ''}`.trim() : 'unstated'}`,
-    `notes: ${profile.notes || '—'}`,
-    '',
-    `COMPANIES TO JUDGE (${entries.length})`,
-    candidates.join('\n\n---\n\n'),
-  ].join('\n')
 }
 
 /**

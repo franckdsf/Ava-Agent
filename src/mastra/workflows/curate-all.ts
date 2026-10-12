@@ -1,6 +1,5 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows'
 import { z } from 'zod'
-import { memoryConfig } from '../../config/memory.js'
 import { pipeline } from '../../config/pipeline.js'
 import { runNotices } from '../../config/run-notices.js'
 import {
@@ -16,17 +15,23 @@ import {
   saveRankings,
 } from '../../db/articles.js'
 import { activeBeats, feedsForBeats, getBeat, type Beat } from '../../db/beats.js'
-import { recentFeedback, type FeedbackSignal } from '../../db/feedback.js'
-import { memoriesForCuration, type Memory } from '../../db/memories.js'
+import { recentFeedback } from '../../db/feedback.js'
 import { finishRun } from '../../db/runs.js'
-import type { Article, ArticleRanking, BeatLink, DiscoveredArticle, PendingArticle } from '../../db/types.js'
+import type { Article, ArticleRanking, BeatLink, DiscoveredArticle } from '../../db/types.js'
 import { articleBody, fetchOgImage, looksLikeSiteChrome } from '../../services/article.js'
 import { clusterItems, dedupeByCluster } from '../../services/cluster.js'
 import { dedupeFeeds, fetchFeeds } from '../../services/rss.js'
-import { withRetry } from '../../services/structured-output.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { newyTelegram } from '../../services/newy-telegram.js'
-import { articleWriterId, rankerId } from '../agents/curator.js'
+import {
+  rankBatch,
+  renderArticleForWriter,
+  renderInterestProfile,
+  renderRankingPrompt,
+  renderReaderProfile,
+  writeArticleSummary,
+  type ArticleSummary,
+} from '../agents/curator.js'
 import { NEWS } from '../pipelines.js'
 
 /**
@@ -260,93 +265,6 @@ const ingest = createStep({
   },
 })
 
-function renderInterestProfile(signals: FeedbackSignal[]): string {
-  if (signals.length === 0) return 'No feedback recorded yet. Judge on the rubric alone.'
-  const line = (signal: FeedbackSignal) => `- ${signal.title} (${signal.source})`
-  const liked = signals.filter(s => s.vote === 'up').map(line)
-  const disliked = signals.filter(s => s.vote === 'down').map(line)
-  return [
-    liked.length ? `Recently marked USEFUL:\n${liked.join('\n')}` : '',
-    disliked.length ? `Recently marked NOT USEFUL:\n${disliked.join('\n')}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-}
-
-/**
- * What Newy has written down about the reader, rendered for the ranker.
- *
- * The 👍/👎 profile above says what they thought of articles; this says who they
- * are — and the two answer different halves of "would they want this?". A vote
- * can only teach the ranker about a pattern it has already sent, so a beat with
- * no votes yet has nothing but the rubric. The notes are the signal that exists
- * from the first run
- * ([ADR-0016](../../../docs/decisions/0016-reader-notes-in-the-ranker.md)).
- *
- * **Not scoped to the beat, and that is deliberate.** "No Android articles" is a
- * statement about the reader, not about one tab, so it reaches every ranker —
- * including a beat created after the note was written. A note that stops being
- * true is superseded by a later one rather than edited, which is the mechanism
- * `memories` already has.
- *
- * **Never throws.** A failed read here would take down a whole curation run over
- * the part of it that is an enhancement; ranking without the notes is exactly how
- * the pipeline behaved before they existed.
- *
- * Dates and oldest-first ordering are carried through rather than stripped: "left
- * Acme (2025-11)" then "joined Globex (2026-03)" only reads as a job change in
- * that order, and a ranker that reads it as two current employers weights the
- * wrong company.
- */
-async function renderReaderProfile(): Promise<string> {
-  let notes: { long: Memory[]; short: Memory[] }
-  try {
-    notes = await memoriesForCuration()
-  } catch {
-    return 'Unavailable this run. Judge on the rubric and the votes alone.'
-  }
-
-  const line = (note: Memory) => `- ${note.happenedOn} — ${note.fact}`
-  if (notes.long.length === 0 && notes.short.length === 0) {
-    return 'Nothing recorded yet. Judge on the rubric and the votes alone.'
-  }
-
-  return [
-    notes.long.length ? `Lasting:\n${notes.long.map(line).join('\n')}` : '',
-    notes.short.length
-      ? `Recent (last ${memoryConfig.shortTermDays} days):\n${notes.short.map(line).join('\n')}`
-      : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-}
-
-function renderArticlesForRanking(articles: PendingArticle[]): string {
-  return articles
-    .map(article =>
-      [
-        `id: ${article.id}`,
-        `source: ${article.source}`,
-        `title: ${article.title}`,
-        article.excerpt ? `excerpt: ${article.excerpt}` : null,
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    )
-    .join('\n\n---\n\n')
-}
-
-const rankingSchema = z.object({
-  rankings: z.array(
-    z.object({
-      id: z.string(),
-      score: z.number().min(0).max(100),
-      subtopic: z.string(),
-      reason: z.string(),
-    }),
-  ),
-})
-
 /**
  * Clusters and scores one beat's pending articles.
  *
@@ -379,7 +297,6 @@ const rankBeat = createStep({
     const representatives = dedupeByCluster(pending, assignments)
     const representativeIds = new Set(representatives.map(article => article.id))
 
-    const agent = mastra.getAgent(rankerId)
     // Both reads are independent of each other and of the batch; one round trip
     // rather than two before a call that is already the slow part of the run.
     const [profile, reader] = await Promise.all([
@@ -387,39 +304,12 @@ const rankBeat = createStep({
       renderReaderProfile(),
     ])
 
-    const ranking = await withRetry<z.infer<typeof rankingSchema>>(
-      pipeline.modelAttempts,
-      () =>
-        agent.generate(
-          [
-            `## Beat: ${beat.title}`,
-            '',
-            '## Rubric',
-            beat.rubric,
-            '',
-            `## Subtopic labels (choose exactly one per article)`,
-            beat.subtopics.join(', '),
-            '',
-            '## Reader interest profile',
-            profile,
-            '',
-            '## What is known about the reader',
-            reader,
-            '',
-            `## Articles to score (${representatives.length})`,
-            renderArticlesForRanking(representatives),
-          ].join('\n'),
-          { structuredOutput: { schema: rankingSchema } },
-        ),
-      (attempt, error) =>
-        mastra
-          .getLogger()
-          ?.warn(`Beat ranker attempt ${attempt}/${pipeline.modelAttempts} failed for ${beat.slug}`, error),
-    )
-
-    // Guard against a model echoing an id that wasn't in the batch.
-    const verdicts: ArticleRanking[] = (ranking?.rankings ?? []).filter(verdict =>
-      representativeIds.has(verdict.id),
+    // Retried inside `rankBatch`, which also drops any id that wasn't in the batch.
+    const verdicts = await rankBatch(
+      mastra,
+      renderRankingPrompt({ beat, profile, reader, articles: representatives }),
+      representativeIds,
+      beat.slug,
     )
 
     // Nothing usable came back, so nothing is written. Falling through to the
@@ -517,24 +407,6 @@ const assignBest = createStep({
   },
 })
 
-const summarySchema = z.object({
-  lede: z.string(),
-  points: z.array(z.string()),
-})
-
-function renderArticleForWriter(beat: Beat, article: Article, reason: string | null, body: string): string {
-  return [
-    `beat: ${beat.title}`,
-    `title: ${article.title}`,
-    `source: ${article.source}`,
-    reason ? `why it ranked: ${reason}` : null,
-    '',
-    body ? `article:\n${body}` : 'article: (no body available — only the title above)',
-  ]
-    .filter(value => value !== null)
-    .join('\n')
-}
-
 /**
  * Telegram parses `rich_message.markdown` server-side, so this markdown becomes
  * real blocks: a heading, a paragraph, a bullet list. Structure comes from the
@@ -549,7 +421,7 @@ function renderMessage(
   beat: Beat,
   article: Article,
   subtopic: string | null,
-  summary: z.infer<typeof summarySchema>,
+  summary: ArticleSummary,
 ): string {
   const footer = [article.source, subtopic]
     .filter((value): value is string => Boolean(value))
@@ -616,24 +488,15 @@ const deliverBeat = createStep({
     const wanted = new Set(inputData.articleIds)
     const winners = candidates.filter(candidate => wanted.has(candidate.article.id))
 
-    const agent = mastra.getAgent(articleWriterId)
     const messages = await Promise.all(
       winners.map(async winner => {
         const body = await articleBody(winner.article)
         // Retried, then degraded to the article's own excerpt. The alternative
         // is a throw inside `Promise.all`, which loses every other message this
         // beat won because one summary came back malformed.
-        const summary = (await withRetry<z.infer<typeof summarySchema>>(
-          pipeline.modelAttempts,
-          () =>
-            agent.generate(
-              renderArticleForWriter(beat, winner.article, winner.reason, body.text ?? winner.article.excerpt ?? ''),
-              { structuredOutput: { schema: summarySchema } },
-            ),
-          (attempt, error) =>
-            mastra
-              .getLogger()
-              ?.warn(`Article writer attempt ${attempt}/${pipeline.modelAttempts} failed`, error),
+        const summary = (await writeArticleSummary(
+          mastra,
+          renderArticleForWriter(beat, winner.article, winner.reason, body.text ?? winner.article.excerpt ?? ''),
         )) ?? { lede: winner.article.excerpt?.trim() || winner.article.title, points: [] }
         return {
           articleId: winner.article.id,
