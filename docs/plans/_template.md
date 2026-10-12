@@ -102,7 +102,7 @@ the script, or it is a guard that will silently stop applying.
 
 ```
 pnpm leads:check     platform hosts reduced · exact-match domain not truncated · empty list renders
-pnpm typecheck       before claiming any of it works
+pnpm verify          before claiming any of it works
 ```
 
 **Decisions I am least confident about** — the choices a diff hides. Name two or three: a shape that
@@ -130,7 +130,7 @@ Step 1 exists so that nothing waits on a migration to be exercisable.
 
 ## Landing
 
-- [ ] `pnpm typecheck` green
+- [ ] `pnpm verify` green
 - [ ] The relevant `pnpm <thing>:check` run, and its output read — not just its exit code
 - [ ] `pnpm db:generate` run if `src/db/schema.ts` moved, and the migration committed with it
 - [ ] `invariant-reviewer` spawned and clean, or its findings approved

@@ -57,10 +57,25 @@ Gotchas. The routing table is [README.md](README.md).
   so that cleanup is manual. It also re-seeds `beats` from
   `src/config/seed-beats.ts` — losing every beat made with `/follow`, which lives
   nowhere else — and empties `feed_state`, so the next digest re-ingests
-  everything and re-delivers read news. Seed the volume from `.data/` first
-  (procedure in the [README](../../README.md#moving-an-existing-database-into-the-volume)).
+  everything and re-delivers read news. Seed the volume from `.data/` first.
   Checked 2026-07-30 against a seeded volume: 3 beats including `formula-1`, 967
   articles, all 5 topic rows, clean FTS `integrity-check`.
+
+  Stop the dev server first — a libsql database is only complete once it has
+  checkpointed, and a live `.db` file without its `-wal` sibling is missing
+  whatever has not been flushed:
+
+  ```bash
+  ls .data/                       # copy ava.db-wal and -shm too if they exist
+  docker volume create ava-data
+  docker run --rm -v ava-data:/data -v "$(pwd)/.data:/seed:ro" node:22-slim \
+    sh -c "cp /seed/ava.db* /data/ && chown -R 1000:1000 /data"
+  ```
+
+  `traces.db` is disposable and does not need copying. Check a row count you
+  know before trusting the copy. (This procedure lived in the README until the
+  setup wizard replaced its quick start, and was restored here — the one place
+  that sends a reader to it.)
 
 - **A statement above an `import` does not run first, and two scripts here are
   written as if it does.** ESM hoists every `import` above all top-level

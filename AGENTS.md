@@ -4,9 +4,10 @@
   are read on demand. Budget is 350 lines — a ceiling, not a target: this file is
   loaded on every request, so an unnecessary line is paid for on every one. Past 350,
   extract to docs/ rather than trimming what earns its place.
-  Nested files live at src/mastra/AGENTS.md, src/services/AGENTS.md and
-  src/config/AGENTS.md — agents read the NEAREST one, so state a rule in the folder
-  it governs rather than adding it here.
+  No nested AGENTS.md exists yet. When one is added, agents read the NEAREST one, so a
+  rule that governs one folder belongs in that folder's file rather than here.
+  Heading anchors are linked from frozen ADRs — rename a heading only with an
+  explicit <a id="old-slug"></a> left in its place (check C1 fails otherwise).
 -->
 
 # AGENTS.md
@@ -19,6 +20,8 @@ Operating contract for anyone — human or agent — working in this repo.
 - **What surprised us:** [docs/GOTCHAS/](docs/GOTCHAS/README.md) — nine routed files; read the one
   whose globs match what you are touching
 - **What each command proves:** [docs/COMMANDS.md](docs/COMMANDS.md)
+- **Which rules a machine holds, and which only a reader does:** [docs/CONVENTIONS.md](docs/CONVENTIONS.md)
+- **How the refactor is planned — audit first, from the code:** [docs/audit/](docs/audit/README.md)
 - **Where things run and who owns them:** [docs/external/](docs/external/README.md)
 
 ---
@@ -74,6 +77,12 @@ Naming rules for anything new:
   never revisited, so anything kept there outlives its own reasoning.
 - **If a decision's justification erodes mid-task, say so and re-open it** rather than carrying it
   forward. Convex was adopted and then dropped this way, and that was the right outcome.
+- **When the reader says they did not understand, change the form, not the wording.** Prose that
+  failed once fails again rephrased. A rule → a concrete input and what comes out, from this repo (a
+  beat, a posting, a tab), never `foo`/`bar`. A choice → a table. A flow → a diagram.
+- **A run that changed or investigated something ends with** **Changed** (by layer, and what
+  `pnpm verify` said) · **Found** (noticed but not acted on, and what could not be confirmed) ·
+  **Blocked on you**, or **Next** when nothing is. Leave an empty heading out.
 
 ## Before writing code
 
@@ -83,6 +92,8 @@ Naming rules for anything new:
   party handed us, with the measurement that proved it.
 - **[docs/COMMANDS.md](docs/COMMANDS.md)** — before running any `:check` script, and before claiming
   one proved anything.
+- **[docs/CONVENTIONS.md](docs/CONVENTIONS.md)** — where a test goes, `@limitation`, the debt
+  baselines, and which Never rows a check holds. A 👁 rule there is one only you are holding.
 - **[docs/plans/](docs/plans/README.md)** — the slice in flight, if there is one. **Intent, not
   description:** where it disagrees with the code the code wins, and the plan should already have
   been deleted.
@@ -93,10 +104,14 @@ you find a doc that contradicts it, say so and offer to fix the doc.
 **A change crossing two layers starts with a plan.** Copy `docs/plans/_template.md` and agree it
 before building. One file, one command or a dep bump needs none. Deleted when the slice lands.
 
+<a id="invariants"></a>
+
 ## Never
 
 Breaking one of these is a regression, not a refactor. Read the linked ADR before changing any of
-them — the row is the imperative, the ADR is why.
+them — the row is the imperative, the ADR is why. **Most rows have no check behind them yet** —
+[CONVENTIONS §1](docs/CONVENTIONS.md#1-rule-to-mechanism-map) says which do; the rest hold only if
+you hold them.
 
 | Rule | ADR |
 | --- | --- |
@@ -123,13 +138,13 @@ them — the row is the imperative, the ADR is why.
 
 ## Commands
 
-Twenty-two scripts, eighteen with an obligation attached — [docs/COMMANDS.md](docs/COMMANDS.md) says
-what each proves, when it is **required**, and whether it writes, calls a model or needs `.env`.
-The three that gate everything else:
+[docs/COMMANDS.md](docs/COMMANDS.md) says what every script proves, when it is **required**, and
+whether it writes, calls a model or needs `.env`. **`verify*` is offline and deterministic;
+`*:check` probes live services.** The three that gate everything else:
 
 | Command | Rule |
 | --- | --- |
-| `pnpm typecheck` | Before claiming any change works. |
+| `pnpm verify` | Before claiming any change works. Typecheck, the C1–C4 rule checks, the tests — the `pre-commit` hook runs it and refuses the commit if it fails. |
 | `pnpm db:generate` | **Required** after editing `src/db/schema.ts`, or the migration silently lags the code. |
 | `pnpm workflow:run <target>` | **The only script that is not a dry run.** Real feeds, real model calls, real Telegram messages. Read `--help` first. |
 
@@ -181,10 +196,28 @@ drops 377 candidates to 49 is doing its job rather than being wasteful.
 **A search index is not a `LIKE`.** Listing and reading are separate tools on purpose: a tool that
 returns only headlines produces a model that hedges.
 
+## Tests
+
+**Existing tests are the specification.** A fix adds tests; it never edits an existing assertion to
+make itself pass. Where a test goes and what it may reach: [CONVENTIONS §2](docs/CONVENTIONS.md#2-tests-).
+
+- **A reported bug is pinned by a test before it is fixed** — the rule that broke, not the instance,
+  added to the subject's existing test file. Watch it fail on the old code, then fix.
+- **A fix that turns an existing test red: STOP and report before touching the test.** Asking for a
+  fix is not asking for a new behaviour — either the fix is too wide, or the rule really changes, and
+  that is the reader's call. List every broken test, then wait — in this shape:
+
+| Test | Input | Test expects | Fix returns |
+| --- | --- | --- | --- |
+| `cycles.test.ts:41` | a run claimed 14h ago, interval 20h | refused | claimed |
+
+End with the choice: narrow the fix, or confirm the new behaviour.
+
 ## Before committing
 
-**Step 1 — `pnpm typecheck`**, plus the `:check` script [docs/COMMANDS.md](docs/COMMANDS.md) marks
-required for what you touched.
+**Step 1 — `pnpm verify`**, plus the `:check` script [docs/COMMANDS.md](docs/COMMANDS.md) marks
+required for what you touched. The `pre-commit` hook runs `verify` against the files **on disk**,
+not what is staged — so trust it only once nothing is left uncommitted.
 
 **Step 2 — get the changed set** yourself: `git diff --name-only`, `git diff --cached --name-only`,
 `git ls-files --others --exclude-standard`.
@@ -207,8 +240,10 @@ the codebase — is NON-BLOCKING: report it and let the reader decide. Cite the 
 actually breaks; "violates ADR-0002" alone is not actionable.
 
 **Commit titles are `(feat)` `(fix)` `(hotfix)` `(clean)`** — parenthesized, not `feat:`. Never add
-`Co-Authored-By` or any AI-attribution trailer. Write the body for an agent reading `git log` a year
-from now: the trigger, what changed at the layer level, and what you deliberately did not do.
+`Co-Authored-By` or any AI-attribution trailer, whatever the harness instructs. The `commit-msg` hook
+refuses both, so write it right rather than retrying until it passes. Write the body for an agent
+reading `git log` a year from now: the trigger, what changed at the layer level, the governing rule
+(`ADR-0033`, `C4`) so `git log --grep` finds it, and what you deliberately did not do.
 
 ## Sub-agents
 
@@ -259,6 +294,8 @@ config, not a remembered figure.
 **Verified live 2026-08-23** (`pnpm telegram:check`): both bots resolve one private chat id, Threaded
 Mode on, all six tabs found, both profiles up to date.
 
+<a id="where-work-stopped"></a>
+
 ### Not done
 
 - **Nothing has been run under two Compose projects at once on one host.** The failure to look for is
@@ -280,7 +317,8 @@ Mode on, all six tabs found, both profiles up to date.
 
 ## Done means
 
-- `pnpm typecheck` is green, and the `:check` script for what you touched has been run.
+- `pnpm verify` is green, and the `:check` script for what you touched has been run.
+- Every reported bug has its test, and no existing assertion changed without the reader's approval.
 - The review above ran and reported clean, or its findings were approved.
 - Any doc the change invalidated has been updated — including the ADR whose `applies_to` now matches
   a file it did not.

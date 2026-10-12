@@ -23,13 +23,22 @@
     "leadscout:check": "tsx --env-file=.env scripts/check-lead-scout.ts",
     "models:check": "tsx --env-file=.env scripts/check-models.ts",
     "portfolio:check": "tsx --env-file=.env scripts/check-portfolio.ts",
+    "prepare": "git config core.hooksPath .githooks",
     "review:check": "tsx --env-file=.env scripts/check-feed-review.ts",
     "rssfinder:check": "tsx scripts/check-rssfinder.ts",
     "setup": "tsx --env-file-if-exists=.env scripts/setup.ts",
     "sonar:check": "tsx --env-file=.env scripts/check-sonar.ts",
     "start": "node .mastra/output/index.mjs",
     "telegram:check": "tsx --env-file=.env scripts/check-telegram.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "verify": "pnpm typecheck && pnpm verify:rules && pnpm test",
+    "verify:catch": "node scripts/checks/c4-silent-catch.mjs",
+    "verify:cycles": "node scripts/checks/c2-import-cycles.mjs",
+    "verify:docs": "node scripts/checks/c1-doc-integrity.mjs",
+    "verify:paths": "node scripts/checks/c3-anchored-paths.mjs",
+    "verify:rules": "pnpm verify:docs && pnpm verify:cycles && pnpm verify:paths && pnpm verify:catch",
     "workflow:run": "tsx --env-file-if-exists=.env scripts/run-workflow.ts",
     "youtube:check": "tsx scripts/check-youtube.ts"
   },
@@ -38,7 +47,8 @@
     "drizzle-kit": "^0.31.10",
     "mastra": "^1.20.1",
     "tsx": "^4.23.1",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
   },
   "dependencies": {
     "@chat-adapter/telegram": "^4.35.0",

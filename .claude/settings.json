@@ -12,6 +12,18 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/stop-checks.mjs\"",
+            "timeout": 30,
+            "statusMessage": "Checking the working set"
+          }
+        ]
+      }
     ]
   }
 }

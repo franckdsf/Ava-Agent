@@ -1,7 +1,7 @@
 # Commands
 
 Every script in `package.json`, the obligation attached to it, and what its output proves. The
-short list with purposes is in the [README](../README.md#commands); this file is the reference.
+short list with purposes is in the [README](../README.md#useful-dev-commands); this file is the reference.
 
 Each entry carries one line of three facts — **does it write · does it call a model · does it need
 `.env`** — because those are what decide whether a command is safe to run right now. Where the
@@ -15,13 +15,27 @@ Everything else fetches, measures and prints. `workflow:run` spends money and se
 
 ## The three that gate everything
 
-### `pnpm typecheck`
+### `pnpm verify`
 
-**Required before** claiming any change works.
+**Required before** claiming any change works, and before every commit — the `pre-commit` and
+`pre-merge-commit` hooks run it and refuse the commit if it fails.
 
-**Writes nothing · calls no model · needs no `.env`**
+**Writes nothing · calls no model · needs no `.env`** — offline and deterministic, unlike every
+`*:check` below. Runs `pnpm typecheck`, then `pnpm verify:rules`, then `pnpm test`.
 
-Run before claiming any change works.
+Its parts, each runnable alone:
+
+| Command | Proves | Rule |
+| --- | --- | --- |
+| `pnpm typecheck` | `tsc --noEmit` over `src/` and `scripts/` | 🔬 |
+| `pnpm verify:docs` | every doc link, anchor, backticked path, `pnpm` command and ADR `applies_to` resolves | C1 |
+| `pnpm verify:cycles` | no runtime import cycle in `src/` or `scripts/` | C2 |
+| `pnpm verify:paths` | no path in `src/` resolved against cwd | C3 |
+| `pnpm verify:catch` | no empty catch, no new swallowed promise beyond `scripts/checks/c4-baseline.json` | C4 |
+| `pnpm verify:rules` | C1–C4 together | |
+| `pnpm test` | every `__tests__/**/*.test.ts` — offline; `pnpm test:watch` to iterate | 🧪 |
+
+What each rule holds, and which rules nothing holds yet: [CONVENTIONS.md](CONVENTIONS.md).
 
 ### `pnpm db:generate`
 
@@ -40,7 +54,7 @@ a live database.
 **The script speaks HTTP and nothing else — no database, no model, no `.env` of its own. The run it
 starts does all three, for real.**
 
-**The only script here that is not a dry run — read `--help` before the first use.** It starts a real scheduled workflow against a running `pnpm dev`: real feeds, real model calls, real Telegram messages, and for `jobs` the scoring call that is this system's single most expensive request. Every target's cost is printed before it fires. Three traps it exists to close, all documented in the [gotchas](../AGENTS.md#gotchas): the route takes the *registry key* while schedule rows take the workflow id; `initialState` is mandatory for `curateAll` alone; and **a 504 does not stop the run**, which is why the script supplies its own `runId` and polls rather than reading the response — re-firing is how two runs end up delivering at once. Exercise it with `news --beats <a slug that does not exist>`: `activeBeats` returns nothing, `ingest` returns early, and both notice guards are false, so it proves the whole path end to end while fetching nothing and sending nothing.
+**The only script here that is not a dry run — read `--help` before the first use.** It starts a real scheduled workflow against a running `pnpm dev`: real feeds, real model calls, real Telegram messages, and for `jobs` the scoring call that is this system's single most expensive request. Every target's cost is printed before it fires. Three traps it exists to close, all documented in the [gotchas](GOTCHAS/mastra-workflows.md): the route takes the *registry key* while schedule rows take the workflow id; `initialState` is mandatory for `curateAll` alone; and **a 504 does not stop the run**, which is why the script supplies its own `runId` and polls rather than reading the response — re-firing is how two runs end up delivering at once. Exercise it with `news --beats <a slug that does not exist>`: `activeBeats` returns nothing, `ingest` returns early, and both notice guards are false, so it proves the whole path end to end while fetching nothing and sending nothing.
 
 ---
 
@@ -148,7 +162,7 @@ Run before believing anything about job scoring, and after any change to the por
 
 **Writes nothing · calls no model · needs no `.env`**
 
-**Read the output with `--verify` or not at all.** It queries a third party's index, which answers with feed URLs directly — the one thing [the gotchas](../AGENTS.md#gotchas) say never to accept from a search, because a wrong feed URL never errors. Measured 2026-08-06 on `ai images models`: 7 feeds returned, **3 alive** — two 404s, a 403 and a page that isn't a feed. Nothing here writes, calls no model and needs no `.env`; `checkFeed()` remains the sole authority on whether a URL is a feed.
+**Read the output with `--verify` or not at all.** It queries a third party's index, which answers with feed URLs directly — the one thing [the gotchas](GOTCHAS/search-and-discovery.md) say never to accept from a search, because a wrong feed URL never errors. Measured 2026-08-06 on `ai images models`: 7 feeds returned, **3 alive** — two 404s, a 403 and a page that isn't a feed. Nothing here writes, calls no model and needs no `.env`; `checkFeed()` remains the sole authority on whether a URL is a feed.
 
 ### `pnpm youtube:check [url]`
 
@@ -187,11 +201,12 @@ Run before debugging a missing tab. Reports whether BotFather's Threaded Mode is
 
 ## Not documented, and why
 
-Four scripts carry no obligation. They are listed so the gap is deliberate rather than an omission.
+Five scripts carry no obligation. They are listed so the gap is deliberate rather than an omission.
 
 | Command | What it is |
 | --- | --- |
 | `pnpm dev` | Mastra Studio. `workflow:run` needs it running; nothing else here does. |
-| `pnpm build` | Bundles to `.mastra/output`. The Dockerfile runs it; `typecheck` is what a change is judged on. |
+| `pnpm build` | Bundles to `.mastra/output`. The Dockerfile runs it; `verify` is what a change is judged on. |
+| `pnpm prepare` | Points git at `.githooks/`. pnpm runs it on install; run it by hand only on a clone installed before the hooks existed. |
 | `pnpm start` | Runs the built bundle. Deployment only. |
 | `pnpm db:studio` | Browses the database. Read what you like — no rule attaches to looking. |

@@ -63,6 +63,11 @@ because that is the only thing `git` cannot tell you. Everything else you establ
       a write that should not exist.
    9. **One bot, one agent, one chat — and inside a chat, one tab, one kind of traffic.**
 
+   **Then read `docs/CONVENTIONS.md` §1.** It tags every rule with what holds it. A 📐 or 🔒 row is
+   already checked by `pnpm verify` (C1–C4) or a git hook — do not spend your pass re-checking it; run
+   `pnpm verify:rules` once if you need its verdict. **Your attention belongs on the 👁 and ⏳ rows:**
+   nothing but you holds those.
+
 3. **Work out which ADRs apply, yourself.** One command gives you every record's scope:
 
    ```bash

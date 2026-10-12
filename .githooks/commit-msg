@@ -1,0 +1,10 @@
+#!/bin/sh
+#
+# Refuses a commit message that breaks the rules in scripts/checks/commit-message.mjs: the
+# (feat) (fix) (hotfix) (clean) title prefix, and no AI-attribution trailer.
+#
+# Plain node, no dependency — so it works on a fresh clone before anything is installed.
+#
+# Genuinely need to bypass it?  git commit --no-verify  (skips pre-commit too)
+
+exec node "$(git rev-parse --show-toplevel)/scripts/checks/commit-message.mjs" "$1"

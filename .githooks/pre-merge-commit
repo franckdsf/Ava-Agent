@@ -1,0 +1,9 @@
+#!/bin/sh
+#
+# A merge commit does not run pre-commit, and its tree is the one no branch commit verified: each
+# side passed against itself, nothing checked the two together. This runs the same gate on it.
+#
+# Not run on a fast-forward (no commit is made) nor on a conflicted merge (resolving it ends in
+# `git commit`, which runs pre-commit). Bypass: git merge --no-verify
+
+exec "$(dirname "$0")/pre-commit" "$@"

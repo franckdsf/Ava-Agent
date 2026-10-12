@@ -106,7 +106,7 @@ back it up.
 | `pnpm feeds:check`    | Confirm every subscribed feed is reachable                |
 | `pnpm jobs:check`     | Dry-run the jobs pipeline against real sources, no writes |
 | `pnpm telegram:check` | Verify both bots' profile, commands, and tabs are live    |
-| `pnpm typecheck`      | `tsc --noEmit`                                            |
+| `pnpm verify`         | Typecheck, rule checks, tests — what every commit runs    |
 
 More scripts and what each proves: [docs/COMMANDS.md](docs/COMMANDS.md).
 

@@ -1,0 +1,18 @@
+# Line endings are a property of this repository, not of each contributor's git config.
+#
+# Without this, `core.autocrlf` decides — and on this machine it is on, which is how the working
+# tree came to hold LF, CRLF and mixed files side by side. The sharp edge is the hooks: a CRLF
+# .githooks/pre-commit has the shebang `#!/bin/sh\r`, which Git Bash tolerates and Linux refuses
+# with "bad interpreter" — so the failure lands on whoever is NOT on the machine that caused it,
+# the container build included.
+#
+# `eol=lf` fixes the stored blob and the working copy alike, whatever the local settings.
+* text=auto eol=lf
+
+# The ones that break outright when CRLF. Restated so relaxing the rule above cannot reach them.
+.githooks/** text eol=lf
+*.sh text eol=lf
+
+# Generated — collapsed in diffs, left out of language stats.
+drizzle/meta/** linguist-generated=true
+pnpm-lock.yaml -diff linguist-generated=true

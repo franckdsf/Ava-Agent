@@ -1,0 +1,40 @@
+#!/bin/sh
+#
+# Refuses a commit that `pnpm verify` would fail: typecheck, the C1–C4 rule checks, and the tests.
+#
+# Every rule in AGENTS.md is only real because something fails when it is broken, and the earliest
+# place to fail is here — there is no CI on this repo yet, so this hook is the whole gate.
+#
+# It checks the files ON DISK, not what is staged: an uncommitted edit can hide a broken commit, so
+# trust it fully only when nothing is left uncommitted.
+#
+# Installed by the `prepare` script (`git config core.hooksPath .githooks`), which pnpm runs on
+# install. Genuinely need to bypass it?  git commit --no-verify — only when you already know what
+# is broken and why it must land anyway.
+
+set -e
+
+# A branch is optional here — this repo ships from main — but a branch that exists says what it is
+# for, in the same vocabulary as the titles. Skipped on a detached HEAD (rebase, bisect).
+branch=$(git symbolic-ref --short -q HEAD || echo "")
+
+if [ -n "$branch" ] && [ "$branch" != "main" ]; then
+  if ! echo "$branch" | grep -Eq '^(feat|fix|hotfix|clean)/[a-z0-9]+(-[a-z0-9]+)*$'; then
+    echo "✖ Commit refused: branch \"$branch\" is not <type>/<kebab-case-summary>." >&2
+    echo "  Types: feat fix hotfix clean — e.g. git branch -m clean/verify-gate" >&2
+    exit 1
+  fi
+fi
+
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "✖ pnpm not found on PATH — cannot verify this commit." >&2
+  exit 1
+fi
+
+echo "→ pre-commit: pnpm verify"
+if ! pnpm verify; then
+  echo "" >&2
+  echo "✖ Commit refused: pnpm verify failed. Fix the findings above and commit again." >&2
+  exit 1
+fi
+echo "✓ pre-commit: clean"
