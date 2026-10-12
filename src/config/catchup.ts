@@ -45,7 +45,8 @@ export const catchup = {
    * **So this is coupled to `jobPipeline.intervalHours`, with nothing enforcing
    * it.** Raise that gate past 48h and the healthy ceiling climbs back through
    * 72h, and the only symptom is boots quietly spending scoring calls.
-   * `pnpm catchup:check` has the case that fails when it happens.
+   * `src/mastra/__tests__/boot-catchup.test.ts` has the case that fails when it
+   * happens, and `pnpm verify` runs it on every commit.
    */
   jobsStaleAfterDays: 3,
 

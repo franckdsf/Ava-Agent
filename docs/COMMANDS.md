@@ -83,9 +83,9 @@ Dry-runs `/follow` end to end — names the beat, searches, verifies every feed,
 **Required after** touching `verdictForBeat` or `src/config/feed-review.ts`.
 
 **Writes nothing · calls no model · needs `.env`** — the script imports no agent and constructs no
-`Mastra`; every guard it exercises is deterministic.
+`Mastra`.
 
-**Required** after touching `verdictForBeat` or `src/config/feed-review.ts`. It is the only exercise the weekly feed review gets: a guard with no case here is a guard that silently stops applying, and the failure is a beat quietly losing good sources. Also prints what a run *today* would do to the live beats.
+The guards themselves are cases in `src/mastra/workflows/__tests__/review-feeds.test.ts`, run by `pnpm verify` — a guard with no case there is a guard that silently stops applying, and the failure is a beat quietly losing good sources. This script is the half a test cannot be: the report as the reader sees it, and what a run *today* would archive from the live beats. Read the second list after a guard change — a verdict that moved on beats you know is the change showing up.
 
 ### `pnpm jobs:check`
 
@@ -146,7 +146,7 @@ Run before believing anything about job scoring, and after any change to the por
 
 **Writes nothing · calls no model · needs `.env`**
 
-**Required** after touching `decideCatchup`, `src/config/catchup.ts`, `pipeline.digestHours` or `jobPipeline.intervalHours` — the last two because the staleness bars are set against those cadences and nothing enforces the relationship. The boot catch-up runs once, unattended, on a path that is invisible when it decides right and expensive when it decides wrong. Every guard needs a case here. Also prints what a boot *right now* would do to both live pipelines. Read-only; fires nothing.
+**Required** after touching `decideCatchup`, `src/config/catchup.ts`, `pipeline.digestHours` or `jobPipeline.intervalHours` — the last two because the staleness bars are set against those cadences and nothing enforces the relationship. The boot catch-up runs once, unattended, on a path that is invisible when it decides right and expensive when it decides wrong. Every guard has its case in `src/mastra/__tests__/boot-catchup.test.ts`, run by `pnpm verify`; this script prints what a boot *right now* would do to both live pipelines, against the real tables and schedule rows. Read-only; fires nothing.
 
 ### `pnpm finder:check "<topic>" [--against <url>…]`
 

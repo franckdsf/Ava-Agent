@@ -200,8 +200,8 @@ export const pipeline = {
    *
    * Read dynamically by the schedule, by `/start` and by `/beat`, so this array
    * is the only place the cadence lives. `catchup.newsStaleAfterDays` is set
-   * against it and is **not** derived — `pnpm catchup:check` after any change
-   * here, which is what the [AGENTS.md](../../AGENTS.md) table demands.
+   * against it and is **not** derived — the boot catch-up tests in `pnpm verify`
+   * hold the relationship, and `pnpm catchup:check` shows the live verdict.
    */
   digestHours: [10, 20],
 
@@ -235,7 +235,7 @@ export function minDigestGapHours(hours: readonly number[] = pipeline.digestHour
  * **Derived rather than set, and that is the whole design.** A hand-written
  * number here would be a third knob tied to `digestHours` with nothing enforcing
  * the relationship, which is the trap `catchup.newsStaleAfterDays` already
- * documents and `pnpm catchup:check` exists to catch. Add an 08:00 digest and
+ * documents and the boot catch-up tests exist to catch. Add an 08:00 digest and
  * the tightest gap becomes 2 hours; a hardcoded 9 would then silently swallow
  * two digests a day, visible only as the reader receiving less news.
  *

@@ -55,9 +55,10 @@ const HOUR_MS = 3_600_000
  * Whether a boot should fire this pipeline, given when it last ran and when it
  * is next due.
  *
- * Pure, and exported for `pnpm catchup:check` — this runs unattended at boot on
- * a path that is invisible when it decides correctly and expensive when it does
- * not, which is exactly the shape that never gets exercised otherwise.
+ * Pure, and exported for its tests and `pnpm catchup:check` — this runs
+ * unattended at boot on a path that is invisible when it decides correctly and
+ * expensive when it does not, which is exactly the shape that never gets
+ * exercised otherwise.
  *
  * `staleAfterDays` is an argument rather than a config read because the two
  * pipelines answer it differently: a week of no news is twenty missed fires,
