@@ -114,7 +114,7 @@ an invented domain in it.
 What makes a good proposal:
 
 - It publishes **frequently** — a site that posts twice a year is not a feed
-  worth polling three times a day.
+  worth polling every day.
 - It publishes **articles**, not a forum, a wiki, a video channel, or a store.
 - Independent outlets and specialist blogs are usually better sources than the
   official body's own site, which often publishes press releases and no feed.

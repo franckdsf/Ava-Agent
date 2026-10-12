@@ -59,7 +59,7 @@ export const memoryConfig = {
    * Local-time hour and weekday (0 = Sunday) of the weekly memory review.
    *
    * Monday 05:00: after the 04:00 prune has released its write lock, and well
-   * before the 08:00 digest. Weekly rather than daily because the decision it
+   * before the first digest. Weekly rather than daily because the decision it
    * makes is "with a month of hindsight, was this biography?" — asking that
    * every day is six extra model calls to re-confirm the same answer.
    */

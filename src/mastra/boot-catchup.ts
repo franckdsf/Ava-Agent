@@ -13,7 +13,7 @@ import { findJobs } from './workflows/find-jobs.js'
  * Schedules are persisted and survive a restart, which is the behaviour you
  * want and also the whole problem: a machine that was off for a fortnight comes
  * back knowing only when the *next* fire is due. Nothing anywhere reads the gap.
- * So the reader turns the container back on and hears nothing until 08:00, and
+ * So the reader turns the container back on and hears nothing until the next digest hour, and
  * the job run is up to a further day behind that
  * ([ADR-0025](../../docs/decisions/0025-a-boot-catch-up-for-a-stale-pipeline.md)).
  *
@@ -25,7 +25,7 @@ import { findJobs } from './workflows/find-jobs.js'
  * from a scheduled fire the way a hand-built `createRun()` can, and `curateAll`'s
  * defaultless `stateSchema` needs nothing spelled out at this call site. It also
  * writes a trigger row, so the fire is auditable in Studio next to the cron ones,
- * and it explicitly does not move the cadence: the 08:00 digest still happens.
+ * and it explicitly does not move the cadence: the next scheduled digest still happens.
  *
  * **Staleness is read from the pipelines' own tables**, not from a marker this
  * module writes. `feed_state.lastFetchedAt` and `job_runs.startedAt` are written

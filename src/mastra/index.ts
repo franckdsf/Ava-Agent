@@ -123,8 +123,9 @@ void registerJoobCommands(mastra, joob.getChannels()).catch(error => {
 
 // Fires whichever pipeline is past its own staleness bar — a week for news,
 // three days for jobs — unless its next scheduled fire is minutes away. The two
-// numbers differ because the cadences do: three digests a day against a run
-// every two. Schedules survive a restart, which means
+// numbers differ because the cadences do: a digest at each of
+// `pipeline.digestHours` against a jobs run gated by
+// `jobPipeline.intervalHours`. Schedules survive a restart, which means
 // nothing else in the process ever reads the gap a downtime leaves: the machine
 // comes back knowing only when the next digest is due
 // ([ADR-0025](../../docs/decisions/0025-a-boot-catch-up-for-a-stale-pipeline.md)).

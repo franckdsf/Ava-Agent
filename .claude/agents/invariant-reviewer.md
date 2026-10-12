@@ -41,8 +41,8 @@ because that is the only thing `git` cannot tell you. Everything else you establ
 
    `cat` each new file the third command lists; they arrive whole or not at all.
 
-2. **Read `AGENTS.md`.** Its invariants — nine of them, under `## Invariants` (or the `## Never`
-   table that summarises them, whichever the file currently carries) — are your primary criteria,
+2. **Read `AGENTS.md`.** Its invariants — nine, numbered under `## Invariants`, each with the
+   Never rules it implies, then the unnumbered domain rules — are your primary criteria,
    together with the working agreement above them. **They are the source of truth; nothing is
    duplicated into this file, so a rule that changed there is the rule you apply.**
 

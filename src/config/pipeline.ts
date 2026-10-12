@@ -206,8 +206,8 @@ export const pipeline = {
   digestHours: [10, 20],
 
   /**
-   * Local-time hour at which retention runs. Deliberately between the 19:00 and
-   * 08:00 digests: pruning holds a write lock the ingest step would contend for.
+   * Local-time hour at which retention runs. Deliberately between the last and
+   * first digests: pruning holds a write lock the ingest step would contend for.
    */
   pruneHour: 4,
 } as const

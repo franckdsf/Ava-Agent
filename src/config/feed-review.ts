@@ -6,7 +6,7 @@
  * more, and nothing ever took one away. Every one of them is fetched on **every**
  * digest and every article it brings is **ranked**, which is the main cost lever
  * in this pipeline. So a feed that has never once produced something worth
- * sending is not neutral; it is paid for three times a day, forever, and it
+ * sending is not neutral; it is paid for at every digest hour, forever, and it
  * dilutes every ranking batch it appears in.
  *
  * **Every threshold here exists to stop this job doing harm**, because the
@@ -17,7 +17,7 @@
  */
 export const feedReview = {
   /**
-   * Monday 06:00. After the memory review at 05:00 and before the 08:00 digest,
+   * Monday 06:00. After the memory review at 05:00 and before the first digest,
    * so a beat that loses a feed has its next digest already reflecting it, and
    * two model-calling jobs never overlap.
    */

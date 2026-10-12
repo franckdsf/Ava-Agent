@@ -104,31 +104,45 @@ you find a doc that contradicts it, say so and offer to fix the doc.
 **A change crossing two layers starts with a plan.** Copy `docs/plans/_template.md` and agree it
 before building. One file, one command or a dep bump needs none. Deleted when the slice lands.
 
-<a id="invariants"></a>
+<a id="never"></a>
 
-## Never
+## Invariants
 
-Breaking one of these is a regression, not a refactor. Read the linked ADR before changing any of
-them — the row is the imperative, the ADR is why. **Most rows have no check behind them yet** —
-[CONVENTIONS §1](docs/CONVENTIONS.md#1-rule-to-mechanism-map) says which do; the rest hold only if
-you hold them.
+Breaking one is a regression, not a refactor; the rule is the imperative, the linked ADR is why.
+**~160 comments and ADRs cite these by number — never renumber; a new one is 10.** Most have no
+check yet: [CONVENTIONS §1](docs/CONVENTIONS.md#1-rule-to-mechanism-map) says which do.
+
+1. **No inbound ports.** Telegram is long-polled, models are called outbound. ([0001](docs/decisions/0001-mastra-in-a-container-with-no-inbound-ports.md), [0002](docs/decisions/0002-telegram-via-chat-sdk-adapter-in-polling-mode.md))
+   - Never require an inbound port, tunnel, or webhook.
+2. **A scheduled model call has a shape, not a list** — a classifier over a fixed row set, or a search whose every answer code verifies before storing, each bounded in config. ([0042](docs/decisions/0042-a-scheduled-model-call-has-a-shape-not-a-list.md))
+   - Never give a scheduled model call control flow it can choose, or authority over what gets stored.
+3. **A beat is a row, not code.** ([0019](docs/decisions/0019-beats-as-reader-owned-data.md))
+   - Never add a beat in code — a beat is a row in `beats` + `beat_feeds`.
+   - Never edit a seed to change an existing beat or source — a seed skips a non-empty table.
+4. **Drizzle owns the app tables; Mastra owns `mastra_*`.** ([0005](docs/decisions/0005-two-libsql-databases-instead-of-convex.md), [0006](docs/decisions/0006-drizzle-orm-for-application-tables.md), [0011](docs/decisions/0011-fts5-for-article-search.md))
+   - Never let drizzle own `mastra_*`.
+   - Never hand-write a migration `pnpm db:generate` can emit. Hand-written SQL is for what drizzle
+     cannot express — an FTS5 table (`0010`), a data change (`0011`, `0018`) — and its header says
+     which. FTS5 `MATCH` at query time (`tools/news.ts`) is the same exception.
+5. **Dedupe is global, not per-beat.** ([0019](docs/decisions/0019-beats-as-reader-owned-data.md))
+   - Never dedupe per-beat — the key is a hash of the canonical link, and a story is delivered once.
+6. **Single replica.** ([0001](docs/decisions/0001-mastra-in-a-container-with-no-inbound-ports.md))
+   - Never run two replicas.
+7. **Exactly one adapter polls per bot token.** ([0023](docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md))
+   - Never poll one bot token from two adapters.
+   - Never give an outbound Telegram instance a `mode`, and never use `mode: 'auto'` — it falls back to *webhook*.
+8. **What a conversation may write is decided by what reads it back.** ([0043](docs/decisions/0043-what-a-conversation-may-write-is-decided-by-what-reads-it-back.md), [0014](docs/decisions/0014-two-tier-memory-for-ava.md))
+   - Never let anything conversational write what a run produced.
+   - Never correct a memory, a beat or a rubric — supersede it.
+   - Never start `curateAll` from a conversation.
+9. **One bot, one agent, one chat — and inside a chat, one tab, one kind of traffic.** ([0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md), [0021](docs/decisions/0021-a-tab-per-beat.md), [0023](docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md))
+   - Never answer Newy outside the Chat tab — a message typed elsewhere is *moved*, not answered in place.
+   - Never mix two kinds of traffic in one tab.
+
+**Domain rules** — as binding, but not invariants, so not numbered:
 
 | Rule | ADR |
 | --- | --- |
-| Never require an inbound port, tunnel, or webhook | [0001](docs/decisions/0001-mastra-in-a-container-with-no-inbound-ports.md), [0002](docs/decisions/0002-telegram-via-chat-sdk-adapter-in-polling-mode.md) |
-| Never give a scheduled model call control flow it can choose, or authority over what gets stored | [0042](docs/decisions/0042-a-scheduled-model-call-has-a-shape-not-a-list.md) |
-| Never let anything conversational write what a run produced | [0043](docs/decisions/0043-what-a-conversation-may-write-is-decided-by-what-reads-it-back.md) |
-| Never correct a memory, a beat or a rubric — supersede it | [0043](docs/decisions/0043-what-a-conversation-may-write-is-decided-by-what-reads-it-back.md), [0014](docs/decisions/0014-two-tier-memory-for-ava.md) |
-| Never start `curateAll` from a conversation | [0043](docs/decisions/0043-what-a-conversation-may-write-is-decided-by-what-reads-it-back.md) |
-| Never add a beat in code — a beat is a row in `beats` + `beat_feeds` | [0019](docs/decisions/0019-beats-as-reader-owned-data.md) |
-| Never edit a seed to change an existing beat or source — a seed skips a non-empty table | [0019](docs/decisions/0019-beats-as-reader-owned-data.md) |
-| Never let drizzle own `mastra_*`, or hand-write SQL outside `drizzle/0010_articles_fts.sql` | [0005](docs/decisions/0005-two-libsql-databases-instead-of-convex.md), [0006](docs/decisions/0006-drizzle-orm-for-application-tables.md) |
-| Never dedupe per-beat — the key is a hash of the canonical link, and a story is delivered once | [0019](docs/decisions/0019-beats-as-reader-owned-data.md) |
-| Never run two replicas | [0001](docs/decisions/0001-mastra-in-a-container-with-no-inbound-ports.md) |
-| Never poll one bot token from two adapters | [0023](docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md) |
-| Never give an outbound Telegram instance a `mode`, and never use `mode: 'auto'` — it falls back to *webhook* | [0023](docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md) |
-| Never answer Newy outside the Chat tab — a message typed elsewhere is *moved*, not answered in place | [0010](docs/decisions/0010-ava-answers-only-in-the-chat-tab.md) |
-| Never mix two kinds of traffic in one tab | [0009](docs/decisions/0009-telegram-topics-as-tabs.md), [0021](docs/decisions/0021-a-tab-per-beat.md) |
 | Never filter on a source's own tags — `jobs.tags` is an audit trail, `jobTags` is what the filter reads | [0028](docs/decisions/0028-a-search-decides-what-counts-as-a-job.md) |
 | Never let a skill decide a posting's domain — skills reorder, disciplines classify, only a search rejects | [0030](docs/decisions/0030-domains-as-vocabularies-a-search-names-its-field.md) |
 | Never write `lead_signals` from the jobs workflow — `hiringSignalsFromJobs` already reads `jobs` | [0038](docs/decisions/0038-leads-a-prospecting-pipeline-in-joobs-chat.md) |
@@ -189,8 +203,9 @@ schema mismatch rather than returning a null object, and the `?? fallback` patte
 this repo does not catch it. `withRetry` in `src/services/structured-output.ts` is the explicit
 loop; `.default([])` on the schema is the wrong fix and was tried first.
 
-**Scoring is one batch call for the whole run**, not one call per posting. The deterministic filters
-exist to make a single call possible, not to save calls one at a time — which is why a filter that
+**Scoring is one batch call per search**, not one call per posting — `find-jobs` runs
+`.foreach(scoreSearch)`, each over at most `maxJobsPerScoringRun` postings. The deterministic filters
+exist to make that one call possible, not to save calls one at a time — which is why a filter that
 drops 377 candidates to 49 is doing its job rather than being wasteful.
 
 **A search index is not a `LIKE`.** Listing and reading are separate tools on purpose: a tool that
@@ -279,11 +294,11 @@ into a tab per beat — two daily digests (`pipeline.digestHours`, 10:00 and 20:
 a Monday 05:00 memory review and a Monday 06:00 feed review. Beats are rows the reader owns;
 `/follow` creates one from a subject and `retune-beat` lets Newy adjust it.
 
-**The jobs side** fires daily at `jobPipeline.runHour` (08:00) and gates itself on
-`jobPipeline.intervalHours` (20) against `job_runs.startedAt`. Ten job sources, six ATS providers
-probed concurrently, and `sonar` proposing employers whose careers pages code resolves and verifies.
-Scoring is capped at `maxJobsPerScoringRun` (90) and ordered by CV overlap, which may reorder and
-never reject. Delivery is guarded by `job_deliveries`, permanently, with `redeliveryGuardDays` (75)
+**The jobs side** fires at each of `jobPipeline.runHours` and gates itself on
+`jobPipeline.intervalHours` against `job_runs.startedAt` — two fires so a refused one is not the
+day's only chance. Ten job sources, six ATS providers probed concurrently, and `sonar` proposing
+employers whose careers pages code resolves and verifies. Scoring is capped at
+`maxJobsPerScoringRun` **per search** and ordered by CV overlap, which may reorder and never reject. Delivery is guarded by `job_deliveries`, permanently, with `redeliveryGuardDays` (75)
 above `retentionDays` (60).
 
 **The leads side** fires at `leadPipeline.runHour` (09:00) on its own

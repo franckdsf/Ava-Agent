@@ -2,7 +2,7 @@
  * The boot catch-up's numbers.
  *
  * A container that was off for a fortnight comes back with its schedules intact
- * and nothing to show for the gap: the next digest is at 08:00 whatever happened
+ * and nothing to show for the gap: the next digest is at its usual hour whatever happened
  * before, so the reader's first evidence the machine is alive again arrives
  * hours later, and the jobs run waits for its own daily fire on top of that.
  * These decide when a boot runs a pipeline itself instead of waiting
@@ -52,7 +52,7 @@ export const catchup = {
   /**
    * A scheduled fire this close is left to the scheduler.
    *
-   * Waiting twenty minutes for the 08:00 digest costs the reader nothing.
+   * Waiting twenty minutes for the next digest costs the reader nothing.
    * Starting a run twenty minutes before a scheduled one is how two runs end up
    * delivering at once — the failure the job pipeline's own gate already exists
    * to prevent, arriving through a different door.

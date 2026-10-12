@@ -22,7 +22,7 @@
  *
  * Order within a bot's set is only the order its tabs are *created*. It is not
  * the order Telegram shows them: the client sorts tabs by most recent message,
- * so News floats up at 08:00/13:00/19:00 and Chat floats up whenever Newy
+ * so a digest's tab floats up at each digest hour and Chat floats up whenever Newy
  * answers. Verified against the live chat 2026-07-28 — Chat, created first, sat
  * below News until a reply landed in it. Nothing in config can pin a tab to a
  * position, and no Bot API method reorders them, so don't rearrange entries

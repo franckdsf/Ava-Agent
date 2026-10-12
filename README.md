@@ -21,7 +21,7 @@ network — so it runs fine on a laptop, a Raspberry Pi, or a small VPS.
 Subscribes to RSS feeds grouped into "beats" (e.g. `design`, `ai`,
 `climate`), dedupes stories carried by multiple outlets, scores each item
 against your beat's rubric and your past 👍/👎, and writes a digest for the
-ones that clear the bar — three times a day, one message per article, into
+ones that clear the bar — twice a day, one message per article, into
 a Telegram topic per beat.
 
 Talk to Newy directly in the **Chat** tab: it remembers facts about you over

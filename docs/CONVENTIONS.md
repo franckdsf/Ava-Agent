@@ -30,7 +30,8 @@ end of an agent turn. **Adding a check means adding it there too**; nothing link
 
 ## 1. Rule-to-mechanism map
 
-Every row of the AGENTS.md Never table, and the patterns stated beside it, with what holds it.
+Every Never rule in AGENTS.md — under the nine numbered invariants and in the domain rules after
+them — and the patterns stated beside them, with what holds it.
 
 **The point of this table is the 👁 column.** Before this file, every rule here was 👁. A ⏳ marks one
 where a check could assert it from the source alone, and is the backlog for the refactor; a bare 👁
@@ -54,6 +55,7 @@ needs a judgement no script can make, and is settled.
 | Never write `lead_signals` from the jobs workflow | ⏳ — `find-jobs.ts` imports no lead writer |
 | Never let anything conversational write what a run produced | ⏳ — an import allowlist from `tools/` and `commands/` into `src/db/` |
 | Never let drizzle own `mastra_*` | ⏳ — no `mastra_` table in `src/db/schema.ts` |
+| Never hand-write a migration `db:generate` can emit | 👁 — each hand-written one says why in its header |
 | Never run two replicas | ⏳ — no `replicas`/`scale` in `docker-compose.yml` |
 | Never commit `.history/` | 🔒 `.gitignore` |
 | Never give a scheduled model call control flow it can choose | 👁 — a shape, not a call site ([ADR-0042](decisions/0042-a-scheduled-model-call-has-a-shape-not-a-list.md)) |
