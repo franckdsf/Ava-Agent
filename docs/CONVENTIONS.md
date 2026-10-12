@@ -94,7 +94,14 @@ itself pass. The rule, and what to do when a fix turns a test red, is in
 **A reported bug is pinned before it is fixed — the rule that broke, not the instance.** Write it
 around what the reader saw: the message, the tab, the count. Assert the invariant ("a story is sent
 once") over intermediate values. Watch it fail on the old code; a test only a revert can turn red
-pins nothing.
+pins nothing. **A pin that lands before its fix is `it.fails`** — green while the bug exists, red
+the moment it is fixed, which forces the fixer to make it a plain `it`. Its comment names the fix
+that will flip it (`src/db/__tests__/cadence.test.ts`, F1).
+
+**A test that needs a database has one, empty and its own.** `vitest.setup.ts` points both
+databases at a fresh temp file per test file and sets a placeholder model key, so a test never
+needs `.env` and can never reach `.data/ava.db`. Give each test its own row ids rather than
+resetting tables.
 
 Coverage targets are not a rule ([§5](#5-rules-deliberately-not-made)). What replaces them is
 altitude: a pure function is tested against plain values, and a test that needs a database earns
