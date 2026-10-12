@@ -1,8 +1,6 @@
 import { Mastra } from '@mastra/core'
 import { seedBeats } from '../db/beats.js'
 import { seedJobSources } from '../db/jobs.js'
-import { newy, newyId } from './agents/newy.js'
-import { joob, joobId } from './agents/joob.js'
 import { curatorAgents } from './agents/curator.js'
 import { memoryReviewer, memoryReviewerId } from './agents/memory.js'
 import { jobAgents } from './agents/job-scorer.js'
@@ -15,8 +13,7 @@ import { scoutAgents } from './agents/scout.js'
 import { summarizer, summarizerId } from './agents/summarizer.js'
 import { translator, translatorId } from './agents/translator.js'
 import { catchUpOnBoot } from './boot-catchup.js'
-import { JOOB_SURFACE } from './commands/joob.js'
-import { NEWY_SURFACE } from './commands/newy.js'
+import { CHAT_BOTS } from './chat-bots.js'
 import { registerBot } from './registrar.js'
 import { storage } from './storage.js'
 import { curateAll } from './workflows/curate-all.js'
@@ -55,8 +52,8 @@ export const mastra = new Mastra({
     ...leadTargeterAgents,
     ...leadAgents,
     ...leadScoutAgents,
-    [newyId]: newy,
-    [joobId]: joob,
+    // Every bot a reader talks to, keyed by its bot id — `chat-bots.ts`.
+    ...Object.fromEntries(CHAT_BOTS.map(({ agent }) => [agent.id, agent])),
     [memoryReviewerId]: memoryReviewer,
     [translatorId]: translator,
     [summarizerId]: summarizer,
@@ -110,17 +107,16 @@ void seedJobSources()
 // agent above already started that, so this awaits it rather than racing it.
 // Fire-and-forget with the same disposition Mastra itself uses: a channel that
 // fails to come up must not take the scheduled pipeline down with it.
-void registerBot(mastra, NEWY_SURFACE, newy.getChannels()).catch(error => {
-  mastra.getLogger()?.error('Failed to register Telegram commands', error)
-})
-
-// Joob's, against its own token. `getChannels()` is null while
-// `JOOB_TELEGRAM_BOT_TOKEN` is unset and the registrar returns immediately, so
-// this costs nothing until the bot is provisioned. Independent of Newy's on
-// purpose: one bot failing to come up must not take the other's surface with it.
-void registerBot(mastra, JOOB_SURFACE, joob.getChannels()).catch(error => {
-  mastra.getLogger()?.error("Failed to register Joob's Telegram commands", error)
-})
+//
+// One registration per bot, each with its own catch: one bot failing to come up
+// must not take the other's surface with it. `getChannels()` is null while a
+// bot's token is unset and the registrar returns at once, so an unprovisioned
+// bot costs nothing.
+for (const { agent, surface } of CHAT_BOTS) {
+  void registerBot(mastra, surface, agent.getChannels()).catch(error => {
+    mastra.getLogger()?.error(`Failed to register Telegram commands for ${surface.bot.id}`, error)
+  })
+}
 
 // Fires whichever pipeline is past its own staleness bar — a week for news,
 // three days for jobs — unless its next scheduled fire is minutes away. The two

@@ -1,4 +1,4 @@
-import { JOOB_BOT, JOOB_TOPICS } from '../../bots/joob.js'
+import { JOOB_TOPICS } from '../../bots/joob.js'
 import { JOOB_SURFACE } from '../commands/joob.js'
 import { memoryTools } from '../tools/memory.js'
 import { targetTools } from '../tools/targets.js'
@@ -25,8 +25,6 @@ import { memoryInstructions } from './memory.js'
  * "what have you found?" from guesswork — not knowing is the honest answer until
  * such a tool exists.
  */
-
-export const joobId = JOOB_BOT.id
 
 /**
  * No `inbound` wrapper here, unlike Newy.

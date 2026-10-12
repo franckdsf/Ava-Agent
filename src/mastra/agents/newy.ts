@@ -1,4 +1,4 @@
-import { NEWY_BOT, NEWY_TOPICS } from '../../bots/newy.js'
+import { NEWY_TOPICS } from '../../bots/newy.js'
 import { pipeline } from '../../config/pipeline.js'
 import { NEWY_SURFACE } from '../commands/newy.js'
 import { withQuotedMessage } from '../quoted-message.js'
@@ -22,8 +22,6 @@ import { memoryInstructions } from './memory.js'
  * This file is what is Newy's: her prompt, her tools, and the swipe-to-reply note
  * she puts in front of a message.
  */
-
-export const newyId = NEWY_BOT.id
 
 export const newy = createChatAgent(NEWY_SURFACE, {
   name: 'Newy',
