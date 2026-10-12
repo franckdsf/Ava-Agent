@@ -9,7 +9,7 @@ import { escapeMarkdown } from '../../services/telegram.js'
  * What a slash command was pointed at, and how it names it.
  *
  * Split out of `commands/translate.ts` when `/summarize` appeared, for the same
- * reason `services/quoted-article.ts` was split out of `channels.ts`: two
+ * reason `services/quoted-article.ts` was split out of Newy's inbound handler: two
  * commands answering the same swipe must not answer it differently. A reader who
  * swipes a digest and types `/translate`, then swipes the same digest and types
  * `/summarize`, is pointing at one article — so the body they get, and the

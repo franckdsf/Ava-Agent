@@ -43,7 +43,7 @@ import type { Command } from './command.js'
 const READING = "Reading that — give me a moment. I'll show you exactly what I understood, and you can correct me then."
 const RE_READING = "Re-reading that one — give me a moment. I'll show you what changed."
 
-export const target: Command<JoobTopicSlug> = {
+export const target = {
   name: '/target',
   description: 'Tell me what kind of role to look for, in your own words',
   help:
@@ -54,23 +54,23 @@ export const target: Command<JoobTopicSlug> = {
     'Go or Rust, at least 90k euros`.',
   working: READING,
   run: ({ mastra, args }) => addTarget(mastra, args),
-}
+} satisfies Command<JoobTopicSlug>
 
-export const targets: Command<JoobTopicSlug> = {
+export const targets = {
   name: '/targets',
   description: 'List what I am currently looking for',
   help: 'everything I am currently looking for, with the filters for each.',
   usage: '`/targets` — takes no arguments.',
   run: async () => renderSearches(await activeSearches()),
-}
+} satisfies Command<JoobTopicSlug>
 
-export const untarget: Command<JoobTopicSlug> = {
+export const untarget = {
   name: '/untarget',
   description: 'Stop looking for one kind of role',
   help: 'stop looking for one of them. Nothing already sent is lost. `/untarget frontend`.',
   usage: '`/untarget <slug>` — `/targets` lists the slugs.',
   run: ({ args }) => removeTarget(args),
-}
+} satisfies Command<JoobTopicSlug>
 
 /**
  * **Re-parses an existing search in place, and the "in place" is the point.**
@@ -92,7 +92,7 @@ export const untarget: Command<JoobTopicSlug> = {
  * already stored, which is exactly the backfill case; with new wording it
  * replaces the criteria and keeps the row's identity and history.
  */
-export const retarget: Command<JoobTopicSlug> = {
+export const retarget = {
   name: '/retarget',
   description: 'Re-read one of my searches, optionally with new wording',
   help:
@@ -103,7 +103,7 @@ export const retarget: Command<JoobTopicSlug> = {
     'Leave the wording out to just re-read the existing request.',
   working: RE_READING,
   run: ({ mastra, args }) => reread(mastra, args),
-}
+} satisfies Command<JoobTopicSlug>
 
 /** Joob's job-search commands, in the order they are used: define, review, remove, repair. */
 export const TARGET_COMMANDS: Command<JoobTopicSlug>[] = [target, targets, untarget, retarget]

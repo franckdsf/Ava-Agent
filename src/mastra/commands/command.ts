@@ -29,8 +29,8 @@ export interface Command<Slug extends string = string> {
   description: string
   /** One line for `/start` and the unknown-command reply. Markdown is fine. */
   help: string
-  /** Shown when the arguments don't parse. */
-  usage: string
+  /** Shown when the arguments don't parse. Absent on a command whose argument is optional. */
+  usage?: string
   /** Where a returned reply is sent. The bot's chat tab when absent. */
   tab?: Slug
   /**

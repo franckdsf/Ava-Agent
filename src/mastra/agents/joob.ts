@@ -19,11 +19,11 @@ import { memoryInstructions } from './memory.js'
  * ([invariant 7](../../../AGENTS.md#invariants)). This file is what is Joob's:
  * its prompt and its tools.
  *
- * **The pipeline behind it does not exist yet.** This is the conversational half
- * only: Joob can talk and can keep notes, and has no job tools because there are
- * no job tables. The prompt below says so plainly rather than promising a search
- * it cannot run — a bot that claims to be looking is worse than one that says it
- * is not wired up yet.
+ * **It cannot see what the pipelines found.** Its tools read and edit the
+ * searches (`targetTools`) and the shared notes (`memoryTools`); nothing reads a
+ * posting or a lead back. The prompt says so plainly rather than answering
+ * "what have you found?" from guesswork — not knowing is the honest answer until
+ * such a tool exists.
  */
 
 export const joobId = JOOB_BOT.id

@@ -15,8 +15,8 @@ import { scoutAgents } from './agents/scout.js'
 import { summarizer, summarizerId } from './agents/summarizer.js'
 import { translator, translatorId } from './agents/translator.js'
 import { catchUpOnBoot } from './boot-catchup.js'
-import { registerChatCommands } from './channels.js'
 import { JOOB_SURFACE } from './commands/joob.js'
+import { NEWY_SURFACE } from './commands/newy.js'
 import { registerBot } from './registrar.js'
 import { storage } from './storage.js'
 import { curateAll } from './workflows/curate-all.js'
@@ -110,7 +110,7 @@ void seedJobSources()
 // agent above already started that, so this awaits it rather than racing it.
 // Fire-and-forget with the same disposition Mastra itself uses: a channel that
 // fails to come up must not take the scheduled pipeline down with it.
-void registerChatCommands(mastra, newy.getChannels()).catch(error => {
+void registerBot(mastra, NEWY_SURFACE, newy.getChannels()).catch(error => {
   mastra.getLogger()?.error('Failed to register Telegram commands', error)
 })
 

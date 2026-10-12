@@ -1,4 +1,4 @@
-import type { Mastra } from '@mastra/core'
+import type { NewyTopicSlug } from '../../bots/newy.js'
 import { TRANSLATIONS, type TranslationCommand, translation } from '../../config/translation.js'
 import { capText, chunkText } from '../../services/article.js'
 import { escapeMarkdown } from '../../services/telegram.js'
@@ -9,10 +9,7 @@ import {
   type SlashCommandEvent,
   type Source,
 } from './article-context.js'
-import { transportFor } from '../../bots/index.js'
-import { NEWY_BOT } from '../../bots/newy.js'
-
-const newyTelegram = transportFor(NEWY_BOT)
+import type { Command, CommandContext } from './command.js'
 
 /**
  * `/translearn` and `/translate` — the article in the reader's own language,
@@ -25,7 +22,7 @@ const newyTelegram = transportFor(NEWY_BOT)
  * - **A slash command never reaches the agent.** The adapter routes any message
  *   whose first entity is a `bot_command` to `processSlashCommand` and skips the
  *   message path entirely, so this runs in the catch-all handler in
- *   `channels.ts` rather than as something Newy decides to call.
+ *   `registrar.ts` rather than as something Newy decides to call.
  * - **The swipe still survives.** `handleSlashCommandUpdate` passes the untouched
  *   Telegram payload through as `event.raw` (verified in `@chat-adapter/telegram`
  *   4.35), so the message a reader replied to is readable here exactly as it is
@@ -36,10 +33,34 @@ const newyTelegram = transportFor(NEWY_BOT)
  * `memories`, may fetch a page the feed shipped no body for, and writes nothing.
  */
 
-/** True when this command is one of the translation commands. */
-export function isTranslationCommand(command: string): command is TranslationCommand {
-  return command in TRANSLATIONS
+/**
+ * One of the two translation commands. They differ only in how densely they
+ * gloss — `TRANSLATIONS[name]` — so they share one handler.
+ */
+function translationCommand(
+  name: TranslationCommand,
+  text: { description: string; help: string },
+): Command<NewyTopicSlug> {
+  const command: Command<NewyTopicSlug> = {
+    name,
+    ...text,
+    // Sends its own messages, part by part, and its own failure note beside them.
+    run: async ctx => {
+      await runTranslation(ctx, command)
+    },
+  }
+  return command
 }
+
+export const translearn = translationCommand('/translearn', {
+  description: 'Translate the article you swiped, glossed for learning',
+  help: 'the article in your language, with the English behind every word worth learning.',
+})
+
+export const translate = translationCommand('/translate', {
+  description: 'Translate the article you swiped, keeping key terms in English',
+  help: 'the article in your language, with only the key terms shown in English.',
+})
 
 /**
  * Where a translation lands: its own tab, never the conversation.
@@ -92,17 +113,18 @@ const TRANSLATION_TAB = 'translations' as const
  * minutes of a human's waiting, and there is no signal to cancel them with —
  * `generate()` is not handed an `AbortSignal` on this path.
  *
- * Never throws. A command that fails silently is the bug the catch-all handler
- * in `channels.ts` exists to prevent, so every path here ends in a message.
+ * Never throws on a model failure — that has its own note, beside the parts that
+ * did arrive. Anything else is caught by `runCommand`, so every path ends in a
+ * message.
  */
-export async function runTranslation(
-  mastra: Mastra,
-  event: SlashCommandEvent,
-  command: TranslationCommand,
+async function runTranslation(
+  { mastra, event, transport }: CommandContext<NewyTopicSlug>,
+  self: Command<NewyTopicSlug>,
 ): Promise<void> {
+  const command = self.name as TranslationCommand
   const source = await resolveSource(event)
   if (!source) {
-    await newyTelegram.sendToTelegram(nothingToTranslate(command), 'chat')
+    await transport.sendToTelegram(nothingToTranslate(self), 'chat')
     return
   }
 
@@ -112,11 +134,11 @@ export async function runTranslation(
   // already refuses — but the empty article has to go somewhere, and the usage
   // message is the honest place.
   if (!opening) {
-    await newyTelegram.sendToTelegram(nothingToTranslate(command), 'chat')
+    await transport.sendToTelegram(nothingToTranslate(self), 'chat')
     return
   }
 
-  await newyTelegram.sendToTelegram(starting(source, parts.length), TRANSLATION_TAB)
+  await transport.sendToTelegram(starting(source, parts.length), TRANSLATION_TAB)
 
   const translate = (text: string, index: number, language?: string) =>
     translateChunk(mastra, {
@@ -127,7 +149,7 @@ export async function runTranslation(
     })
 
   const deliver = (result: Translation, index: number) =>
-    newyTelegram.sendToTelegram(
+    transport.sendToTelegram(
       renderTranslation(source, result.paragraphs, { index, total: parts.length }),
       TRANSLATION_TAB,
     )
@@ -136,7 +158,7 @@ export async function runTranslation(
     mastra.getLogger()?.error('Translation failed', { command, part: index, error })
     // With the partial output, not in Chat: "the rest is missing" only means
     // something next to the parts that did arrive.
-    await newyTelegram.sendToTelegram(failed(sent, parts.length), TRANSLATION_TAB)
+    await transport.sendToTelegram(failed(sent, parts.length), TRANSLATION_TAB)
   }
 
   let first: Translation
@@ -298,12 +320,12 @@ function starting(source: Source, parts: number): string {
  * talking about itself, and the reader's language is only known through a model
  * call this path deliberately does not make.
  */
-function nothingToTranslate(command: TranslationCommand): string {
+function nothingToTranslate(command: Command<NewyTopicSlug>): string {
   return [
-    `${escapeMarkdown(command)} needs something to translate.`,
-    `Swipe to reply on an article and send ${escapeMarkdown(command)} on its own, ` +
-    `or type the text after it: \`${command} your text here\`.`,
-    `_${escapeMarkdown(command)} — ${TRANSLATIONS[command].help}_`,
+    `${escapeMarkdown(command.name)} needs something to translate.`,
+    `Swipe to reply on an article and send ${escapeMarkdown(command.name)} on its own, ` +
+    `or type the text after it: \`${command.name} your text here\`.`,
+    `_${escapeMarkdown(command.name)} — ${command.help}_`,
   ].join('\n\n')
 }
 

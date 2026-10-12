@@ -43,7 +43,7 @@ import type { Command } from './command.js'
  * duplicate `/reclient` exists to repair.
  */
 
-export const client: Command<JoobTopicSlug> = {
+export const client = {
   name: '/client',
   description: 'Tell me what you sell and who should buy it',
   help:
@@ -54,23 +54,23 @@ export const client: Command<JoobTopicSlug> = {
     'seed-stage SaaS, English-speaking, no crypto`.',
   working: "Reading that — give me a moment. I'll show you exactly what I understood, and you can correct me then.",
   run: ({ mastra, args }) => addClient(mastra, args),
-}
+} satisfies Command<JoobTopicSlug>
 
-export const clients: Command<JoobTopicSlug> = {
+export const clients = {
   name: '/clients',
   description: 'List who I am currently prospecting for',
   help: 'everything I am currently prospecting for, with the filters for each.',
   usage: '`/clients` — takes no arguments.',
   run: async () => renderProfiles(await allProfiles()),
-}
+} satisfies Command<JoobTopicSlug>
 
-export const unclient: Command<JoobTopicSlug> = {
+export const unclient = {
   name: '/unclient',
   description: 'Stop prospecting for one kind of client',
   help: 'stop prospecting for one of them. Nothing already sent is lost. `/unclient dtc-skincare`.',
   usage: '`/unclient <slug>` — `/clients` lists the slugs.',
   run: ({ args }) => removeClient(args),
-}
+} satisfies Command<JoobTopicSlug>
 
 /**
  * Re-parses an existing profile in place, keeping its slug.
@@ -86,7 +86,7 @@ export const unclient: Command<JoobTopicSlug> = {
  * stored — the backfill case, for a profile written before the parser gained a
  * field.
  */
-export const reclient: Command<JoobTopicSlug> = {
+export const reclient = {
   name: '/reclient',
   description: 'Re-read one client profile, keeping its name',
   help:
@@ -95,7 +95,7 @@ export const reclient: Command<JoobTopicSlug> = {
   usage: '`/reclient <slug> [new wording]` — `/clients` lists the slugs.',
   working: "Re-reading that one — give me a moment. I'll show you what changed.",
   run: ({ mastra, args }) => reread(mastra, args),
-}
+} satisfies Command<JoobTopicSlug>
 
 /** Joob's prospecting commands, in menu order. */
 export const CLIENT_COMMANDS: Command<JoobTopicSlug>[] = [client, clients, unclient, reclient]

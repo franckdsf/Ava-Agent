@@ -1,6 +1,6 @@
 ---
 id: 0013
-applies_to: ["src/services/telegram-reply.ts", "src/services/quoted-article.ts", "src/mastra/commands/article-context.ts"]
+applies_to: ["src/services/telegram-reply.ts", "src/services/quoted-article.ts", "src/mastra/commands/article-context.ts", "src/mastra/quoted-message.ts"]
 status: accepted
 supersedes: []
 ---

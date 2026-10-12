@@ -13,7 +13,7 @@ import type { TelegramTransport } from '../services/telegram.js'
  * ([ADR-0023](../../docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md)).
  *
  * What is *not* here is anything about what an agent does with a message.
- * `withQuotedMessage` stays in `channels.ts` because it resolves an **article**
+ * `withQuotedMessage` is in `quoted-message.ts` because it resolves an **article**
  * from a swipe, which is Newy's alone — Joob will want the job-shaped equivalent
  * and it will not be the same function.
  */

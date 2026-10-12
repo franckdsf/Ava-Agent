@@ -1,12 +1,7 @@
 import type { Mastra } from '@mastra/core'
 import { and, eq, gte } from 'drizzle-orm'
-import {
-  BEAT_COMMANDS,
-  beatCommands,
-  isBeatCommand,
-  type BeatCommand,
-} from '../../config/beat-commands.js'
-import { pipeline } from '../../config/pipeline.js'
+import { NEWY_BOT, type NewyTopicSlug } from '../../bots/newy.js'
+import { beatCommands, pipeline } from '../../config/pipeline.js'
 import {
   articleIdsFromFeed,
   feedPerformance,
@@ -25,23 +20,19 @@ import {
   setBeatArchived,
   type Beat,
 } from '../../db/beats.js'
-import { nameBeat } from '../agents/scout.js'
-import { NEWY_BOT } from '../../bots/newy.js'
 import { db, migrate } from '../../db/client.js'
 import { articleBeats, articles } from '../../db/schema.js'
 import { scopeArxivFeed } from '../../services/arxiv.js'
 import { checkFeed, normalizeFeedUrl, sourceLabel } from '../../services/feed-check.js'
+import { quotedSource } from '../../services/quoted-article.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { setBeatTopicOpen } from '../../services/telegram-topics.js'
-import { quotedSource } from '../../services/quoted-article.js'
-import type { SlashCommandEvent } from './article-context.js'
-import { transportFor } from '../../bots/index.js'
-
-const newyTelegram = transportFor(NEWY_BOT)
+import { nameBeat } from '../agents/scout.js'
+import type { Command } from './command.js'
 
 /**
- * The beat-management commands — `/beats`, `/beat`, `/pause`, `/resume`,
- * `/addfeed`, `/removefeed`, `/why`.
+ * The beat-management commands — `/follow`, `/beats`, `/beat`, `/pause`,
+ * `/resume`, `/addfeed`, `/removefeed`, `/why`.
  *
  * **These are the first commands on this surface that write**, and what they
  * write is configuration: `beats` and `beat_feeds` only. That is the line the
@@ -55,90 +46,103 @@ const newyTelegram = transportFor(NEWY_BOT)
  * ranker fills them in on its own schedule exactly as it does for anything
  * ingest produced.
  *
- * **No model is called by any of these.** They are deterministic handlers over
- * the database, which is deliberate for the write paths: archiving a beat should
- * happen because the reader typed `/pause design`, not because a model read a
- * sentence about being tired of design news and inferred it.
+ * **Only `/follow` calls a model** (to name the beat), and only `/follow` starts
+ * a run. The rest are deterministic handlers over the database, which is
+ * deliberate for the write paths: archiving a beat should happen because the
+ * reader typed `/pause design`, not because a model read a sentence about being
+ * tired of design news and inferred it.
  *
  * Every reply lands in **Chat** — each one is a single short message, which is
  * what that tab is for ([invariant 9](../../../AGENTS.md#invariants)). Only a
  * translation earns its own tab, and only because it is several thousand
  * characters over several messages.
+ *
+ * `description` is Telegram's command menu: a hard 256-character cap, read while
+ * typing, so one short sentence with no markdown. `help` is read in `/start`,
+ * where the reader is sitting still.
  */
 
-const BEAT_TAB = 'chat' as const
+/** The words after the command, split. */
+const words = (args: string) => args.split(/\s+/).filter(Boolean)
 
-export { isBeatCommand }
+const followCommand = {
+  name: '/follow',
+  description: 'Follow a new subject — I find the feeds for it myself',
+  help:
+    'follow a new subject. Say it in any language and I set the beat up and go ' +
+    'looking for feeds. `/follow formula 1`.',
+  usage: '`/follow <subject>` — for example `/follow formula 1` or `/follow cuisine japonaise`.',
+  // The untrimmed text, as it always was: the subject is the reader's sentence.
+  run: ({ mastra, event }) => followSubject(event.text, mastra),
+} satisfies Command<NewyTopicSlug>
 
-/**
- * Runs any beat command end to end.
- *
- * Never throws. A command that fails silently is the bug the catch-all handler
- * in `channels.ts` exists to prevent, so every path here ends in a message —
- * including the unexpected ones, which is what the outer catch is for.
- */
-export async function runBeatCommand(
-  mastra: Mastra,
-  event: SlashCommandEvent,
-  command: BeatCommand,
-): Promise<void> {
-  try {
-    await newyTelegram.sendToTelegram(await beatCommandReply(event, command, mastra), BEAT_TAB)
-  } catch (error) {
-    mastra.getLogger()?.error('Beat command failed', { command, error })
-    await newyTelegram.sendToTelegram(
-      `${escapeMarkdown(command)} failed and nothing was changed. Try again in a moment.`,
-      BEAT_TAB,
-    )
-  }
-}
+const beatsCommand = {
+  name: '/beats',
+  description: 'List the beats I follow and how each one is doing',
+  help: 'the beats I follow, with their feeds and what they did this week.',
+  usage: '`/beats` — takes no arguments.',
+  run: () => listBeats(),
+} satisfies Command<NewyTopicSlug>
 
-/**
- * Produces the reply for a command without sending it.
- *
- * Exported for the reason `renderSummary`, `renderTranslation` and `welcome` are:
- * it is the seam where a message can be checked without Telegram in the loop.
- * Every one of these replies is markdown that Telegram parses server-side, and a
- * block structure that collapses into one run-on line is invisible in code and
- * obvious through `formatConverter.toAst()`.
- *
- * Not pure — it reads the database, and the write commands write it. That is the
- * difference from the render functions, and it means a check of `/pause` really
- * does pause the beat. Point it at a copy, or resume afterwards.
- *
- * `mastra` is needed by `/follow` alone — the only one of these that calls a
- * model and the only one that starts a run. Every other branch ignores it.
- */
-export function beatCommandReply(
-  event: SlashCommandEvent,
-  command: BeatCommand,
-  mastra: Mastra,
-): Promise<string> {
-  const args = event.text.trim().split(/\s+/).filter(Boolean)
-  switch (command) {
-    case '/follow':
-      return follow(event.text, mastra)
-    case '/beats':
-      return listBeats()
-    case '/beat':
-      return showBeat(args[0])
-    case '/pause':
-      return setPaused(args[0], true, mastra)
-    case '/resume':
-      return setPaused(args[0], false, mastra)
-    case '/addfeed':
-      return addFeed(args[0], args[1])
-    case '/removefeed':
-      return removeFeed(args[0], args[1])
-    case '/why':
-      return why(event.raw)
-  }
-}
+const beatCommand = {
+  name: '/beat',
+  description: 'Show one beat in full: its rubric, feeds and thresholds',
+  help: 'one beat in full — its rubric, its feeds, its thresholds. `/beat design`.',
+  usage: '`/beat <slug>` — for example `/beat design`. `/beats` lists the slugs.',
+  run: ({ args }) => showBeat(words(args)[0]),
+} satisfies Command<NewyTopicSlug>
+
+const pauseCommand = {
+  name: '/pause',
+  description: 'Stop a beat from ingesting, ranking and sending',
+  help: 'stop a beat without losing it — nothing is deleted. `/pause design`.',
+  usage: '`/pause <slug>` — for example `/pause design`.',
+  run: ({ mastra, args }) => setPaused(words(args)[0], true, mastra),
+} satisfies Command<NewyTopicSlug>
+
+const resumeCommand = {
+  name: '/resume',
+  description: 'Start a paused beat again',
+  help: 'start a paused beat again. `/resume design`.',
+  usage: '`/resume <slug>` — for example `/resume design`.',
+  run: ({ mastra, args }) => setPaused(words(args)[0], false, mastra),
+} satisfies Command<NewyTopicSlug>
+
+const addfeedCommand = {
+  name: '/addfeed',
+  description: 'Add an RSS feed to a beat, checking it works first',
+  help: 'add an RSS feed to a beat. I check it before saving it. `/addfeed design <url>`.',
+  usage: '`/addfeed <slug> <url>` — for example `/addfeed design https://example.com/feed.xml`.',
+  run: ({ args }) => addFeed(words(args)[0], words(args)[1]),
+} satisfies Command<NewyTopicSlug>
+
+const removefeedCommand = {
+  name: '/removefeed',
+  description: 'Stop a beat pulling from one of its feeds',
+  help: 'stop a beat pulling from a feed. Its old articles stay. `/removefeed design <url>`.',
+  usage: '`/removefeed <slug> <url>` — `/beat <slug>` lists the URLs.',
+  run: ({ args }) => removeFeed(words(args)[0], words(args)[1]),
+} satisfies Command<NewyTopicSlug>
+
+const whyCommand = {
+  name: '/why',
+  description: 'Explain how an article was scored, and why it was or was not sent',
+  help: 'swipe an article and ask why it was sent — or why it was not.',
+  usage: '`/why` — swipe to reply on an article and send it on its own.',
+  run: ({ event }) => explain(event.raw),
+} satisfies Command<NewyTopicSlug>
+
+/** Newy's beat commands, in menu order. */
+export const BEAT_COMMANDS: Command<NewyTopicSlug>[] = [
+  followCommand, beatsCommand, beatCommand, pauseCommand, resumeCommand, addfeedCommand, removefeedCommand, whyCommand,
+]
+
+type BeatCommand = { name: string; usage: string }
 
 /* ─────────────────────────────── shared bits ──────────────────────────────── */
 
 function usage(command: BeatCommand, problem: string): string {
-  return [`${problem}`, BEAT_COMMANDS[command].usage].join('\n\n')
+  return [`${problem}`, command.usage].join('\n\n')
 }
 
 /** Resolves a slug the reader typed, or explains why it didn't resolve. */
@@ -146,7 +150,7 @@ async function resolveSlug(
   command: BeatCommand,
   slug: string | undefined,
 ): Promise<Beat | string> {
-  if (!slug) return usage(command, `${escapeMarkdown(command)} needs a beat slug.`)
+  if (!slug) return usage(command, `${escapeMarkdown(command.name)} needs a beat slug.`)
   if (!beatCommands.slugPattern.test(slug)) {
     return usage(command, `\`${escapeMarkdown(slug)}\` isn't shaped like a beat slug.`)
   }
@@ -206,14 +210,14 @@ async function beatStats(slug: string) {
  * not, one message carrying "starting" and "here are seven feeds" reads like a
  * form rather than a reply.
  */
-async function follow(rawSubject: string, mastra: Mastra): Promise<string> {
+async function followSubject(rawSubject: string, mastra: Mastra): Promise<string> {
   const subject = rawSubject.trim().replace(/\s+/g, ' ')
   if (!subject) {
-    return usage('/follow', `${escapeMarkdown('/follow')} needs a subject to follow.`)
+    return usage(followCommand, `${escapeMarkdown('/follow')} needs a subject to follow.`)
   }
   if (subject.length > beatCommands.subjectMaxChars) {
     return usage(
-      '/follow',
+      followCommand,
       `That's a lot to follow at once — keep it under ${beatCommands.subjectMaxChars} characters.`,
     )
   }
@@ -327,7 +331,7 @@ async function listBeats(): Promise<string> {
 /* ─────────────────────────────────── /beat ─────────────────────────────────── */
 
 async function showBeat(slug: string | undefined): Promise<string> {
-  const beat = await resolveSlug('/beat', slug)
+  const beat = await resolveSlug(beatCommand, slug)
   if (typeof beat === 'string') return beat
 
   const feeds = await feedsForBeats([beat.slug])
@@ -397,7 +401,7 @@ async function setPaused(
   paused: boolean,
   mastra: Mastra,
 ): Promise<string> {
-  const command: BeatCommand = paused ? '/pause' : '/resume'
+  const command: BeatCommand = paused ? pauseCommand : resumeCommand
   const beat = await resolveSlug(command, slug)
   if (typeof beat === 'string') return beat
 
@@ -463,13 +467,13 @@ function pausedTabNote(tab: 'changed' | 'no-tab' | 'unsupported' | 'failed'): st
 /* ──────────────────────────── /addfeed · /removefeed ───────────────────────── */
 
 async function addFeed(slug: string | undefined, rawUrl: string | undefined): Promise<string> {
-  const beat = await resolveSlug('/addfeed', slug)
+  const beat = await resolveSlug(addfeedCommand, slug)
   if (typeof beat === 'string') return beat
-  if (!rawUrl) return usage('/addfeed', `${escapeMarkdown('/addfeed')} needs a feed URL.`)
+  if (!rawUrl) return usage(addfeedCommand, `${escapeMarkdown('/addfeed')} needs a feed URL.`)
 
   const url = normalizeFeedUrl(rawUrl)
   if (!url) {
-    return usage('/addfeed', `\`${escapeMarkdown(rawUrl)}\` isn't a valid http(s) URL.`)
+    return usage(addfeedCommand, `\`${escapeMarkdown(rawUrl)}\` isn't a valid http(s) URL.`)
   }
 
   const existing = await feedsForBeats([beat.slug])
@@ -542,9 +546,9 @@ async function addFeed(slug: string | undefined, rawUrl: string | undefined): Pr
 }
 
 async function removeFeed(slug: string | undefined, rawUrl: string | undefined): Promise<string> {
-  const beat = await resolveSlug('/removefeed', slug)
+  const beat = await resolveSlug(removefeedCommand, slug)
   if (typeof beat === 'string') return beat
-  if (!rawUrl) return usage('/removefeed', `${escapeMarkdown('/removefeed')} needs a feed URL.`)
+  if (!rawUrl) return usage(removefeedCommand, `${escapeMarkdown('/removefeed')} needs a feed URL.`)
 
   const url = normalizeFeedUrl(rawUrl) ?? rawUrl
   const removed = await removeBeatFeed(beat.slug, url)
@@ -572,11 +576,11 @@ async function removeFeed(slug: string | undefined, rawUrl: string | undefined):
  * `article_beats` there was no way to read one — a single score column meant a
  * rejected article's reason was overwritten by whichever beat looked at it last.
  */
-async function why(raw: unknown): Promise<string> {
+async function explain(raw: unknown): Promise<string> {
   const quoted = await quotedSource(raw)
   if (!quoted?.article) {
     return usage(
-      '/why',
+      whyCommand,
       quoted
         ? "I can't match that message to a stored article."
         : '`/why` needs an article to talk about.',

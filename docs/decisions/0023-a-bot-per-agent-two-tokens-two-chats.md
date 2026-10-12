@@ -1,6 +1,6 @@
 ---
 id: 0023
-applies_to: ["src/bots/**", "src/services/telegram.ts", "src/mastra/channels.ts", "src/mastra/registrar.ts"]
+applies_to: ["src/bots/**", "src/services/telegram.ts", "src/mastra/agents/chat-agent.ts", "src/mastra/registrar.ts"]
 status: amended
 supersedes: []
 verify: "pnpm telegram:check"

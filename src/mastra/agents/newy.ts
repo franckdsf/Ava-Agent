@@ -1,140 +1,40 @@
-import { createTelegramAdapter } from '@chat-adapter/telegram'
-import { Agent } from '@mastra/core/agent'
-import type { AgentChannels } from '@mastra/core/channels'
-import { Memory } from '@mastra/memory'
-import { NEWY_BOT } from '../../bots/newy.js'
-import { env, telegramChannelEnv } from '../../config/env.js'
-import { NEWY_TOPICS } from '../../bots/newy.js'
+import { NEWY_BOT, NEWY_TOPICS } from '../../bots/newy.js'
 import { pipeline } from '../../config/pipeline.js'
-import { NEWY_SURFACE, withQuotedMessage } from '../channels.js'
-import { routeToChatTab } from '../chat-surface.js'
+import { NEWY_SURFACE } from '../commands/newy.js'
+import { withQuotedMessage } from '../quoted-message.js'
 import { newsTools } from '../tools/news.js'
 import { beatTools } from '../tools/beats.js'
 import { imageTools } from '../tools/image.js'
 import { memoryTools } from '../tools/memory.js'
 import { videoTools } from '../tools/youtube.js'
 import { beatInstructions } from './beats.js'
+import { createChatAgent } from './chat-agent.js'
 import { memoryInstructions } from './memory.js'
 
 /**
  * Newy — the conversational half. This is the agent behind the "Chat" tab.
  *
- * It owns the only inbound path *for Newy's token*. `src/services/telegram.ts`
- * stays outbound-only and never initializes a `ChatInstance`; the adapter
- * registered here is the one that polls this bot. Another agent polling its own
- * token is fine and is what Joob does — two adapters sharing *one* token share a
- * `getUpdates` offset and consume each other's updates, which is the whole of
- * [invariant 7](../../../AGENTS.md#invariants)
- * ([ADR-0023](../../../docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md)).
- *
- * The handlers in `channels.ts` scope her to the Chat tab and pick up the
- * slash commands the adapter would otherwise swallow — see
- * [ADR-0010](../../../docs/decisions/0010-ava-answers-only-in-the-chat-tab.md).
- *
- * `mode: 'polling'` rather than `'auto'` is deliberate and load-bearing:
- * verified in the compiled adapter, `initialize()` calls `startPolling()` itself
- * when the resolved mode is polling, so nothing here starts it. `'auto'` probes
- * `getWebhookInfo` and falls back to *webhook* mode when it can't verify — which
- * would silently need a public URL and break
- * [invariant 1](../../../AGENTS.md#invariants).
+ * Built by `createChatAgent`, which owns what every talking agent shares — its
+ * own token polled in `mode: 'polling'`, memory, and routing to its chat tab
+ * ([invariant 7](../../../AGENTS.md#invariants),
+ * [ADR-0010](../../../docs/decisions/0010-ava-answers-only-in-the-chat-tab.md));
+ * `registrar.ts` picks up the slash commands the adapter would otherwise swallow.
+ * This file is what is Newy's: her prompt, her tools, and the swipe-to-reply note
+ * she puts in front of a message.
  */
 
-export const newyId = 'newy'
+export const newyId = NEWY_BOT.id
 
-/**
- * No channel at all when Telegram is unconfigured, rather than an adapter that
- * throws on construction. Newy stays usable in Studio either way; only the
- * Telegram surface disappears.
- */
-const channel = telegramChannelEnv(NEWY_BOT)
-
-/**
- * Newy's own channels, assigned right after she is constructed.
- *
- * The tab router needs the live Chat SDK instance, which hangs off the agent —
- * but reading `newy.getChannels()` from inside `newy`'s own config makes her type
- * circular and TypeScript infers `any` for the whole agent. One indirection
- * costs nothing: the getter runs per message, long after this line.
- */
-let newyChannels: AgentChannels | null = null
-
-/**
- * Quote first, then route. The two are independent — one edits the message, the
- * other swaps the thread — but this order means a reply typed in the News tab
- * still arrives carrying what it replied to, which is the common case: the
- * digest is in News and that is where the reader is when they swipe.
- */
-const toChatTab = withQuotedMessage(routeToChatTab(NEWY_SURFACE, () => newyChannels))
-
-export const newy = new Agent({
-  id: newyId,
+export const newy = createChatAgent(NEWY_SURFACE, {
   name: 'Newy',
-  model: env.AVA_MODEL_ORCHESTRATOR,
   tools: { ...newsTools, ...beatTools, ...imageTools, ...memoryTools, ...videoTools },
-  // Conversation history per Telegram thread. The adapter encodes the topic
-  // into its thread id, so memory is partitioned by tab — and since the router
-  // below moves every inbound message onto the Chat tab's thread, that is the
-  // one conversation, whichever tab the reader typed in.
-  memory: new Memory({
-    options: {
-      lastMessages: 30,
-    },
-  }),
-  ...(channel
-    ? {
-      channels: {
-        adapters: {
-          telegram: {
-            adapter: createTelegramAdapter({
-              botToken: channel.botToken,
-              allowedUserIds: channel.allowedUserIds,
-              mode: 'polling',
-            }),
-            /**
-             * Stream the reply instead of posting it once at the end.
-             *
-             * `streaming` defaults to false for every adapter except Slack,
-             * and the orchestrator model takes ~25s over three round trips on
-             * a question that hits a tool — so the reader watched an empty
-             * chat for most of that. Worse, the typing indicator doesn't
-             * cover it: the adapter sends `sendChatAction` once, Telegram
-             * expires it after ~5s, and Mastra only re-sends when the status
-             * *string* changes, which it doesn't while the model is thinking.
-             *
-             * The adapter streams through Telegram's draft API
-             * (`sendRichMessageDraft`, throttled to one call per 250ms) and
-             * posts a single real message at the end, so this costs drafts,
-             * not a message edit per chunk. It is a no-op for a supergroup —
-             * `stream()` returns null unless `isDM`, i.e. a positive chat id.
-             */
-            streaming: true,
-            /**
-             * Tool calls stay out of the chat. `'cards'` is the default and
-             * was kept deliberately while the conversational surface was being
-             * calibrated — seeing `searchNews` return `{"articles": []}` in the
-             * chat is how the search bug was spotted at all — but that was a
-             * debugging affordance shown to a reader, and it stopped earning
-             * its noise once the tools settled.
-             *
-             * It hides the display, not the call: the model still searches and
-             * reads, and its answer is unchanged. Turn it back to `'cards'` for
-             * a session when a reply looks like it answered from the wrong tool.
-             */
-            toolDisplay: 'hidden',
-          },
-        },
-        // Every inbound path answers in the Chat tab, never where it was
-        // typed. All three are wired because which one fires depends on the
-        // chat type: a private chat is a DM, a supergroup needs a mention or
-        // a subscription.
-        handlers: {
-          onDirectMessage: toChatTab,
-          onMention: toChatTab,
-          onSubscribedMessage: toChatTab,
-        },
-      },
-    }
-    : {}),
+  /**
+   * Quote first, then route. The two are independent — one edits the message, the
+   * other swaps the thread — but this order means a reply typed in the News tab
+   * still arrives carrying what it replied to, which is the common case: the
+   * digest is in News and that is where the reader is when they swipe.
+   */
+  inbound: withQuotedMessage,
   /**
    * Rebuilt on every turn, because half of it is what she currently knows about
    * the reader — see [ADR-0014](../../../docs/decisions/0014-two-tier-memory-for-ava.md).
@@ -157,31 +57,6 @@ export const newy = new Agent({
       { role: 'system' as const, content: baseInstructions },
       { role: 'system' as const, content: `${beats}\n\n${notes}` },
     ]
-  },
-  /**
-   * On the agent, not on `instructions` — a `providerOptions` block written
-   * there is dropped before the request is built, so it reaches nothing. That is
-   * also why the two system messages above survived: they only had to become one
-   * concatenated string to carry a block that was never going to be read.
-   *
-   * `sort: 'price'` sends each request to the cheapest endpoint first, and
-   * `allow_fallbacks` moves on to the next one when it fails. Reasoning is high because this is the surface a person
-   * is talking to and a wrong answer costs more than a slow one — measured at
-   * 41 reasoning tokens against 32 with the field absent on `minimax-m3`, so it
-   * was close to free there; not yet re-measured on `deepseek-v4.1-flash`. It does not fix the truncated-reply gotcha below; nothing in this
-   * block does.
-   */
-  defaultOptions: {
-    providerOptions: {
-      openrouter: {
-        reasoning: { effort: 'high' },
-        provider: {
-          sort: 'price',
-          allow_fallbacks: true,
-          require_parameters: false,
-        },
-      },
-    },
   },
 })
 
@@ -440,5 +315,3 @@ Tone. You are their assistant, not their friend:
 Outside the news you are an ordinary capable assistant: answer directly, admit
 what you don't know, and skip the flattery.
 `.trim()
-
-newyChannels = newy.getChannels()

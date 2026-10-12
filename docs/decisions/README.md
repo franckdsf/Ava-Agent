@@ -19,7 +19,7 @@ something looks the way it does.
 | # | Decision | Status | Governs | Verify |
 | --- | --- | --- | --- | --- |
 | [0001](0001-mastra-in-a-container-with-no-inbound-ports.md) | Mastra in a container with no inbound ports | Accepted | `docker-compose.yml`, `Dockerfile`, `src/mastra/index.ts` | — |
-| [0002](0002-telegram-via-chat-sdk-adapter-in-polling-mode.md) | Telegram via Chat SDK adapter in polling mode | Accepted | `src/mastra/channels.ts`, `src/services/telegram.ts` | `pnpm telegram:check` |
+| [0002](0002-telegram-via-chat-sdk-adapter-in-polling-mode.md) | Telegram via Chat SDK adapter in polling mode | Accepted | `src/mastra/agents/chat-agent.ts`, `src/services/telegram.ts` | `pnpm telegram:check` |
 | [0003](0003-convex-for-storage-and-scheduling.md) | Convex for storage and scheduling | Superseded by [0005](0005-two-libsql-databases-instead-of-convex.md) | — | — |
 | [0004](0004-native-mastra-schedules-over-a-job-queue.md) | Native Mastra schedules over a job queue | Accepted | `src/mastra/index.ts`, `src/mastra/workflows/**` | — |
 | [0005](0005-two-libsql-databases-instead-of-convex.md) | Two libSQL databases instead of Convex | Accepted (amended 2026-10-02) | `src/db/client.ts`, `src/mastra/storage.ts`, `docker-compose.yml` | — |
@@ -27,10 +27,10 @@ something looks the way it does.
 | [0007](0007-lexical-clustering-instead-of-embeddings.md) | Lexical clustering instead of embeddings | Accepted | `src/services/cluster.ts`, `src/config/pipeline.ts` | — |
 | [0008](0008-categories-as-configuration.md) | Categories as configuration, one parameterized curator | Partly superseded by [0019](0019-beats-as-reader-owned-data.md) | `src/mastra/agents/curator.ts`, `src/mastra/workflows/curate-all.ts` | — |
 | [0009](0009-telegram-topics-as-tabs.md) | Telegram topics as tabs, splitting chat from news | Partly superseded by [0021](0021-a-tab-per-beat.md) | `src/services/telegram*.ts`, `src/config/topics.ts` | `pnpm telegram:check` |
-| [0010](0010-ava-answers-only-in-the-chat-tab.md) | Ava answers only in the Chat tab | Accepted | `src/mastra/channels.ts`, `src/mastra/chat-surface.ts` | — |
+| [0010](0010-ava-answers-only-in-the-chat-tab.md) | Ava answers only in the Chat tab | Accepted | `src/mastra/agents/chat-agent.ts`, `src/mastra/chat-surface.ts` | — |
 | [0011](0011-fts5-for-article-search.md) | FTS5 for article search, not embeddings | Accepted | `src/db/schema.ts`, `src/mastra/tools/news.ts`, `drizzle/**` | `pnpm db:generate` |
 | [0012](0012-thirty-day-retention-on-items.md) | Thirty-day retention on items, enforced by a scheduled prune | Accepted | `src/mastra/workflows/prune-articles.ts`, `src/config/pipeline.ts` | — |
-| [0013](0013-swipe-to-reply-as-article-context.md) | Swipe-to-reply resolves the article, with no table | Accepted | `src/services/telegram-reply.ts`, `src/services/quoted-article.ts` | — |
+| [0013](0013-swipe-to-reply-as-article-context.md) | Swipe-to-reply resolves the article, with no table | Accepted | `src/services/telegram-reply.ts`, `src/services/quoted-article.ts`, `src/mastra/quoted-message.ts` | — |
 | [0014](0014-two-tier-memory-for-ava.md) | Two-tier memory, dated and never rewritten | Accepted | `src/db/memories.ts`, `src/mastra/tools/memory.ts`, `src/config/memory.ts` | — |
 | [0015](0015-weekly-memory-review.md) | A weekly model-judged review promotes memories, then expires them | Accepted | `src/mastra/workflows/review-memories.ts`, `src/config/memory.ts` | — |
 | [0016](0016-reader-notes-in-the-ranker.md) | The ranker reads Ava's notes about the reader | Accepted | `src/mastra/workflows/curate-all.ts`, `src/db/memories.ts` | — |
@@ -40,7 +40,7 @@ something looks the way it does.
 | [0020](0020-feed-discovery-from-a-subject.md) | `/follow <subject>` — the model proposes sites, the code finds the feeds | Accepted | `src/mastra/workflows/discover-feeds.ts`, `src/config/discovery.ts` | `pnpm discovery:check` |
 | [0021](0021-a-tab-per-beat.md) | A tab per beat, created on first delivery | Accepted | `src/services/telegram-topics.ts`, `src/db/topics.ts` | `pnpm telegram:check` |
 | [0022](0022-ava-is-the-system-agents-have-names.md) | Ava is the system, and agents have their own names | Accepted | everything (`**`) | — |
-| [0023](0023-a-bot-per-agent-two-tokens-two-chats.md) | A bot per agent — two tokens, two chats, one process | Variables amended by [0041](0041-one-deployment-one-reader.md) | `src/bots/`, `src/services/telegram.ts`, `src/mastra/*channels.ts` | `pnpm telegram:check` |
+| [0023](0023-a-bot-per-agent-two-tokens-two-chats.md) | A bot per agent — two tokens, two chats, one process | Variables amended by [0041](0041-one-deployment-one-reader.md) | `src/bots/`, `src/services/telegram.ts`, `src/mastra/agents/chat-agent.ts`, `src/mastra/registrar.ts` | `pnpm telegram:check` |
 | [0024](0024-joob-a-job-pipeline-beside-the-news-one.md) | Joob — a job pipeline beside the news one, sharing everything but the tables | Accepted (amended 2026-08-23) | `src/mastra/workflows/find-jobs.ts`, `src/config/jobs.ts` | `pnpm jobs:check` |
 | [0025](0025-a-boot-catch-up-for-a-stale-pipeline.md) | A boot fires a pipeline that has stopped running, on its own cadence | Partly superseded by [0045](0045-one-run-log-for-every-pipeline.md) | `src/mastra/boot-catchup.ts`, `src/config/catchup.ts` | `pnpm catchup:check` |
 | [0026](0026-sonar-as-a-job-source.md) | Sonar as a job source, keyed on the page it resolves | Extended by [0040](0040-a-careers-page-with-nothing-on-it-is-a-lead.md) | `src/services/job-scout.ts`, `src/mastra/agents/job-scout.ts` | `pnpm sonar:check` |

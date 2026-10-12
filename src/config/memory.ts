@@ -7,6 +7,16 @@
  */
 export const memoryConfig = {
   /**
+   * How many recent messages of the conversation every talking agent is handed
+   * each turn — the thread history, as distinct from the notes below.
+   *
+   * **Unmeasured.** Set in the first version (40e9885) and never revisited; it is
+   * here so the one copy has a name, not because 30 was chosen against anything.
+   * The cost of raising it is prompt size on every turn of every conversation.
+   */
+  conversationMessages: 30,
+
+  /**
    * How long a short-term memory stays in Newy's instructions, measured from when
    * it was recorded.
    *

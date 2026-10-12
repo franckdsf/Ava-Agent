@@ -1,5 +1,5 @@
 ---
-applies_to: ["src/services/**", "src/mastra/commands/**", "src/config/**"]
+applies_to: ["src/services/**", "src/mastra/commands/**", "src/mastra/registrar.ts", "src/config/**"]
 ---
 
 # Telegram
@@ -16,7 +16,7 @@ Gotchas. The routing table is [README.md](README.md).
 - **A leading `/` never reaches the agent.** The adapter routes any message
   whose first entity is a `bot_command` to `processSlashCommand` and skips the
   message path entirely — and with no handler registered, the Chat SDK drops it
-  without a trace. `/start` did nothing for a while. `src/mastra/channels.ts`
+  without a trace. `/start` did nothing for a while. `src/mastra/registrar.ts`
   registers a *catch-all* so no command can be swallowed again.
 
 - **On an inbound message, `formatted` beats `text`.** Mastra builds the model's

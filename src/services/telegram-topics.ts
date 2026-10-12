@@ -66,7 +66,7 @@ async function callBotApi<T>(
  *
  * Straight to the Bot API for the reason topic lifecycle is: the adapter wraps
  * no `setMyCommands`. It is not the same thing as *handling* a command, which
- * `channels.ts` does with a catch-all; this only decides what is offered. A
+ * `registrar.ts` does with a catch-all; this only decides what is offered. A
  * command absent from here still works when typed.
  *
  * Pushed on every boot rather than once, because it is a full replacement and

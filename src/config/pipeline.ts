@@ -229,3 +229,33 @@ export function minDigestGapHours(hours: readonly number[] = pipeline.digestHour
   )
   return Math.min(...gaps)
 }
+
+/** The limits on the beat commands, and on the scout that names a beat. */
+export const beatCommands = {
+  /**
+   * How far back `/beats` and `/beat` count when reporting what a beat has done.
+   *
+   * A week, so the answer covers a normal reading rhythm and a quiet weekend
+   * doesn't read as a broken beat.
+   */
+  statsDays: 7,
+
+  /** Feeds listed inline by `/beat` before it stops and says how many are left. */
+  maxFeedsShown: 20,
+
+  /**
+   * A slug, as the reader may type it. Same shape the seeds use — lowercase,
+   * hyphenated — checked here so a typo is answered rather than looked up.
+   */
+  slugPattern: /^[a-z0-9][a-z0-9-]{0,47}$/,
+
+  /**
+   * Longest subject `/follow` accepts.
+   *
+   * Generous enough for a sentence in any language, short enough that a pasted
+   * article does not become a search query. The namer is cheap, but the *scout*
+   * searches the open web, and a 2000-character "subject" produces eight sites
+   * about nothing in particular.
+   */
+  subjectMaxChars: 200,
+} as const

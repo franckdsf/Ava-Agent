@@ -1,6 +1,6 @@
 ---
 id: 0002
-applies_to: ["src/mastra/channels.ts", "src/mastra/registrar.ts", "src/services/telegram.ts"]
+applies_to: ["src/mastra/agents/chat-agent.ts", "src/mastra/registrar.ts", "src/services/telegram.ts"]
 status: accepted
 supersedes: []
 verify: "pnpm telegram:check"

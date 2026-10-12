@@ -3,6 +3,7 @@ import { Agent, type AgentConfig } from '@mastra/core/agent'
 import type { AgentChannels, ChannelHandler } from '@mastra/core/channels'
 import { Memory } from '@mastra/memory'
 import { env, telegramChannelEnv } from '../../config/env.js'
+import { memoryConfig } from '../../config/memory.js'
 import { routeToChatTab, type ChatSurface } from '../chat-surface.js'
 
 /**
@@ -36,8 +37,9 @@ export interface ChatAgentSpec {
  * **It polls its own token, in `mode: 'polling'`.** Two adapters on one token would share a
  * `getUpdates` offset and eat each other's updates; one agent per bot is
  * [invariant 7](../../../AGENTS.md#invariants). `'auto'` falls back to *webhook* when it cannot
- * verify `getWebhookInfo`, which silently breaks invariant 1. Every conversational agent's adapter
- * is built here, so the rule is held in one place.
+ * verify `getWebhookInfo`, which silently breaks invariant 1. Nothing here starts polling: verified
+ * in the compiled adapter, `initialize()` calls `startPolling()` itself when the resolved mode is
+ * polling. Every conversational agent's adapter is built here, so the rule is held in one place.
  *
  * **No channel at all when the bot's token is unset**, rather than an adapter that throws on
  * construction. That is the normal state for a bot until it is provisioned in BotFather, and it
@@ -66,7 +68,7 @@ export function createChatAgent<Slug extends string>(surface: ChatSurface<Slug>,
     // chat tab's thread, that is the one conversation, whichever tab the reader typed in.
     memory: new Memory({
       options: {
-        lastMessages: 30,
+        lastMessages: memoryConfig.conversationMessages,
       },
     }),
     ...(channel

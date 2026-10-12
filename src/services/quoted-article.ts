@@ -7,7 +7,7 @@ import { type QuotedMessage, quotedMessage } from './telegram-reply.js'
  * What a reader pointed at with a swipe-to-reply: the message itself, and the
  * stored article it turns out to be — if it is one.
  *
- * Split out of `src/mastra/channels.ts` when a second caller appeared. Two
+ * Split out of Newy's inbound handler when a second caller appeared. Two
  * inbound paths need this exact pair and they must not answer it differently: a
  * reader who swipes a digest and asks a question, and a reader who swipes the
  * same digest and types `/translate`, are pointing at the same thing. The

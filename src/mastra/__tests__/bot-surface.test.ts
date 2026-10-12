@@ -3,8 +3,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { JOOB_BOT } from '../../bots/joob.js'
 import { NEWY_BOT } from '../../bots/newy.js'
 import { seedBeats } from '../../db/beats.js'
-import * as newy from '../channels.js'
 import { JOOB_SURFACE } from '../commands/joob.js'
+import { NEWY_SURFACE } from '../commands/newy.js'
 import { commandMenu, unknown } from '../registrar.js'
 
 // What each bot shows a reader before any conversation: the `/` menu, `/start`, the reply to a
@@ -13,7 +13,7 @@ import { commandMenu, unknown } from '../registrar.js'
 // one bot definition: the call sites below change with that refactor, the snapshot does not.
 //
 // The menu, `/start` and the unknown reply are three renderings of one command list. Before the
-// refactor they agree by convention (`channels.ts` says so in comments); after it, by construction.
+// refactor they agree by convention (the two registrars said so in comments); after it, by construction.
 // The snapshot is what proves the construction reproduces what the convention produced.
 
 beforeAll(async () => {
@@ -26,13 +26,13 @@ describe('Newy', () => {
     expect(NEWY_BOT).toMatchSnapshot()
   })
   it('the / menu', () => {
-    expect(newy.commandMenu()).toMatchSnapshot()
+    expect(commandMenu(NEWY_SURFACE)).toMatchSnapshot()
   })
   it('/start', async () => {
-    expect(await newy.welcome()).toMatchSnapshot()
+    expect(await NEWY_SURFACE.welcome(NEWY_SURFACE)).toMatchSnapshot()
   })
   it('an unknown command', () => {
-    expect(newy.unknown('/nope')).toMatchSnapshot()
+    expect(unknown(NEWY_SURFACE, '/nope')).toMatchSnapshot()
   })
 })
 

@@ -1,7 +1,7 @@
 import type { Mastra } from '@mastra/core'
 import { Agent } from '@mastra/core/agent'
 import { z } from 'zod'
-import { beatCommands } from '../../config/beat-commands.js'
+import { beatCommands } from '../../config/pipeline.js'
 import { buildRubric, discovery } from '../../config/discovery.js'
 import { env } from '../../config/env.js'
 

@@ -1,17 +1,13 @@
-import type { Mastra } from '@mastra/core'
+import type { NewyTopicSlug } from '../../bots/newy.js'
 import { summary } from '../../config/summary.js'
 import { escapeMarkdown } from '../../services/telegram.js'
 import { summarizeSource } from '../agents/summarizer.js'
 import {
   articleHeading,
   quotedArticleSource,
-  type SlashCommandEvent,
   type Source,
 } from './article-context.js'
-import { transportFor } from '../../bots/index.js'
-import { NEWY_BOT } from '../../bots/newy.js'
-
-const newyTelegram = transportFor(NEWY_BOT)
+import type { Command, CommandContext } from './command.js'
 
 /**
  * `/summarize [language]` — the swiped article explained at length.
@@ -49,31 +45,39 @@ const newyTelegram = transportFor(NEWY_BOT)
  */
 const SUMMARY_TAB = 'chat' as const
 
-/** True when this is the summary command. */
-export function isSummaryCommand(command: string): command is typeof summary.command {
-  return command === summary.command
-}
+export const summarize = {
+  name: summary.command,
+  description: 'Summarize the article you swiped, in any language',
+  help:
+    'a detailed summary of the article. In English by default — add a language ' +
+    'to get it in that one: `/summarize fr`.',
+  // Sends its own messages — an acknowledgement, then the summary — and catches
+  // its own failure, which has a wording of its own.
+  run: async ctx => {
+    await runSummary(ctx)
+  },
+} satisfies Command<NewyTopicSlug>
 
 /**
  * Runs `/summarize` end to end.
  *
- * Never throws. A command that fails silently is the bug the catch-all handler
- * in `channels.ts` exists to prevent, so every path here ends in a message.
+ * Never throws on a model failure — that has its own message below. Anything
+ * else is caught by `runCommand`, so every path ends in a message.
  */
-export async function runSummary(mastra: Mastra, event: SlashCommandEvent): Promise<void> {
-  const requested = event.text.trim()
+async function runSummary({ mastra, event, transport, args }: CommandContext<NewyTopicSlug>): Promise<void> {
+  const requested = args
   if (requested && !summary.languageArgument.test(requested)) {
-    await newyTelegram.sendToTelegram(notALanguage(requested), SUMMARY_TAB)
+    await transport.sendToTelegram(notALanguage(requested), SUMMARY_TAB)
     return
   }
 
   const source = await quotedArticleSource(event.raw, summary.maxSourceChars)
   if (!source) {
-    await newyTelegram.sendToTelegram(nothingToSummarize(), SUMMARY_TAB)
+    await transport.sendToTelegram(nothingToSummarize(), SUMMARY_TAB)
     return
   }
 
-  await newyTelegram.sendToTelegram(starting(source, requested), SUMMARY_TAB)
+  await transport.sendToTelegram(starting(source, requested), SUMMARY_TAB)
 
   try {
     const result = await summarizeSource(mastra, {
@@ -81,10 +85,10 @@ export async function runSummary(mastra: Mastra, event: SlashCommandEvent): Prom
       language: requested || summary.defaultLanguage,
       kind: 'article',
     })
-    await newyTelegram.sendToTelegram(renderSummary(source, result.paragraphs, result.language), SUMMARY_TAB)
+    await transport.sendToTelegram(renderSummary(source, result.paragraphs, result.language), SUMMARY_TAB)
   } catch (error) {
     mastra.getLogger()?.error('Summary failed', { language: requested || null, error })
-    await newyTelegram.sendToTelegram(failed(), SUMMARY_TAB)
+    await transport.sendToTelegram(failed(), SUMMARY_TAB)
   }
 }
 
@@ -167,7 +171,7 @@ function nothingToSummarize(): string {
     `${escapeMarkdown(summary.command)} needs an article to work on.`,
     `Swipe to reply on an article and send ${escapeMarkdown(summary.command)} on its own for ` +
       `${summary.defaultLanguage}, or name a language after it: \`${summary.command} fr\`.`,
-    `_${escapeMarkdown(summary.command)} — ${summary.help}_`,
+    `_${escapeMarkdown(summary.command)} — ${summarize.help}_`,
   ].join('\n\n')
 }
 
