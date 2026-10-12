@@ -350,7 +350,7 @@ const RAW_DEBRIS = /a\]:hidden|<\/?[a-z][^>]*>|\{[^}]*:[^}]*\}/i
  * this good" — a mediocre translation is the reader's to judge, and spending a
  * second call on one that is merely thin would double the wait for no gain.
  */
-function isDegenerate(result: Translation, definition: TranslationDefinition): boolean {
+export function isDegenerate(result: Translation, definition: TranslationDefinition): boolean {
   const joined = result.paragraphs.join(' ')
   if (!joined.trim()) return false // A part that was pure page furniture. Correct, not failed.
   if (RAW_DEBRIS.test(joined)) return true

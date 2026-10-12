@@ -19,7 +19,7 @@ costed table.
 ## 1. Problem
 
 **What is broken or missing.** `src/config/env.ts` carries 17 `AVA_MODEL_*` knobs. Two of them —
-translator and summarizer — have a re-runnable bench (`pnpm models:check`), and that bench cannot
+translator and summarizer — have a re-runnable bench (`models:check`, deleted in slice 3), and that bench cannot
 rank two models that both work: it says so itself and hands the call to a human reading
 transcripts. Every other measurement in `env.ts` was a one-off script that no longer exists, so
 when a new model ships, nothing can say whether it beats the incumbent on *this* reader's ranker,
@@ -34,7 +34,7 @@ scorer or writer.
 - The incumbent is always in the field, so every table answers "better than what runs now?".
 - Re-running the same field on the same fixtures puts the same entrant first in ≥ 2 of 3 runs. If
   it does not, the task is inside its noise floor and the table says so rather than naming a winner.
-- `pnpm models:check` is gone and `pnpm bench translator` / `pnpm bench summarizer` report at least
+- `models:check` is gone and `pnpm bench translator` / `pnpm bench summarizer` report at least
   what it did.
 
 **Which invariant this sits closest to.** **8** — the bench calls the real functions a workflow

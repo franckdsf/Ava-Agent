@@ -14,7 +14,7 @@ import { Agent } from '@mastra/core/agent'
 import { z } from 'zod'
 import { bench } from '../../src/config/bench.js'
 import { env } from '../../src/config/env.js'
-import { clone, reportedCost, type Call, type Candidate, type Effort } from './clone.js'
+import { clone, reportedCost, type Call, type Candidate, type Effort, type Sort } from './clone.js'
 
 export type ModelKnob = Extract<keyof typeof env, `AVA_MODEL_${string}`>
 
@@ -54,6 +54,8 @@ export interface BenchTask<Fixture, Output> {
 export interface Entrant {
   model: string
   effort: Effort
+  /** Absent: route as the real agent does. */
+  sort?: Sort
 }
 
 export interface BenchOptions {
@@ -76,7 +78,7 @@ export const effortLabel = (effort: Effort): string =>
   effort === false ? 'off' : typeof effort === 'number' ? `${effort}tok` : effort
 
 export const entrantKey = (entrant: Entrant): string =>
-  `${entrant.model.replace(/^openrouter\//, '')} @ ${effortLabel(entrant.effort)}`
+  `${entrant.model.replace(/^openrouter\//, '')} @ ${effortLabel(entrant.effort)}${entrant.sort ? ` · ${entrant.sort}` : ''}`
 
 /**
  * The field as entrants, the incumbent first.
@@ -89,7 +91,11 @@ export function entrantsFor(field: readonly Candidate[], incumbent: string, filt
   const chosen = filters.length ? field.filter(c => filters.some(filter => c.model.includes(filter))) : field
   const list: Entrant[] = [
     { model: incumbent, effort: 'shipped' },
-    ...chosen.flatMap(candidate => candidate.efforts.map(effort => ({ model: candidate.model, effort }))),
+    ...chosen.flatMap(candidate =>
+      candidate.efforts.flatMap(effort =>
+        (candidate.sorts ?? [undefined]).map(sort => ({ model: candidate.model, effort, ...(sort ? { sort } : {}) })),
+      ),
+    ),
   ]
   const seen = new Set<string>()
   return list.filter(entrant => {
@@ -393,6 +399,8 @@ export interface Row {
   clean: number
   total: number
   medianMs: number
+  /** The slowest successful run — for a call someone waits on, the number they remember. */
+  worstMs: number
   costPerRun: number | undefined
   reasoning: number
   retries: number
@@ -414,13 +422,14 @@ export function renderTable(rows: Row[]): string {
   const sorted = [...rows].sort(
     (a, b) => (Number.isFinite(a.rank) ? a.rank : Infinity) - (Number.isFinite(b.rank) ? b.rank : Infinity) || b.clean - a.clean,
   )
-  const header = ['', 'entrant', 'ok', 'clean', 'median', '$/run', 'reason tok', 'retries', 'judge rank', 'judge /10', ...metricKeys]
+  const header = ['', 'entrant', 'ok', 'clean', 'median', 'worst', '$/run', 'reason tok', 'retries', 'judge rank', 'judge /10', ...metricKeys]
   const lines = sorted.map(row => [
     row.label,
     `${row.key}${row.incumbent ? ' *' : ''}`,
     `${row.ok}/${row.total}`,
     `${row.clean}/${row.total}`,
     Number.isFinite(row.medianMs) ? `${(row.medianMs / 1000).toFixed(1)}s` : '—',
+    Number.isFinite(row.worstMs) ? `${(row.worstMs / 1000).toFixed(1)}s` : '—',
     row.costPerRun === undefined ? 'n/a' : `$${row.costPerRun.toFixed(5)}`,
     fixed(row.reasoning, 0),
     String(row.retries),
@@ -474,7 +483,7 @@ export async function runBench<Fixture, Output>(task: BenchTask<Fixture, Output>
     bench.concurrency,
     async (job): Promise<Attempt<Output>> => {
       const key = entrantKey(job.entrant)
-      const { mastra, measured } = await clone(task.agent, task.agentId, job.entrant.model, job.entrant.effort)
+      const { mastra, measured } = await clone(task.agent, task.agentId, job.entrant.model, job.entrant.effort, job.entrant.sort)
       measured.signal = AbortSignal.timeout(bench.timeoutMs)
       const t0 = performance.now()
       let output: Output | null = null
@@ -541,6 +550,7 @@ export async function runBench<Fixture, Output>(task: BenchTask<Fixture, Output>
       clean: ok.filter(a => a.flags.length === 0).length,
       total: mine.length,
       medianMs: median(ok.map(a => a.ms)),
+      worstMs: ok.length ? Math.max(...ok.map(a => a.ms)) : NaN,
       costPerRun: costs.some(c => c !== undefined) ? mean(costs.map(c => c ?? NaN)) : undefined,
       reasoning: mean(ok.map(a => a.calls.reduce((sum, call) => sum + call.reasoningTokens, 0))),
       // Failed calls, not extra calls: a task whose run makes several calls on

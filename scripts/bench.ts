@@ -27,9 +27,11 @@ const { ranker } = await import('./bench/tasks/ranker.js')
 const { jobScorer } = await import('./bench/tasks/job-scorer.js')
 const { articleWriter } = await import('./bench/tasks/article-writer.js')
 const { jobWriter } = await import('./bench/tasks/job-writer.js')
+const { translator } = await import('./bench/tasks/translator.js')
+const { summarizer } = await import('./bench/tasks/summarizer.js')
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const TASKS: Record<string, BenchTask<any, any>> = { ranker, 'article-writer': articleWriter, 'job-scorer': jobScorer, 'job-writer': jobWriter }
+const TASKS: Record<string, BenchTask<any, any>> = { ranker, 'article-writer': articleWriter, 'job-scorer': jobScorer, 'job-writer': jobWriter, translator, summarizer }
 
 const argv = process.argv.slice(2)
 const flag = (name: string): string | undefined => {

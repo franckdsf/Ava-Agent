@@ -185,7 +185,8 @@ Gotchas. The routing table is [README.md](README.md).
   quote a number for this model, and don't tune a timeout against one.
 
 - **The `0731` snapshot did not fix that, and it is not the model to put back on
-  a reader-facing call.** Re-measured 2026-08-17 with `pnpm models:check`, since
+  a reader-facing call.** Re-measured 2026-08-17 with `models:check` (since
+  replaced by `pnpm bench translator` / `summarizer`), since
   the numbers above were taken on the April `deepseek-v4-flash` and a newer
   snapshot deserved its own reading. Ten translator draws on one 1500-character
   chunk, eight in flight: 82.7s, 101.3s, 108.9s, 124.7s, 141.0s, 148.2s, 162.7s,
@@ -203,7 +204,7 @@ Gotchas. The routing table is [README.md](README.md).
   per translator call**, because at `reasoning: { effort: 'low' }` it spends
   **87%** of its output tokens on reasoning. Effort is a per-model dialect, not a
   setting: on the same prompt gemini spent 81% and `solar-pro4` 95%. Two
-  consequences. Price a model on `$/call` from `pnpm models:check`, never on the
+  consequences. Price a model on the `$/run` column of `pnpm bench`, never on the
   rate card. And read `reasoningTokens` before believing a latency figure — a
   model emitting three thinking tokens per written one is slow for a structural
   reason no endpoint change will fix.
@@ -216,12 +217,12 @@ Gotchas. The routing table is [README.md](README.md).
   those strings was good, which is the trap — the failure is invisible in a
   spot-check that only reads output, and `translateChunk` throws on it. Any
   candidate for these two agents has to be measured on *parse rate first*;
-  `pnpm models:check` reports it as the `ok` column for that reason.
+  `pnpm bench` reports it as the `ok` column for that reason.
 
 - **The thinking share is where the money was, and it is the one number the rate
   card cannot show you.** `gpt-5.6-luna` replaced `gemini-3.1-flash-lite` on the
-  translator and the summarizer on 2026-08-19, measured with `pnpm models:check
-  --models luna --fixtures 1 --repeats 10`. Parse rate **10/10 on both tasks**,
+  translator and the summarizer on 2026-08-19, measured with `models:check` (now `pnpm bench`)
+  on one fixture, ten repeats. Parse rate **10/10 on both tasks**,
   which is the bar `tencent/hy3` failed above and the one to clear first.
   Translator: median **6.7s** against **8.8s**, `$0.00130` against `$0.00468` —
   **0.28×**. Summarizer: median **7.3s** against **7.8s**, `$0.00162` against

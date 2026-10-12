@@ -3,7 +3,7 @@ id: 0017
 applies_to: ["src/mastra/commands/translate.ts", "src/mastra/agents/translator.ts", "src/config/translation.ts"]
 status: accepted
 supersedes: []
-verify: "pnpm models:check"
+verify: "pnpm bench translator"
 ---
 
 # ADR-0017: Translation as slash commands, glossed inline, in their own tab

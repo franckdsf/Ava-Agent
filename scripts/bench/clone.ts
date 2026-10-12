@@ -1,7 +1,7 @@
 /**
  * A candidate model wearing the real agent's prompt and provider options.
  *
- * Lifted from `check-models.ts`, where it was proven: the clone is built from
+ * Lifted from the old `models:check` script, where it was proven: the clone is built from
  * `getInstructions()` and `getDefaultOptions()`, registered under the REAL id in
  * a throwaway Mastra, and the real function resolves it through
  * `mastra.getAgent(id)` without knowing it is being measured. The model and the
@@ -26,10 +26,23 @@ import { Agent } from '@mastra/core/agent'
  */
 export type Effort = 'shipped' | false | 'low' | 'medium' | 'high' | number
 
-/** A model and the efforts to enter it at. Each effort is ranked as its own entrant. */
+/**
+ * How OpenRouter picks among the endpoints serving a model. A different
+ * question from which model: the same model has measured 0.8s on one endpoint
+ * and 46s on another, so for a call a reader waits on, routing can matter more
+ * than the model does.
+ */
+export type Sort = 'price' | 'latency' | 'throughput'
+
+/**
+ * A model, the efforts to enter it at, and optionally the routings. Each
+ * effort × routing is ranked as its own entrant. Without `sorts` the entrant
+ * routes as the real agent does — or by price, when the agent says nothing.
+ */
 export interface Candidate {
   model: string
   efforts: readonly Effort[]
+  sorts?: readonly Sort[]
 }
 
 /** One call to the model, as OpenRouter billed it. A retried call is several of these. */
@@ -52,26 +65,28 @@ export function reasoningFor(effort: Effort): Record<string, unknown> | undefine
 
 /**
  * The provider options a clone sends: the real agent's, with the effort
- * replaced, routing sorted by price, and usage accounting switched on.
+ * replaced, the routing production would use, and usage accounting on.
  *
- * **Every entrant routes cheapest-first**, whatever the agent it was cloned
- * from sends today, because that is how this repo routes every model it ships:
- * a model chosen on the fastest endpoint and then run on the cheapest is a
- * latency and a price nobody measured. The rest of the agent's provider block
- * (an `only` fence, say) survives. Usage accounting is what makes the cost
+ * **An entrant routes as production would**: the entrant's own `sort` when the
+ * field names one, else the agent's, else cheapest-first — the repo's default
+ * for anything not waited on. A model chosen on one routing and run on another
+ * is a latency and a price nobody measured. The rest of the agent's provider
+ * block (an `only` fence, say) survives. Usage accounting is what makes the cost
  * column what OpenRouter actually charged, at whichever provider it routed to,
  * rather than a list price multiplied by a guess.
  */
 export function cloneProviderOptions(
   shipped: Record<string, Record<string, unknown>> | undefined,
   effort: Effort,
+  sort?: Sort,
 ): Record<string, Record<string, unknown>> {
   const openrouter = { ...(shipped?.openrouter ?? {}) }
   const reasoning = reasoningFor(effort)
   if (reasoning) openrouter.reasoning = reasoning
+  const provider = openrouter.provider as Record<string, unknown> | undefined
   openrouter.provider = {
-    ...(openrouter.provider as Record<string, unknown> | undefined),
-    sort: 'price',
+    ...provider,
+    sort: sort ?? provider?.sort ?? 'price',
     // Only endpoints that honour every parameter sent — the effort being
     // measured and the structured-output format. Without it the cheapest
     // endpoint can drop the effort silently, and the row measures something
@@ -146,6 +161,7 @@ export async function clone(
   agentId: string,
   model: string,
   effort: Effort,
+  sort?: Sort,
 ): Promise<{ mastra: Mastra; measured: Measured }> {
   const defaults = await agent.getDefaultOptions()
   const measured = new Measured({
@@ -161,6 +177,7 @@ export async function clone(
       providerOptions: cloneProviderOptions(
         defaults.providerOptions as Record<string, Record<string, unknown>> | undefined,
         effort,
+        sort,
       ),
       ...(defaults.modelSettings ? { modelSettings: defaults.modelSettings } : {}),
     },

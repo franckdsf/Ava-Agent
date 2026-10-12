@@ -34,8 +34,8 @@ something looks the way it does.
 | [0014](0014-two-tier-memory-for-ava.md) | Two-tier memory, dated and never rewritten | Accepted | `src/db/memories.ts`, `src/mastra/tools/memory.ts`, `src/config/memory.ts` | — |
 | [0015](0015-weekly-memory-review.md) | A weekly model-judged review promotes memories, then expires them | Accepted | `src/mastra/workflows/review-memories.ts`, `src/config/memory.ts` | — |
 | [0016](0016-reader-notes-in-the-ranker.md) | The ranker reads Ava's notes about the reader | Accepted | `src/mastra/workflows/curate-all.ts`, `src/db/memories.ts` | — |
-| [0017](0017-translation-commands.md) | Translation as slash commands, glossed inline, in their own tab | Accepted | `src/mastra/commands/translate.ts`, `src/config/translation.ts` | `pnpm models:check` |
-| [0018](0018-summarize-command.md) | `/summarize [language]`, answered in Chat, with the language typed rather than remembered | Accepted | `src/mastra/commands/summarize.ts`, `src/config/summary.ts` | `pnpm models:check` |
+| [0017](0017-translation-commands.md) | Translation as slash commands, glossed inline, in their own tab | Accepted | `src/mastra/commands/translate.ts`, `src/config/translation.ts` | `pnpm bench translator` |
+| [0018](0018-summarize-command.md) | `/summarize [language]`, answered in Chat, with the language typed rather than remembered | Accepted | `src/mastra/commands/summarize.ts`, `src/config/summary.ts` | `pnpm bench summarizer` |
 | [0019](0019-beats-as-reader-owned-data.md) | Beats are rows the reader owns, and a story is scored per beat but sent once | Accepted | `src/db/beats.ts`, `src/db/schema.ts`, `src/config/seed-beats.ts` | — |
 | [0020](0020-feed-discovery-from-a-subject.md) | `/follow <subject>` — the model proposes sites, the code finds the feeds | Accepted | `src/mastra/workflows/discover-feeds.ts`, `src/config/discovery.ts` | `pnpm discovery:check` |
 | [0021](0021-a-tab-per-beat.md) | A tab per beat, created on first delivery | Accepted | `src/services/telegram-topics.ts`, `src/db/topics.ts` | `pnpm telegram:check` |

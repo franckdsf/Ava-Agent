@@ -29,7 +29,7 @@ export const bench = {
   /**
    * Generations in flight at once, across every entrant.
    *
-   * Eight, as `check-models.ts` ran: OpenRouter answers a burst with 429s, and
+   * Eight, as the old `models:check` script ran: OpenRouter answers a burst with 429s, and
    * a rate-limited call fails exactly like a bad model does — the table would
    * blame the model for the account. Raise it only after a run at this number
    * came back with no failures.
@@ -92,4 +92,19 @@ export const bench = {
    * writer's instructions (`src/mastra/agents/job-scorer.ts`) — change both.
    */
   jobBriefFits: { min: 2, max: 4 },
+
+  /**
+   * Stored body lengths the translator and summarizer fixtures draw from — the
+   * range the old `models:check` used before the bench. Long enough that a summary
+   * has something to choose from, short enough to be a whole stored article
+   * rather than one cut at `articleMaxChars`.
+   */
+  readerBodyChars: { min: 3_000, max: 8_000 },
+
+  /**
+   * A gloss longer than this many words is counted as `long gloss` — a note to
+   * the reader rather than a term, the failure the translator's prompt argues
+   * against. Four, as the old `models:check` counted it.
+   */
+  longGlossWords: 4,
 } as const

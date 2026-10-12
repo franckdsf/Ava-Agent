@@ -102,6 +102,14 @@ const coreSchema = z.object({
    * command, so it is closer to the summarizer in what it needs to be good at.
    * It is also the only model call a reader waits on synchronously, which makes
    * a slow model expensive in a way the ranker's slowness never is.
+   *
+   * `pnpm bench translator`, 2026-10-12, 2 article parts × 3 runs, kept: luna
+   * at `low` routed by latency (as shipped) tied the field's best on the judge
+   * at 5.3s median, 7.6s worst, $0.0009 a part. The same model routed by price
+   * was slower and dearer (6.7s, $0.0011) — one provider, nothing cheaper to
+   * route to. Reasoning off was judged clearly worse: glosses too sparse for
+   * study mode, page furniture translated. deepseek-v4.1-flash at `low` took
+   * 33s and cost 9× more on ~6k reasoning tokens.
    */
   AVA_MODEL_TRANSLATOR: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
   /**
@@ -116,6 +124,13 @@ const coreSchema = z.object({
    * Not the orchestrator either, deliberately: that one was chosen for chat, and
    * its predecessor `minimax-m3` carried the `</think>` truncation documented in
    * AGENTS.md — a summary that starts mid-word is this command's worst failure.
+   *
+   * `pnpm bench summarizer`, 2026-10-12, 2 articles into French × 3 runs, kept:
+   * luna at `low` routed by latency (as shipped), 6.1s median, 9.4s worst,
+   * $0.0012. Reasoning off by price was faster (6.5s worst) but wrote about
+   * the article on both fixtures; deepseek-v4.1-flash tied on the judge at
+   * twice the worst-case wait and cost. The judge's noise here was ~1.5 ranks —
+   * one setting under two routings landed 3.0 and 4.5 — so nothing beat it.
    */
   AVA_MODEL_SUMMARIZER: gatewayModelId.default('openrouter/openai/gpt-5.6-luna'),
 

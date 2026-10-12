@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import { cloneProviderOptions } from '../clone.js'
-import { attemptCost, blind, droppedEffort, entrantsFor, judgePrompt, pool, renderTable, scoreSpread, spearman, type Row } from '../kit.js'
+import { attemptCost, blind, droppedEffort, entrantKey, entrantsFor, judgePrompt, pool, renderTable, scoreSpread, spearman, type Row } from '../kit.js'
 import { articleWriterFlags } from '../tasks/article-writer.js'
 import { jobWriterFlags } from '../tasks/job-writer.js'
+import { summarizerFlags } from '../tasks/summarizer.js'
+import { translatorFlags } from '../tasks/translator.js'
 import { mentionsReader, rankerFlags, voteAgreement, type RankerFixture } from '../tasks/ranker.js'
 
 describe('field', () => {
@@ -17,6 +19,15 @@ describe('field', () => {
       'openrouter/b/two:shipped',
       'openrouter/a/one:false',
       'openrouter/a/one:low',
+    ])
+  })
+
+  it('enters each effort × routing, and names the routing only when the field set one', () => {
+    const routed = [{ model: 'openrouter/a/one', efforts: ['low'] as const, sorts: ['latency', 'throughput'] as const }]
+    expect(entrantsFor(routed, 'openrouter/b/two', []).map(entrantKey)).toEqual([
+      'b/two @ shipped',
+      'a/one @ low · latency',
+      'a/one @ low · throughput',
     ])
   })
 
@@ -77,6 +88,10 @@ describe('provider options', () => {
       },
     })
     expect(cloneProviderOptions(undefined, 'low').openrouter?.provider).toEqual({ sort: 'price', require_parameters: true })
+    // The agent's own routing wins over the default, and the field's over both.
+    const latency = { openrouter: { provider: { sort: 'latency' } } }
+    expect(cloneProviderOptions(latency, 'low').openrouter?.provider).toMatchObject({ sort: 'latency' })
+    expect(cloneProviderOptions(latency, 'low', 'throughput').openrouter?.provider).toMatchObject({ sort: 'throughput' })
     expect(cloneProviderOptions(shipped, 'shipped').openrouter?.reasoning).toEqual({ effort: 'high' })
     expect(cloneProviderOptions(undefined, 2000).openrouter?.reasoning).toEqual({ enabled: true, max_tokens: 2000 })
   })
@@ -99,6 +114,7 @@ describe('table', () => {
     clean: 3,
     total: 3,
     medianMs: 1500,
+    worstMs: 2500,
     costPerRun: 0.0001,
     reasoning: 0,
     retries: 0,
@@ -110,13 +126,13 @@ describe('table', () => {
 
   it('a field that failed entirely renders dashes, not NaN, and judged rows come first', () => {
     const table = renderTable([
-      row({ label: 'B', key: 'dead @ low', ok: 0, clean: 0, medianMs: NaN, costPerRun: undefined, reasoning: NaN, metrics: {}, rank: NaN, score: NaN }),
+      row({ label: 'B', key: 'dead @ low', ok: 0, clean: 0, medianMs: NaN, worstMs: NaN, costPerRun: undefined, reasoning: NaN, metrics: {}, rank: NaN, score: NaN }),
       row({ label: 'A', incumbent: true }),
     ])
     expect(table).not.toMatch(/NaN|undefined/)
     const [, first, second] = table.split('\n')
     expect(first).toMatch(/^A\s+x @ off \*/)
-    expect(second).toMatch(/^B\s+dead @ low\s+0\/3\s+0\/3\s+—\s+n\/a/)
+    expect(second).toMatch(/^B\s+dead @ low\s+0\/3\s+0\/3\s+—\s+—\s+n\/a/)
   })
 })
 
@@ -265,6 +281,30 @@ describe('job writer checks', () => {
       'posting 1: names an amount the posting does not state — "Pays around 80k."',
       'posting 1: markdown inside a field — "**React**"',
       "posting 2: every attempt failed — production would send the scorer's bare reason",
+    ])
+  })
+})
+
+describe('translator and summarizer checks', () => {
+  const prose = (n: number) => Array.from({ length: n }, (_, i) => `mot${i}`).join(' ')
+
+  it('a translation is flagged only when the app itself would call it degenerate', () => {
+    // A source's own parentheses are not glosses, and a short part may carry none.
+    expect(translatorFlags({ language: 'French', paragraphs: ['Sorti en 2024 (GPU).'] })).toEqual([])
+    expect(translatorFlags({ language: 'French', paragraphs: [`${prose(80)} a]:hidden`] })).toEqual([
+      'degenerate even after the retry: echoed the source or carried no glosses',
+    ])
+    expect(translatorFlags({ language: 'French', paragraphs: ['Voir [ici](https://x.dev).'] })).toEqual(['contains a link'])
+  })
+
+  it('a summary is flagged for the frame, the headings and links, not for naming a paper', () => {
+    expect(summarizerFlags({ language: 'French', paragraphs: ["L'article de Google montre un gain de 12 %."] })).toEqual([])
+    expect(
+      summarizerFlags({ language: 'French', paragraphs: ['Cet article explique le modèle.', '## Détails', 'https://x.dev'] }),
+    ).toEqual([
+      'opens a block on the article rather than its subject — "Cet article explique le modèle."',
+      'a "#" or "##" heading, which the template owns',
+      'contains a link',
     ])
   })
 })
