@@ -9,7 +9,6 @@ import { activeSearches } from './job-searches.js'
 import {
   jobDeliveries,
   jobMatches,
-  jobRuns,
   jobSources,
   jobs,
   type Job,
@@ -654,48 +653,6 @@ export async function pruneJobs(): Promise<number> {
     await db().delete(jobs).where(inArray(jobs.id, batch))
   }
   return ids.length
-}
-
-/**
- * When the last run started, or null if none ever has.
- *
- * Read by the workflow's gate. Deliberately `startedAt` and not `finishedAt`: a
- * run that crashed halfway still consumed the cycle's fetches and model calls,
- * and re-running it an hour later on the next daily fire would double them.
- */
-export async function lastRunStartedAt(): Promise<number | null> {
-  await migrate()
-  const [row] = await db()
-    .select({ startedAt: jobRuns.startedAt })
-    .from(jobRuns)
-    .orderBy(desc(jobRuns.startedAt))
-    .limit(1)
-  return row?.startedAt ?? null
-}
-
-export async function startJobRun(): Promise<string> {
-  await migrate()
-  const id = `run-${Date.now().toString(36)}`
-  await db().insert(jobRuns).values({ id, startedAt: Date.now() })
-  return id
-}
-
-export async function finishJobRun(
-  id: string,
-  counters: {
-    fetched?: number
-    stored?: number
-    considered?: number
-    scored?: number
-    delivered?: number
-    note?: string
-  },
-): Promise<void> {
-  await migrate()
-  await db()
-    .update(jobRuns)
-    .set({ finishedAt: Date.now(), ...counters })
-    .where(eq(jobRuns.id, id))
 }
 
 /** Counts for a report, in one round trip. */

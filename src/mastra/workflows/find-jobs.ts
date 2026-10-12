@@ -12,7 +12,6 @@ import {
   decayUnproductiveSources,
   FILTERED_BEFORE_SCORING,
   type SourceYield,
-  finishJobRun,
   insertJobs,
   knownAtsCompanies,
   linkPendingToSearch,
@@ -24,10 +23,10 @@ import {
   recentlyDelivered,
   recordSourceFetch,
   saveVerdicts,
-  startJobRun,
   type DeliveredRecently,
   type JobVerdict,
 } from '../../db/jobs.js'
+import { finishRun, startRun } from '../../db/runs.js'
 import type { Job, JobSearch, NewJob } from '../../db/schema.js'
 import { joobTelegram } from '../../services/joob-telegram.js'
 import { fetchJobSource, type RawPosting } from '../../services/job-fetch.js'
@@ -77,7 +76,7 @@ import {
  * shape, one level above the delivery bug of the same kind. The interval is
  * unchanged; what decides is now a single guarded write against
  * `pipeline_cycles` ([ADR-0034](../../../docs/decisions/0034-a-pipeline-claims-its-cycle.md)).
- * `job_runs` stays what it always was underneath: the log, not the lock.
+ * `pipeline_runs` stays what `job_runs` always was underneath: the log, not the lock.
  *
  * **The filter runs before the model and is not an optimisation.** Scoring is one
  * batch call, so cutting the intake is what makes that call *possible*: the
@@ -168,7 +167,7 @@ const ingest = createStep({
     }
 
     // The gate, taken as a single guarded write rather than a read followed by
-    // one. `job_runs` is still the log, but it is no longer what decides: asking
+    // one. `pipeline_runs` is the log, but it is no longer what decides: asking
     // it "when did the last run start?" and inserting the answer several awaits
     // later left a window in which two fires arriving together both read
     // yesterday and both went. At boot — where `migrate()` runs on the first
@@ -196,7 +195,7 @@ const ingest = createStep({
      * A claim is written before any work on purpose, so that two fires cannot
      * both pass the gate. The cost is that a run which stops on its first
      * statement still burns the interval, and that is not theoretical: on
-     * 2026-08-23 this very `startJobRun()` lost the write lock to a simultaneous
+     * 2026-08-23 this very run-log insert lost the write lock to a simultaneous
      * fire with `SQLITE_BUSY`, and a run that had fetched nothing cost the
      * pipeline its cycle. Handing the claim back here is honest because no
      * source has been fetched and no model has been called; past this point it
@@ -214,7 +213,7 @@ const ingest = createStep({
         await setState({ ...idle, note: 'Nothing to look for — no active searches. Use /target.' })
         return []
       }
-      runId = await startJobRun()
+      runId = await startRun('jobs')
     } catch (error) {
       await cycle.release()
       throw error
@@ -238,7 +237,7 @@ const ingest = createStep({
       }
     } catch (error) {
       const message = error instanceof PortfolioError ? error.message : String(error)
-      await finishJobRun(runId, { note: `portfolio: ${message}` })
+      await finishRun(runId, { note: `portfolio: ${message}` })
       await joobTelegram
         .sendToTelegram(
           [
@@ -799,7 +798,7 @@ const report = createStep({
     }
 
     if (state.runId) {
-      await finishJobRun(state.runId, {
+      await finishRun(state.runId, {
         fetched: state.fetched,
         stored: state.stored,
         considered: totals.considered,

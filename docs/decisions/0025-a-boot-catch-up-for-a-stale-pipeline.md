@@ -1,14 +1,14 @@
 ---
 id: 0025
 applies_to: ["src/mastra/boot-catchup.ts", "src/config/catchup.ts"]
-status: accepted
+status: partly-superseded
 supersedes: []
 verify: "pnpm catchup:check"
 ---
 
 # ADR-0025: A boot fires a pipeline that has stopped running, on its own cadence
 
-- **Status:** Accepted
+- **Status:** Partly superseded by [ADR-0045](0045-one-run-log-for-every-pipeline.md) — the run log.
 - **Date:** 2026-08-04
 
 ## Context

@@ -42,7 +42,7 @@ something looks the way it does.
 | [0022](0022-ava-is-the-system-agents-have-names.md) | Ava is the system, and agents have their own names | Accepted | everything (`**`) | — |
 | [0023](0023-a-bot-per-agent-two-tokens-two-chats.md) | A bot per agent — two tokens, two chats, one process | Variables amended by [0041](0041-one-deployment-one-reader.md) | `src/config/bots.ts`, `src/services/telegram.ts`, `src/mastra/*channels.ts` | `pnpm telegram:check` |
 | [0024](0024-joob-a-job-pipeline-beside-the-news-one.md) | Joob — a job pipeline beside the news one, sharing everything but the tables | Accepted (amended 2026-08-23) | `src/mastra/workflows/find-jobs.ts`, `src/config/jobs.ts` | `pnpm jobs:check` |
-| [0025](0025-a-boot-catch-up-for-a-stale-pipeline.md) | A boot fires a pipeline that has stopped running, on its own cadence | Accepted | `src/mastra/boot-catchup.ts`, `src/config/catchup.ts` | `pnpm catchup:check` |
+| [0025](0025-a-boot-catch-up-for-a-stale-pipeline.md) | A boot fires a pipeline that has stopped running, on its own cadence | Partly superseded by [0045](0045-one-run-log-for-every-pipeline.md) | `src/mastra/boot-catchup.ts`, `src/config/catchup.ts` | `pnpm catchup:check` |
 | [0026](0026-sonar-as-a-job-source.md) | Sonar as a job source, keyed on the page it resolves | Extended by [0040](0040-a-careers-page-with-nothing-on-it-is-a-lead.md) | `src/services/job-scout.ts`, `src/mastra/agents/job-scout.ts` | `pnpm sonar:check` |
 | [0027](0027-ats-boards-as-discovered-sources.md) | Real postings off applicant-tracking boards, and the boards become sources | Partly superseded by [0029](0029-six-ats-providers-probed-concurrently.md) | `src/services/ats.ts`, `src/services/job-scout.ts` | `pnpm jobs:check` |
 | [0028](0028-a-search-decides-what-counts-as-a-job.md) | A search decides what counts as a job, not the taxonomy | Extended by [0030](0030-domains-as-vocabularies-a-search-names-its-field.md) | `src/services/job-filter.ts`, `src/config/job-taxonomy.ts` | `pnpm jobs:check` |
@@ -51,7 +51,7 @@ something looks the way it does.
 | [0031](0031-a-race-decides-which-sources-are-early.md) | A race decides which sources are early, not a health check | Accepted | `src/services/feed-timeliness.ts`, `src/config/feed-finder.ts` | `pnpm finder:check` |
 | [0032](0032-a-youtube-link-summarizes-itself.md) | A YouTube link summarizes itself — a tool on Newy, not a command | Accepted | `src/services/youtube.ts`, `src/mastra/tools/youtube.ts` | `pnpm youtube:check` |
 | [0033](0033-a-delivery-is-claimed-before-it-is-sent.md) | A delivery is claimed before it is sent, not stamped after | Accepted | `src/mastra/workflows/{curate-all,find-jobs}.ts` | — |
-| [0034](0034-a-pipeline-claims-its-cycle.md) | A pipeline claims its cycle in one write, rather than checking then starting | Accepted | `src/db/cycles.ts`, `src/mastra/workflows/**` | `pnpm catchup:check` |
+| [0034](0034-a-pipeline-claims-its-cycle.md) | A pipeline claims its cycle in one write, rather than checking then starting | Partly superseded by [0045](0045-one-run-log-for-every-pipeline.md) | `src/db/cycles.ts`, `src/mastra/workflows/**` | `pnpm catchup:check` |
 | [0035](0035-a-source-is-judged-on-what-it-yields.md) | A source is judged on what it yields, not on whether it answers | Accepted | `src/db/jobs.ts`, `src/config/jobs.ts`, `src/mastra/workflows/find-jobs.ts` | `pnpm jobs:check` |
 | [0036](0036-a-source-may-declare-its-field-and-a-search-may-be-re-read.md) | A source may declare its field, and a search may be re-read | Accepted | `src/db/job-searches.ts`, `src/services/job-filter.ts` | `pnpm jobs:check` |
 | [0037](0037-the-hiring-thread-as-a-source-kind.md) | Hacker News's hiring thread is a source kind, not an adapter | Accepted | `src/services/job-hn.ts`, `src/services/job-fetch.ts` | `pnpm jobs:check` |
@@ -62,6 +62,7 @@ something looks the way it does.
 | [0042](0042-a-scheduled-model-call-has-a-shape-not-a-list.md) | A scheduled model call has a shape, not a list | Accepted | `src/mastra/workflows/**`, `src/mastra/agents/**` | `pnpm workflow:run` |
 | [0043](0043-what-a-conversation-may-write-is-decided-by-what-reads-it-back.md) | What a conversation may write is decided by what reads it back | Accepted | `src/mastra/tools/**`, `src/mastra/commands/**`, `src/db/schema.ts` | — |
 | [0044](0044-a-pipeline-s-cadence-is-one-definition.md) | A pipeline's cadence is one definition, and its claim is handed back before it is spent | Accepted | `src/mastra/pipeline-kit.ts`, `src/mastra/pipelines.ts`, `src/mastra/boot-catchup.ts`, `src/config/catchup.ts`, `src/config/leads.ts` | `pnpm verify` |
+| [0045](0045-one-run-log-for-every-pipeline.md) | One run log for every pipeline, written by the kit | Accepted | `src/db/runs.ts`, `src/db/schema.ts`, `src/mastra/pipeline-kit.ts`, `drizzle/0028_copy_run_logs.sql` | `pnpm verify` |
 
 **Reading 0001–0021:** they predate [0022](0022-ava-is-the-system-agents-have-names.md)
 and call the conversational agent *Ava*. That agent is now **Newy**; *Ava* is the

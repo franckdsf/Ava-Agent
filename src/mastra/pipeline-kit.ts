@@ -1,5 +1,6 @@
 import { env } from '../config/env.js'
 import { claimCycle, hoursSince } from '../db/cycles.js'
+import { startRun } from '../db/runs.js'
 
 /**
  * The mechanics around a scheduled pipeline, written once
@@ -52,7 +53,8 @@ class Abandoned {
   constructor(readonly note: string) {}
 }
 
-export type Opened<T> = { ok: true; value: T } | { ok: false; note: string }
+/** `runId` is this run's `pipeline_runs` row, written by the kit; the pipeline finishes it. */
+export type Opened<T> = { ok: true; value: T; runId: string } | { ok: false; note: string }
 
 export type Pipeline = PipelineDefinition & {
   /** For `createWorkflow({ schedule })`: one cron carrying every fire hour. */
@@ -72,6 +74,10 @@ export type Pipeline = PipelineDefinition & {
    * - `abandon(note)` releases it and resolves `{ ok: false, note }`;
    * - returning normally keeps it — **everything after `open` resolves has
    *   spent the cycle**, and nothing hands it back.
+   *
+   * The run's `pipeline_runs` row is written last, still inside the window: a
+   * run that loses the write lock there is the 2026-08-23 run, and it hands
+   * the cycle back like any other throw.
    *
    * A callback rather than `begin()` / `spend()`: between those two calls nothing
    * could catch a throw, and that gap is exactly where `SQLITE_BUSY` struck.
@@ -135,7 +141,10 @@ export function definePipeline(def: PipelineDefinition): Pipeline {
       },
     ],
 
-    async open(options, beforeSpending) {
+    async open<T>(
+      options: { force?: boolean },
+      beforeSpending: (window: { abandon: (note: string) => Abandoned }) => Promise<T | Abandoned>,
+    ): Promise<Opened<T>> {
       const cycle = await claimCycle(def.id, def.intervalHours * HOUR_MS, { force: options.force })
       if (!cycle.claimed) {
         const elapsed = hoursSince(cycle.lastStartedAt).toFixed(1)
@@ -145,18 +154,19 @@ export function definePipeline(def: PipelineDefinition): Pipeline {
         }
       }
 
-      let result
+      let opened: Opened<T>
       try {
-        result = await beforeSpending({ abandon: note => new Abandoned(note) })
+        const result = await beforeSpending({ abandon: note => new Abandoned(note) })
+        opened =
+          result instanceof Abandoned
+            ? { ok: false, note: result.note }
+            : { ok: true, value: result, runId: await startRun(def.id) }
       } catch (error) {
         await cycle.release()
         throw error
       }
-      if (result instanceof Abandoned) {
-        await cycle.release()
-        return { ok: false, note: result.note }
-      }
-      return { ok: true, value: result }
+      if (!opened.ok) await cycle.release()
+      return opened
     },
   }
 }

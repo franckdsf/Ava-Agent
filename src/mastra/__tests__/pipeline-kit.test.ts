@@ -1,8 +1,18 @@
 import { randomUUID } from 'node:crypto'
 
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { db } from '../../db/client.js'
+import { startRun } from '../../db/runs.js'
+import { pipelineRuns } from '../../db/schema.js'
 import { definePipeline, healthyCeilingHours, type PipelineDefinition } from '../pipeline-kit.js'
+
+// The real `startRun`, wrapped so one case can make the run row lose the write lock.
+vi.mock('../../db/runs.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../db/runs.js')>()
+  return { ...actual, startRun: vi.fn(actual.startRun) }
+})
 
 // Audit F1/F2: the cycle is handed back when a run stops before spending anything, and a cadence
 // that contradicts itself does not load. Against a real SQLite (vitest.setup.ts), because the
@@ -38,7 +48,7 @@ const proceed = async () => 'ran'
 describe('the window before spending', () => {
   it('a run that returns normally keeps the cycle — the next fire inside the gate is refused', async () => {
     const leads = pipeline()
-    expect(await leads.open({}, proceed)).toEqual({ ok: true, value: 'ran' })
+    expect(await leads.open({}, proceed)).toEqual({ ok: true, value: 'ran', runId: expect.any(String) })
     at(12 * HOUR)
     expect(await leads.open({}, proceed)).toEqual({
       ok: false,
@@ -51,7 +61,7 @@ describe('the window before spending', () => {
     const busy = new Error('SQLITE_BUSY: database is locked')
     await expect(leads.open({}, async () => { throw busy })).rejects.toBe(busy)
     at(1 * HOUR)
-    expect(await leads.open({}, proceed)).toEqual({ ok: true, value: 'ran' })
+    expect(await leads.open({}, proceed)).toEqual({ ok: true, value: 'ran', runId: expect.any(String) })
   })
 
   it('abandon (no client profiles) reports its note and hands the cycle back', async () => {
@@ -59,7 +69,7 @@ describe('the window before spending', () => {
     const note = 'Nobody to prospect for — no active client profiles. Use /client.'
     expect(await leads.open({}, async ({ abandon }) => abandon(note))).toEqual({ ok: false, note })
     at(1 * HOUR)
-    expect(await leads.open({}, proceed)).toEqual({ ok: true, value: 'ran' })
+    expect(await leads.open({}, proceed)).toEqual({ ok: true, value: 'ran', runId: expect.any(String) })
   })
 
   it('an abandoned run after a real one restores the real one’s stamp, not none', async () => {
@@ -68,7 +78,7 @@ describe('the window before spending', () => {
     at(45 * HOUR)
     await leads.open({}, async ({ abandon }) => abandon('nobody'))
     at(46 * HOUR)
-    expect(await leads.open({}, proceed)).toEqual({ ok: true, value: 'ran' })
+    expect(await leads.open({}, proceed)).toEqual({ ok: true, value: 'ran', runId: expect.any(String) })
     at(47 * HOUR)
     expect((await leads.open({}, proceed)).ok).toBe(false)
   })
@@ -86,9 +96,41 @@ describe('the window before spending', () => {
     const leads = pipeline()
     await leads.open({}, proceed)
     at(1 * HOUR)
-    expect(await leads.open({ force: true }, proceed)).toEqual({ ok: true, value: 'ran' })
+    expect(await leads.open({ force: true }, proceed)).toEqual({ ok: true, value: 'ran', runId: expect.any(String) })
     at(2 * HOUR)
     expect((await leads.open({}, proceed)).ok).toBe(false)
+  })
+})
+
+describe('the run log (audit D2)', () => {
+  const rows = (pipelineId: string) => db().select().from(pipelineRuns).where(eq(pipelineRuns.pipeline, pipelineId))
+
+  it('an opened run has its row, started at the claim and not yet finished, under the id it was handed', async () => {
+    const leads = pipeline()
+    const opened = await leads.open({}, proceed)
+    if (!opened.ok) throw new Error('expected the run to open')
+    expect(await rows(leads.id)).toEqual([
+      expect.objectContaining({ id: opened.runId, startedAt: t0, finishedAt: null }),
+    ])
+  })
+
+  it('an abandoned run, a throw in the window and a refused fire write no row', async () => {
+    const leads = pipeline()
+    await leads.open({}, async ({ abandon }) => abandon('nobody'))
+    await expect(leads.open({}, async () => { throw new Error('boom') })).rejects.toThrow('boom')
+    await leads.open({}, proceed)
+    at(1 * HOUR)
+    await leads.open({}, proceed)
+    expect(await rows(leads.id)).toHaveLength(1)
+  })
+
+  it('the row losing the write lock (SQLITE_BUSY on 2026-08-23) rethrows and hands the cycle back', async () => {
+    const leads = pipeline()
+    const busy = new Error('SQLITE_BUSY: database is locked')
+    vi.mocked(startRun).mockRejectedValueOnce(busy)
+    await expect(leads.open({}, proceed)).rejects.toBe(busy)
+    at(1 * HOUR)
+    expect((await leads.open({}, proceed)).ok).toBe(true)
   })
 })
 

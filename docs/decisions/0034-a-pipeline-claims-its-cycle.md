@@ -1,14 +1,14 @@
 ---
 id: 0034
 applies_to: ["src/db/cycles.ts", "src/mastra/workflows/curate-all.ts", "src/mastra/workflows/find-jobs.ts", "src/mastra/pipeline-kit.ts"]
-status: accepted
+status: partly-superseded
 supersedes: []
 verify: "pnpm catchup:check"
 ---
 
 # ADR-0034: A pipeline claims its cycle in one write, rather than checking and then starting
 
-- **Status:** Accepted
+- **Status:** Partly superseded by [ADR-0045](0045-one-run-log-for-every-pipeline.md) — the run log.
 - **Date:** 2026-08-17
 
 ## Context

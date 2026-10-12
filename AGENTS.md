@@ -15,7 +15,7 @@
 Operating contract for anyone — human or agent — working in this repo.
 
 - **What it is and how to run it:** [README.md](README.md)
-- **Why it looks like this:** [docs/decisions/](docs/decisions/README.md) — 44 ADRs, each declaring
+- **Why it looks like this:** [docs/decisions/](docs/decisions/README.md) — 45 ADRs, each declaring
   the files it governs and the command that proves it still holds
 - **What surprised us:** [docs/GOTCHAS/](docs/GOTCHAS/README.md) — nine routed files; read the one
   whose globs match what you are touching
@@ -295,7 +295,7 @@ a Monday 05:00 memory review and a Monday 06:00 feed review. Beats are rows the 
 `/follow` creates one from a subject and `retune-beat` lets Newy adjust it.
 
 **The jobs side** fires at each of `jobPipeline.runHours` and gates itself on
-`jobPipeline.intervalHours` against `job_runs.startedAt` — two fires so a refused one is not the
+`jobPipeline.intervalHours` against its `pipeline_cycles` row — two fires so a refused one is not the
 day's only chance. Ten job sources, six ATS providers probed concurrently, and `sonar` proposing
 employers whose careers pages code resolves and verifies. Scoring is capped at
 `maxJobsPerScoringRun` **per search** and ordered by CV overlap, which may reorder and never reject. Delivery is guarded by `job_deliveries`, permanently, with `redeliveryGuardDays` (75)

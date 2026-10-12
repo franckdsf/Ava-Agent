@@ -5,7 +5,6 @@ import { LEAD_SIGNAL_LABELS, leadPipeline, type LeadSignalKind } from '../../con
 import {
   activeProfiles,
   claimLeadDelivery,
-  finishLeadRun,
   getLeads,
   inCooldown,
   insertSignals,
@@ -17,9 +16,9 @@ import {
   saveLeadPage,
   saveLeadVerdicts,
   saveVisionVerdict,
-  startLeadRun,
   upsertLeads,
 } from '../../db/leads.js'
+import { finishRun } from '../../db/runs.js'
 import { filterLead, visionIsStale } from '../../services/lead-filter.js'
 import { hiringSignalsFromJobs, idOf, resolveLeadPage } from '../../services/lead-signals.js'
 import { scoutProspects } from '../../services/lead-scout.js'
@@ -48,7 +47,7 @@ import type { ClientProfile, Lead, LeadSignal } from '../../db/schema.js'
  *    `signalWindowDays`. The narrowing is done by the source, not by a criterion.
  * 2. Vision runs **only on leads that already cleared the text score**, one call
  *    each, never on the batch.
- * 3. `maxVisionCallsPerRun` is a hard stop, and `lead_runs.visionCalls` records
+ * 3. `maxVisionCallsPerRun` is a hard stop, and `pipeline_runs.detail.visionCalls` records
  *    how close a run came to it — so a filter regression is visible here rather
  *    than only on an invoice.
  *
@@ -123,7 +122,7 @@ const collect = createStep({
     }
 
     // Nothing inside this window fetches a source or calls a model, so a run
-    // that stops here — no profiles, or `startLeadRun()` losing the write lock —
+    // that stops here — no profiles, or the run row losing the write lock —
     // hands the 44h cycle back (audit F1). Everything after it has spent it.
     const opened = await LEADS.open({ force: inputData.force }, async ({ abandon }) => {
       const profiles = await activeProfiles()
@@ -133,13 +132,13 @@ const collect = createStep({
       if (wanted.length === 0) {
         return abandon('Nobody to prospect for — no active client profiles. Use /client.')
       }
-      return { wanted, runId: await startLeadRun() }
+      return wanted
     })
     if (!opened.ok) {
       await setState({ ...idle, note: opened.note })
       return []
     }
-    const { wanted, runId } = opened.value
+    const { value: wanted, runId } = opened
 
     // The portfolio is the rubric, exactly as it is for jobs. A failure stops
     // the run rather than scoring against nothing: unscored signals simply wait
@@ -157,15 +156,7 @@ const collect = createStep({
         )
         .catch(() => {})
       await setState({ ...idle, runId, note: `Portfolio fetch failed: ${reason}` })
-      await finishLeadRun(runId, {
-        fetched: 0,
-        stored: 0,
-        considered: 0,
-        scored: 0,
-        visionCalls: 0,
-        delivered: 0,
-        note: `Portfolio fetch failed: ${reason}`,
-      })
+      await finishRun(runId, { note: `Portfolio fetch failed: ${reason}` })
       return []
     }
 
@@ -510,14 +501,14 @@ const report = createStep({
       notes.push(`Hit the vision cap (${leadPipeline.maxVisionCallsPerRun}); the rest wait.`)
     }
 
-    await finishLeadRun(state.runId, {
+    await finishRun(state.runId, {
       fetched: state.fetched,
       stored: state.stored,
       considered,
       scored,
-      visionCalls,
       delivered,
       note: notes.join(' ') || null,
+      detail: { visionCalls },
     })
 
     return {

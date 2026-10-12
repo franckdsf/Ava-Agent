@@ -5,7 +5,6 @@ import {
   clientProfiles,
   leadDeliveries,
   leadMatches,
-  leadRuns,
   leadSignals,
   leads,
   type ClientProfile,
@@ -384,34 +383,6 @@ export async function pruneLeads(): Promise<number> {
   await db().delete(leadSignals).where(inArray(leadSignals.leadId, ids))
   const result = await db().delete(leads).where(inArray(leads.id, ids))
   return result.rowsAffected ?? 0
-}
-
-// --- Runs ------------------------------------------------------------------
-
-export async function startLeadRun(): Promise<string> {
-  await migrate()
-  const id = crypto.randomUUID()
-  await db().insert(leadRuns).values({ id, startedAt: Date.now() })
-  return id
-}
-
-export async function finishLeadRun(
-  id: string,
-  counts: {
-    fetched: number
-    stored: number
-    considered: number
-    scored: number
-    visionCalls: number
-    delivered: number
-    note?: string | null
-  },
-): Promise<void> {
-  await migrate()
-  await db()
-    .update(leadRuns)
-    .set({ ...counts, note: counts.note ?? null, finishedAt: Date.now() })
-    .where(eq(leadRuns.id, id))
 }
 
 export async function leadCounts(): Promise<{

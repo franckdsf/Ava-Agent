@@ -190,6 +190,27 @@
       "when": 1787231936172,
       "tag": "0026_kind_bloodaxe",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1791810260039,
+      "tag": "0027_pipeline_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1791810264736,
+      "tag": "0028_copy_run_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1791810290430,
+      "tag": "0029_drop_job_and_lead_runs",
+      "breakpoints": true
     }
   ]
 }

@@ -805,41 +805,6 @@ export const jobDeliveries = sqliteTable('job_deliveries', {
   deliveredAt: integer('delivered_at').notNull(),
 })
 
-/**
- * One job run, and the reason the schedule can fire daily.
- *
- * **`startedAt` is what makes the cadence every-two-days**, not the cron. A
- * day-of-month step fires on the 1st, 3rd … 31st and then the 1st again, so
- * seven month boundaries a year give two consecutive runs; and a missed schedule
- * firing on boot already put two runs in flight at once in this repo's history.
- * A stored timestamp makes the cadence a property of the data rather than of the
- * cron string or of process uptime.
- *
- * The counters are the other half: the news pipeline reports a run into the void
- * and nothing can answer "was last Tuesday quiet or broken?". `note` carries the
- * one-line reason a run did nothing — a portfolio that would not fetch, no
- * active searches — which is the difference between those two.
- */
-export const jobRuns = sqliteTable(
-  'job_runs',
-  {
-    id: text('id').primaryKey(),
-    startedAt: integer('started_at').notNull(),
-    /** Null while in flight. A row that never finishes is a crashed run. */
-    finishedAt: integer('finished_at'),
-    fetched: integer('fetched').notNull().default(0),
-    stored: integer('stored').notNull().default(0),
-    /** Postings that survived the deterministic filters and reached the model. */
-    considered: integer('considered').notNull().default(0),
-    scored: integer('scored').notNull().default(0),
-    delivered: integer('delivered').notNull().default(0),
-    note: text('note'),
-  },
-  table => [index('idx_job_runs_started').on(table.startedAt)],
-)
-
-export type JobRun = typeof jobRuns.$inferSelect
-
 export type JobSource = typeof jobSources.$inferSelect
 export type NewJobSource = typeof jobSources.$inferInsert
 export type JobSourceKind = JobSource['kind']
@@ -908,8 +873,8 @@ export type TelegramTopicRow = typeof telegramTopics.$inferSelect
  * One row per scheduled pipeline, holding the moment its last run was allowed to
  * start. The lock that stops two runs of the same pipeline overlapping.
  *
- * **This is not a duplicate of `job_runs.startedAt`, and the split is the
- * point.** `job_runs` is the log: one row per run, with counters, a finish time
+ * **This is not a duplicate of `pipeline_runs.startedAt`, and the split is the
+ * point.** `pipeline_runs` is the log: one row per run, with counters, a finish time
  * and a note, written so a run can be read back afterwards. This table is the
  * permission to *become* one of those runs — a single row, overwritten, never
  * read for reporting. Keeping the log as the lock is what the jobs gate did, and
@@ -924,13 +889,55 @@ export type TelegramTopicRow = typeof telegramTopics.$inferSelect
  * bounded is the gap between *starts*, whatever the runs believe they are.
  */
 export const pipelineCycles = sqliteTable('pipeline_cycles', {
-  /** The pipeline, not the run: `news`, `jobs`. */
+  /** The pipeline, not the run: `news`, `jobs`, `leads`. */
   id: text('id').primaryKey(),
   /** When the run holding this cycle was allowed to start. */
   startedAt: integer('started_at').notNull(),
 })
 
 export type PipelineCycleRow = typeof pipelineCycles.$inferSelect
+
+/**
+ * One row per run of any pipeline — the log, where `pipeline_cycles` is the lock.
+ *
+ * Read by nobody in code: it is what `db:studio` shows when the question is "was
+ * last Tuesday quiet or broken?". `note` carries the one-line reason a run did
+ * nothing — a portfolio that would not fetch — which is the difference between
+ * those two. A row with no `finishedAt` is a run that crashed.
+ *
+ * Written by the kit inside its window before spending, so a run that loses the
+ * write lock here hands its cycle back
+ * ([ADR-0044](../../docs/decisions/0044-a-pipeline-s-cadence-is-one-definition.md)).
+ *
+ * The five counters are the ones every pipeline has. What only one pipeline
+ * counts goes in `detail` rather than a column the others would carry empty —
+ * leads' `visionCalls`, the number that costs money, and news' `linked`
+ * ([audit D2](../../docs/audit/04-BLUEPRINT.md#decisions)).
+ */
+export const pipelineRuns = sqliteTable(
+  'pipeline_runs',
+  {
+    id: text('id').primaryKey(),
+    /** The `pipeline_cycles` key: `news`, `jobs`, `leads`. */
+    pipeline: text('pipeline').notNull(),
+    startedAt: integer('started_at').notNull(),
+    /** Null while in flight. A row that never finishes is a crashed run. */
+    finishedAt: integer('finished_at'),
+    /** What the sources returned, before dedupe. */
+    fetched: integer('fetched').notNull().default(0),
+    /** What was new. */
+    stored: integer('stored').notNull().default(0),
+    /** What survived the deterministic filters and reached the model. */
+    considered: integer('considered').notNull().default(0),
+    scored: integer('scored').notNull().default(0),
+    delivered: integer('delivered').notNull().default(0),
+    note: text('note'),
+    detail: text('detail', { mode: 'json' }).$type<Record<string, number>>(),
+  },
+  table => [index('idx_pipeline_runs_pipeline_started').on(table.pipeline, table.startedAt)],
+)
+
+export type PipelineRunRow = typeof pipelineRuns.$inferSelect
 
 export type Beat = typeof beats.$inferSelect
 export type NewBeat = typeof beats.$inferInsert
@@ -1192,40 +1199,6 @@ export const leadDeliveries = sqliteTable(
   ],
 )
 
-/**
- * One leads run, and the reason its schedule can fire daily.
- *
- * The same shape and the same argument as `job_runs`: `startedAt` is what makes
- * the cadence, not the cron, because a day-of-month step double-fires across
- * month boundaries and a missed schedule fires on boot.
- *
- * `visionCalls` is counted separately from `scored` because it is the number that
- * costs money. A run where it equals `leadPipeline.maxVisionCallsPerRun` hit the
- * cap, which is the signal that a filter or a threshold is letting too much
- * through — visible here rather than only on an invoice.
- */
-export const leadRuns = sqliteTable(
-  'lead_runs',
-  {
-    id: text('id').primaryKey(),
-    startedAt: integer('started_at').notNull(),
-    /** Null while in flight. A row that never finishes is a crashed run. */
-    finishedAt: integer('finished_at'),
-    /** Signals seen from all sources, before dedupe. */
-    fetched: integer('fetched').notNull().default(0),
-    /** Signals that were new, and the leads they resolved to. */
-    stored: integer('stored').notNull().default(0),
-    /** Leads that survived the deterministic filter and reached the text scorer. */
-    considered: integer('considered').notNull().default(0),
-    scored: integer('scored').notNull().default(0),
-    visionCalls: integer('vision_calls').notNull().default(0),
-    delivered: integer('delivered').notNull().default(0),
-    /** The one-line reason a run did nothing, so quiet and broken look different. */
-    note: text('note'),
-  },
-  table => [index('idx_lead_runs_started').on(table.startedAt)],
-)
-
 export type ClientProfile = typeof clientProfiles.$inferSelect
 export type NewClientProfile = typeof clientProfiles.$inferInsert
 export type Lead = typeof leads.$inferSelect
@@ -1234,4 +1207,3 @@ export type LeadSignal = typeof leadSignals.$inferSelect
 export type NewLeadSignal = typeof leadSignals.$inferInsert
 export type LeadMatchRow = typeof leadMatches.$inferSelect
 export type LeadDeliveryRow = typeof leadDeliveries.$inferSelect
-export type LeadRunRow = typeof leadRuns.$inferSelect

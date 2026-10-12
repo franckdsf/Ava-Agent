@@ -2,7 +2,6 @@ import type { Mastra } from '@mastra/core'
 import { catchup } from '../config/catchup.js'
 import { lastCycleStart } from '../db/cycles.js'
 import { lastFeedFetchAt } from '../db/feeds.js'
-import { lastRunStartedAt } from '../db/jobs.js'
 import type { Pipeline } from './pipeline-kit.js'
 import { PIPELINES } from './pipelines.js'
 import { storage } from './storage.js'
@@ -31,7 +30,7 @@ import { findJobs } from './workflows/find-jobs.js'
  * and it explicitly does not move the cadence: the next scheduled digest still happens.
  *
  * **Staleness is read from the pipelines' own tables**, not from a marker this
- * module writes. `feed_state.lastFetchedAt`, `job_runs.startedAt` and, for a
+ * module writes. `feed_state.lastFetchedAt` for news and, for jobs and every
  * pipeline on the kit, its `pipeline_cycles` row are written by the runs
  * themselves, which means a catch-up that starts and then crashes still counts
  * as having spent the cycle — the same reasoning the gates are built on.
@@ -168,7 +167,7 @@ export const CATCHUP_TARGETS: CatchupTarget[] = [
     label: 'jobs',
     workflowId: findJobs.id,
     staleAfterDays: catchup.jobsStaleAfterDays,
-    lastRunAt: lastRunStartedAt,
+    lastRunAt: () => lastCycleStart('jobs'),
   },
   ...PIPELINES.map(catchupTarget),
 ]
@@ -203,8 +202,8 @@ async function workersReady(mastra: Mastra): Promise<boolean> {
  *
  * **The window this does not close.** A container in a crash loop could fire a
  * catch-up on each boot. What bounds it is that every run writes its own
- * staleness marker in the first seconds — ingest stamps `feed_state`,
- * `startJobRun()` writes `job_runs.startedAt`, and a kit pipeline's claim stamps
+ * staleness marker in the first seconds — ingest stamps `feed_state`, and
+ * the jobs claim and a kit pipeline's claim stamp
  * `pipeline_cycles` before anything else — so the next boot sees a fresh
  * pipeline and stands down. A restart inside that first window would start a
  * second run; a process restarting every few seconds has worse problems, and

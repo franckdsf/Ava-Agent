@@ -110,7 +110,7 @@ export const leadPipeline = {
    * Hours that must have elapsed before a run does anything.
    *
    * The cadence is a property of the data, not of the cron — the same argument
-   * `jobRuns.startedAt` settled ([ADR-0024]). Longer than the job pipeline's
+   * `job_runs.startedAt` settled ([ADR-0024]). Longer than the job pipeline's
    * because signals arrive in days rather than hours, and because a cooldown of
    * 30 days makes a twice-daily sweep pointless.
    */
