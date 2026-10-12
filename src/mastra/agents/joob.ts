@@ -1,13 +1,8 @@
-import { createTelegramAdapter } from '@chat-adapter/telegram'
-import { Agent } from '@mastra/core/agent'
-import type { AgentChannels } from '@mastra/core/channels'
-import { Memory } from '@mastra/memory'
 import { JOOB_BOT, JOOB_TOPICS } from '../../bots/joob.js'
-import { env, telegramChannelEnv } from '../../config/env.js'
-import { routeToChatTab } from '../chat-surface.js'
 import { JOOB_SURFACE } from '../commands/joob.js'
 import { memoryTools } from '../tools/memory.js'
 import { targetTools } from '../tools/targets.js'
+import { createChatAgent } from './chat-agent.js'
 import { memoryInstructions } from './memory.js'
 
 /**
@@ -19,12 +14,10 @@ import { memoryInstructions } from './memory.js'
  * ([ADR-0023](../../../docs/decisions/0023-a-bot-per-agent-two-tokens-two-chats.md),
  * [ADR-0024](../../../docs/decisions/0024-joob-a-job-pipeline-beside-the-news-one.md)).
  *
- * **It polls its own token.** Two adapters on one token would share a
- * `getUpdates` offset and eat each other's updates; two tokens are two queues,
- * which is the whole of [invariant 7](../../../AGENTS.md#invariants) as
- * restated. `mode: 'polling'` rather than `'auto'` for the same reason it is on
- * Newy — `'auto'` falls back to *webhook* when it cannot verify
- * `getWebhookInfo`, which silently breaks invariant 1.
+ * Built by `createChatAgent`, which owns what every talking agent shares — its
+ * own token polled in `mode: 'polling'`, memory, and routing to its chat tab
+ * ([invariant 7](../../../AGENTS.md#invariants)). This file is what is Joob's:
+ * its prompt and its tools.
  *
  * **The pipeline behind it does not exist yet.** This is the conversational half
  * only: Joob can talk and can keep notes, and has no job tools because there are
@@ -33,93 +26,30 @@ import { memoryInstructions } from './memory.js'
  * is not wired up yet.
  */
 
-export const joobId = 'joob'
+export const joobId = JOOB_BOT.id
 
 /**
- * No channel at all when Joob's token is unset, rather than an adapter that
- * throws on construction. That is the normal state until the bot is provisioned
- * in BotFather, and it must not take Newy or the news pipeline down.
- */
-const channel = telegramChannelEnv(JOOB_BOT)
-
-/** Assigned right after construction, for the reason `newyChannels` is. */
-let joobChannels: AgentChannels | null = null
-
-/**
- * No `withQuotedMessage` here, unlike Newy.
+ * No `inbound` wrapper here, unlike Newy.
  *
- * That wrapper resolves a swipe-to-reply into a stored **article**, which Joob
- * has none of. The job-shaped equivalent — swipe a posting, ask about it — is
- * worth having and is deliberately not a rename of the article one: it resolves
- * a different table by a different key. It lands with the pipeline.
+ * Hers resolves a swipe-to-reply into a stored **article**, which Joob has none
+ * of. The job-shaped equivalent — swipe a posting, ask about it — is worth having
+ * and is deliberately not a rename of the article one: it resolves a different
+ * table by a different key.
  */
-const toChatTab = routeToChatTab(JOOB_SURFACE, () => joobChannels)
-
-export const joob = new Agent({
-  id: joobId,
+export const joob = createChatAgent(JOOB_SURFACE, {
   name: 'Joob',
-  // The shared conversational knob, exactly as ADR-0022 specified: it names the
-  // model a reader talks to, whichever agent is doing the talking. Joob earns
-  // its own variable the day it needs a different model for a reason of its own.
-  model: env.AVA_MODEL_ORCHESTRATOR,
   // Memory tools write the same `memories` table Newy reads, which is the point
   // — one reader, one set of notes. The target tools write `job_searches`, which
   // the restated invariant 8 permits: configuration a future run reads. Neither
   // set can reach a fit score, a delivery, or a run in progress.
   tools: { ...memoryTools, ...targetTools },
-  memory: new Memory({
-    options: {
-      lastMessages: 30,
-    },
-  }),
-  ...(channel
-    ? {
-      channels: {
-        adapters: {
-          telegram: {
-            adapter: createTelegramAdapter({
-              botToken: channel.botToken,
-              allowedUserIds: channel.allowedUserIds,
-              mode: 'polling',
-            }),
-            // Same reasoning as Newy's: the orchestrator takes tens of seconds
-            // on anything non-trivial and the typing indicator expires after
-            // ~5s, so without this the reader watches an empty chat.
-            streaming: true,
-            toolDisplay: 'hidden',
-          },
-        },
-        handlers: {
-          onDirectMessage: toChatTab,
-          onMention: toChatTab,
-          onSubscribedMessage: toChatTab,
-        },
-      },
-    }
-    : {}),
-  /**
-   * Rebuilt per turn for the same reason Newy's is: half of it is what is
-   * currently known about the reader. The static half stays byte-identical
-   * between turns and remains a cacheable prompt prefix.
-   */
+  // A function, rebuilt per turn: the notes are what is currently known about the reader.
   instructions: async () => {
     const notes = await memoryInstructions()
     return [
       { role: 'system' as const, content: baseInstructions },
       { role: 'system' as const, content: notes },
     ]
-  },
-  defaultOptions: {
-    providerOptions: {
-      openrouter: {
-        reasoning: { effort: 'high' },
-        provider: {
-          sort: 'price',
-          allow_fallbacks: true,
-          require_parameters: false,
-        },
-      },
-    },
   },
 })
 
@@ -260,5 +190,3 @@ Tone. You are their scout, not their friend:
 Outside the job search you are an ordinary capable assistant: answer directly,
 admit what you don't know, and skip the flattery.
 `.trim()
-
-joobChannels = joob.getChannels()
