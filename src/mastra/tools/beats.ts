@@ -131,7 +131,7 @@ export const inspectBeat = createTool({
     const cutoff = since(retune.statsDays)
     const [feeds, performance, topScores, history] = await Promise.all([
       feedsForBeats([slug]),
-      feedPerformance(slug, cutoff),
+      feedPerformance(beat, cutoff),
       topVerdictsForBeat(slug, cutoff, retune.verdictsShown),
       beatRevisionHistory(slug, retune.historyShown),
     ])

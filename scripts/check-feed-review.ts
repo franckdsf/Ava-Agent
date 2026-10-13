@@ -27,7 +27,7 @@ console.log('\n== the report, as the reader sees it ==')
 const message = renderFeedReview({
   restored: [{ beatSlug: 'design', source: 'WebKit', trials: 1 }],
   archived: [
-    { beatSlug: 'computer-science', source: 'arXiv cs.AI', feedUrl: 'x', collected: 340, bestScore: 31, trials: 1 },
+    { beatSlug: 'computer-science', source: 'arXiv cs.AI', feedUrl: 'x', collected: 340, ranked: 300, cleared: 0, bestScore: 31, trials: 1 },
   ],
   skipped: [{ beatSlug: 'formula-1', reason: 'only 4 feeds, floor is 3' }],
   added: [{ beatSlug: 'design', source: 'Smashing' }],
@@ -37,7 +37,7 @@ console.log(message.split('\n').map(line => `   > ${line}`).join('\n'))
 console.log('\n== what a run TODAY would do, against the live database ==')
 const since = Date.now() - feedReview.windowDays * 24 * 60 * 60 * 1000
 for (const live of await activeBeats()) {
-  const verdict = verdictForBeat(live, await liveFeedsWithTrials(live.slug), await feedPerformance(live.slug, since))
+  const verdict = verdictForBeat(await liveFeedsWithTrials(live.slug), await feedPerformance(live, since))
   console.log(
     `   ${live.slug}: ` +
     (verdict.skip ? `skipped — ${verdict.skip}` : `would archive ${verdict.archive.map(a => a.feed.source).join(', ') || 'nothing'}`),

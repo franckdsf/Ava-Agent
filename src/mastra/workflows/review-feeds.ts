@@ -17,7 +17,6 @@ import {
   feedsForBeats,
   liveFeedsWithTrials,
   restoreFeed,
-  type Beat,
   type RetriableFeed,
 } from '../../db/beats.js'
 import { escapeMarkdown } from '../../services/telegram.js'
@@ -74,6 +73,8 @@ const pruned = restored.extend({
       source: z.string(),
       feedUrl: z.string(),
       collected: z.number(),
+      ranked: z.number(),
+      cleared: z.number(),
       bestScore: z.number().nullable(),
       trials: z.number(),
     }),
@@ -146,6 +147,11 @@ export interface BeatVerdict {
   skip: string | null
 }
 
+/** The share of a feed's scored articles that cleared the beat's threshold. */
+function hitRate(stats: FeedPerformance): number {
+  return stats.ranked === 0 ? 0 : stats.cleared / stats.ranked
+}
+
 /**
  * Decides which of a beat's feeds have earned their removal. Pure — writes
  * nothing, reads nothing.
@@ -162,12 +168,14 @@ export interface BeatVerdict {
  * - too few feeds → never leave a beat one outage from silence
  * - the beat delivered nothing → the fault is the beat, not its sources
  * - too few collected / ranked → no sample, no verdict
- * - delivered something → obviously earning its place
- * - ever cleared the beat's threshold → it produced deliverable work and lost
- *   arbitration, which is not the same as being bad
+ * - at least `minHitRate` of its scored articles cleared the beat's threshold →
+ *   it earns its place, whether those stories were sent or lost arbitration
+ *
+ * The last guard was "delivered once, or ever cleared the threshold" until
+ * 2026-10-13. That kept a site-wide feed forever on one good story a month; a
+ * rate weighs the hits against the volume that is ranked to find them.
  */
 export function verdictForBeat(
-  beat: Beat,
   live: readonly RetriableFeed[],
   performance: readonly FeedPerformance[],
 ): BeatVerdict {
@@ -186,15 +194,12 @@ export function verdictForBeat(
     .filter(({ stats }) => {
       if (stats.collected < feedReview.minCollected) return false
       if (stats.ranked < feedReview.minRanked) return false
-      if (stats.delivered > 0) return false
-      // The guard that stops a good feed being punished for losing arbitration:
-      // a story it produced *did* clear the beat's bar, and another beat or a
-      // better story simply took the slot.
-      if (stats.bestScore !== null && stats.bestScore >= beat.digestThreshold) return false
-      return true
+      // `cleared` counts stories that reached the bar and lost their slot too, so
+      // a good feed is not punished for arbitration — only for its hit rate.
+      return hitRate(stats) < feedReview.minHitRate
     })
     // Worst first, so a capped run drops the least defensible ones.
-    .sort((a, b) => (a.stats.bestScore ?? 0) - (b.stats.bestScore ?? 0))
+    .sort((a, b) => hitRate(a.stats) - hitRate(b.stats) || (a.stats.bestScore ?? 0) - (b.stats.bestScore ?? 0))
     .slice(0, Math.max(0, room))
 
   return { archive, skip: null }
@@ -211,9 +216,8 @@ const prune = createStep({
 
     for (const beat of await activeBeats()) {
       const verdict = verdictForBeat(
-        beat,
         await liveFeedsWithTrials(beat.slug),
-        await feedPerformance(beat.slug, since),
+        await feedPerformance(beat, since),
       )
 
       if (verdict.skip) {
@@ -229,6 +233,8 @@ const prune = createStep({
           source: feed.source,
           feedUrl: feed.feedUrl,
           collected: stats.collected,
+          ranked: stats.ranked,
+          cleared: stats.cleared,
           bestScore: stats.bestScore,
           trials,
         })
@@ -324,13 +330,13 @@ export function renderFeedReview(input: z.infer<typeof toppedUp>): string {
 
   if (input.archived.length > 0) {
     blocks.push(
-      `**Dropped ${input.archived.length}** — nothing they brought in ${feedReview.windowDays} ` +
-        `days ever cleared the beat's bar.`,
+      `**Dropped ${input.archived.length}** — in ${feedReview.windowDays} days, under ` +
+        `${Math.round(feedReview.minHitRate * 100)}% of what each brought cleared the beat's bar.`,
       input.archived
         .map(
           row =>
             `- **${escapeMarkdown(row.source)}** \`${row.beatSlug}\`\n` +
-            `  ${row.collected} articles, best score ${row.bestScore ?? '—'}` +
+            `  ${row.cleared} of ${row.ranked} scored cleared the bar · best score ${row.bestScore ?? '—'}` +
             (row.trials >= feedReview.maxTrials
               ? ' · final — it won\'t be tried again'
               : ` · back in ${feedReview.retryAfterDays} days for another go`),

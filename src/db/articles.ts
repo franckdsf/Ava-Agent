@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, sql } from
 import { pipeline } from '../config/pipeline.js'
 import { batchAll, db, migrate } from './client.js'
 import { articleBeats, articles } from './schema.js'
+import type { Beat } from './beats.js'
 import type { Article, DeliveryKind } from './schema.js'
 import type { ArticleRanking, BeatLink, DiscoveredArticle, PendingArticle } from './types.js'
 
@@ -322,8 +323,14 @@ export interface FeedPerformance {
   collected: number
   /** How many of those the ranker has scored. The rest arrived too recently. */
   ranked: number
-  /** How many this beat actually sent. The number that matters. */
+  /** How many this beat actually sent. */
   delivered: number
+  /**
+   * How many scored at or above the beat's threshold, sent or not — deliverable work. A story that
+   * cleared the bar and lost its slot to a better one counts: the feed did its job. The weekly
+   * review judges a feed on `cleared / ranked`.
+   */
+  cleared: number
   /** Mean score over the ranked ones, rounded. Null when none are ranked yet. */
   meanScore: number | null
   /** Best score it ever earned here — one good story is worth knowing about. */
@@ -350,16 +357,18 @@ export interface FeedPerformance {
  * Ordered worst first because every caller is looking for the bad ones.
  */
 export async function feedPerformance(
-  beatSlug: string,
+  beat: Pick<Beat, 'slug' | 'digestThreshold'>,
   since: number,
 ): Promise<FeedPerformance[]> {
   await migrate()
+  const beatSlug = beat.slug
   const rows = await db()
     .select({
       feedUrl: articles.feedUrl,
       collected: sql<number>`count(*)`,
       ranked: sql<number>`sum(case when ${articleBeats.rankedAt} is not null then 1 else 0 end)`,
       delivered: sql<number>`sum(case when ${articles.deliveredBeat} = ${beatSlug} then 1 else 0 end)`,
+      cleared: sql<number>`sum(case when ${articleBeats.score} >= ${beat.digestThreshold} then 1 else 0 end)`,
       meanScore: sql<number | null>`avg(${articleBeats.score})`,
       bestScore: sql<number | null>`max(${articleBeats.score})`,
     })
@@ -374,6 +383,7 @@ export async function feedPerformance(
       collected: Number(row.collected ?? 0),
       ranked: Number(row.ranked ?? 0),
       delivered: Number(row.delivered ?? 0),
+      cleared: Number(row.cleared ?? 0),
       meanScore: row.meanScore === null ? null : Math.round(Number(row.meanScore)),
       bestScore: row.bestScore === null ? null : Number(row.bestScore),
     }))

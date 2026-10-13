@@ -54,6 +54,20 @@ export const feedReview = {
   minRanked: 15,
 
   /**
+   * The share of a feed's scored articles that must clear the beat's threshold
+   * for it to stay — `cleared / ranked`, sent or not.
+   *
+   * A rate rather than "any hit", because any hit kept a site-wide feed forever:
+   * `pnpm discovery:check "rust programming language"` (2026-10-13) attached
+   * InfoWorld's whole-site feed and The Hacker News's, ~70 off-topic entries a
+   * day, each ranked every digest. One real Rust story a month cleared the bar
+   * and the old guard kept the feed. 5%, chosen by the reader: one hit in twenty
+   * scored keeps a feed, one in thirty does not — and an archived feed is
+   * retried after `retryAfterDays`, so a quiet specialist gets a second month.
+   */
+  minHitRate: 0.05,
+
+  /**
    * Articles the **beat** must have delivered in the window before any of its
    * feeds may be archived.
    *

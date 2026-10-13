@@ -324,7 +324,7 @@ async function showBeat(slug: string | undefined): Promise<string> {
   // articles and delivers none is visible rather than inferred. Keyed by URL
   // because a feed with no articles in the window has no row at all.
   const performance = new Map(
-    (await feedPerformance(beat.slug, since(beatCommands.statsDays))).map(row => [
+    (await feedPerformance(beat, since(beatCommands.statsDays))).map(row => [
       row.feedUrl,
       row,
     ]),
