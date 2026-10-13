@@ -4,7 +4,8 @@ import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { jobPipeline } from '../../config/jobs.js'
 import type { JobSearch } from '../../db/schema.js'
-import { leakedStructure, withRetry } from '../../services/structured-output.js'
+import { leakedStructure } from '../../services/structured-output.js'
+import { structured } from './structured.js'
 
 /**
  * The two model calls in a job run, and they are deliberately two.
@@ -310,14 +311,13 @@ export async function scoreBatch(
   batchIds: Set<string>,
 ): Promise<ScoredVerdict[]> {
   const agent = mastra.getAgent(jobScorerId)
-  const object = await withRetry<z.infer<typeof scoringSchema>>(
-    jobPipeline.modelAttempts,
-    () => agent.generate(prompt, { structuredOutput: { schema: scoringSchema } }),
-    (attempt, error) =>
+  const object = await structured(agent, prompt, scoringSchema, {
+    attempts: jobPipeline.modelAttempts,
+    onAttemptFailed: (attempt, error) =>
       mastra
         .getLogger()
         ?.warn(`Job scorer attempt ${attempt}/${jobPipeline.modelAttempts} failed`, error),
-  )
+  })
 
   // Guard against a model echoing an id that was not in the batch, exactly as
   // the news ranker does.
@@ -337,16 +337,15 @@ export async function writeJobBrief(
   prompt: string,
 ): Promise<z.infer<typeof jobSummarySchema> | null> {
   const agent = mastra.getAgent(jobWriterId)
-  return withRetry<z.infer<typeof jobSummarySchema>>(
-    jobPipeline.modelAttempts,
-    () => agent.generate(prompt, { structuredOutput: { schema: jobSummarySchema } }),
-    (attempt, error) =>
+  return structured(agent, prompt, jobSummarySchema, {
+    attempts: jobPipeline.modelAttempts,
+    onAttemptFailed: (attempt, error) =>
       mastra
         .getLogger()
         ?.warn(`Job writer attempt ${attempt}/${jobPipeline.modelAttempts} failed`, error),
     // A brief carrying its own JSON debris is retried, not sent — the schema
     // accepts it because every field is still a string.
-    brief =>
+    reject: brief =>
       leakedStructure([brief.summary, ...brief.fits, ...brief.watchOuts], Object.keys(jobSummarySchema.shape)),
-  )
+  })
 }

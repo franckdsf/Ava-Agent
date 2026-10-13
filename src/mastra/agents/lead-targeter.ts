@@ -3,7 +3,7 @@ import { Agent } from '@mastra/core/agent'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { LEAD_SIGNAL_KINDS, leadPipeline } from '../../config/leads.js'
-import { withRetry } from '../../services/structured-output.js'
+import { structured } from './structured.js'
 
 /**
  * The one model call behind `/client`
@@ -140,16 +140,14 @@ export const leadTargeterAgents = { [leadTargeterId]: targeter }
  */
 export async function parseClient(mastra: Mastra, request: string): Promise<ParsedClient> {
   const agent = mastra.getAgent(leadTargeterId)
-  const parsed = await withRetry<ParsedClient>(
-    leadPipeline.modelAttempts,
-    () => agent.generate(request, { structuredOutput: { schema: clientSchema } }),
-    (attempt, error) =>
+  const parsed = await structured(agent, request, clientSchema, {
+    attempts: leadPipeline.modelAttempts,
+    onAttemptFailed: (attempt, error) =>
       mastra
         .getLogger()
         ?.warn(`Lead targeter attempt ${attempt}/${leadPipeline.modelAttempts} failed`, error),
-  )
-
-  if (!parsed) throw new Error('Could not parse that into a client profile')
+    orThrow: 'Could not parse that into a client profile',
+  })
 
   const known: readonly string[] = LEAD_SIGNAL_KINDS
   return {

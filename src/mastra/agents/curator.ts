@@ -8,7 +8,8 @@ import type { Beat } from '../../db/beats.js'
 import type { FeedbackSignal } from '../../db/feedback.js'
 import { memoriesForCuration, type Memory } from '../../db/memories.js'
 import type { Article, ArticleRanking, PendingArticle } from '../../db/types.js'
-import { leakedStructure, withRetry } from '../../services/structured-output.js'
+import { leakedStructure } from '../../services/structured-output.js'
+import { structured } from './structured.js'
 
 /**
  * One ranker and one article writer for every beat — not one pair per beat.
@@ -329,14 +330,13 @@ export async function rankBatch(
   beatSlug: string,
 ): Promise<ArticleRanking[]> {
   const agent = mastra.getAgent(rankerId)
-  const ranking = await withRetry<z.infer<typeof rankingSchema>>(
-    pipeline.modelAttempts,
-    () => agent.generate(prompt, { structuredOutput: { schema: rankingSchema } }),
-    (attempt, error) =>
+  const ranking = await structured(agent, prompt, rankingSchema, {
+    attempts: pipeline.modelAttempts,
+    onAttemptFailed: (attempt, error) =>
       mastra
         .getLogger()
         ?.warn(`Beat ranker attempt ${attempt}/${pipeline.modelAttempts} failed for ${beatSlug}`, error),
-  )
+  })
   return (ranking?.rankings ?? []).filter(verdict => batchIds.has(verdict.id))
 }
 
@@ -369,15 +369,14 @@ export type ArticleSummary = z.infer<typeof summarySchema>
  */
 export async function writeArticleSummary(mastra: Mastra, prompt: string): Promise<ArticleSummary | null> {
   const agent = mastra.getAgent(articleWriterId)
-  return withRetry<ArticleSummary>(
-    pipeline.modelAttempts,
-    () => agent.generate(prompt, { structuredOutput: { schema: summarySchema } }),
-    (attempt, error) =>
+  return structured(agent, prompt, summarySchema, {
+    attempts: pipeline.modelAttempts,
+    onAttemptFailed: (attempt, error) =>
       mastra
         .getLogger()
         ?.warn(`Article writer attempt ${attempt}/${pipeline.modelAttempts} failed`, error),
     // The same guard as the job writer's: debris from a broken JSON answer is
     // retried rather than sent, since the schema sees only strings.
-    summary => leakedStructure([summary.lede, ...summary.points], Object.keys(summarySchema.shape)),
-  )
+    reject: summary => leakedStructure([summary.lede, ...summary.points], Object.keys(summarySchema.shape)),
+  })
 }

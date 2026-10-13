@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { LEAD_SIGNAL_KINDS, leadPipeline, leadScout } from '../../config/leads.js'
 import type { ClientProfile } from '../../db/schema.js'
-import { withRetry } from '../../services/structured-output.js'
+import { structured } from './structured.js'
 
 /**
  * The model behind the `sonar` lead source: which companies just did something
@@ -161,14 +161,13 @@ export async function proposeProspects(
     .filter(Boolean)
     .join('\n')
 
-  const object = await withRetry<z.infer<typeof prospectSchema>>(
-    leadPipeline.modelAttempts,
-    () => agent.generate(prompt, { structuredOutput: { schema: prospectSchema } }),
-    (attempt, error) =>
+  const object = await structured(agent, prompt, prospectSchema, {
+    attempts: leadPipeline.modelAttempts,
+    onAttemptFailed: (attempt, error) =>
       mastra
         .getLogger()
         ?.warn(`Lead scout attempt ${attempt}/${leadPipeline.modelAttempts} failed`, error),
-  )
+  })
 
   const known: readonly string[] = LEAD_SIGNAL_KINDS
   return (object?.prospects ?? []).filter(prospect => known.includes(prospect.signalKind))

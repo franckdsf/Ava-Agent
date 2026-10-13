@@ -4,7 +4,8 @@ import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { LEAD_SIGNAL_LABELS, leadPipeline, type LeadSignalKind } from '../../config/leads.js'
 import type { ClientProfile, Lead, LeadSignal } from '../../db/schema.js'
-import { leakedStructure, withRetry } from '../../services/structured-output.js'
+import { leakedStructure } from '../../services/structured-output.js'
+import { structured } from './structured.js'
 
 /**
  * The three model calls the leads pipeline makes about a company
@@ -368,14 +369,13 @@ export async function scoreLeadBatch(
   batchIds: Set<string>,
 ): Promise<LeadVerdict[]> {
   const agent = mastra.getAgent(leadScorerId)
-  const object = await withRetry<z.infer<typeof leadScoringSchema>>(
-    leadPipeline.modelAttempts,
-    () => agent.generate(prompt, { structuredOutput: { schema: leadScoringSchema } }),
-    (attempt, error) =>
+  const object = await structured(agent, prompt, leadScoringSchema, {
+    attempts: leadPipeline.modelAttempts,
+    onAttemptFailed: (attempt, error) =>
       mastra
         .getLogger()
         ?.warn(`Lead scorer attempt ${attempt}/${leadPipeline.modelAttempts} failed`, error),
-  )
+  })
 
   // Guard against a model echoing an id that was not in the batch, as the job
   // scorer and the news ranker both do.
@@ -408,14 +408,13 @@ export async function judgeLeadVisuals(
     ],
   }
 
-  return withRetry<z.infer<typeof leadVisionSchema>>(
-    leadPipeline.modelAttempts,
-    () => agent.generate([message], { structuredOutput: { schema: leadVisionSchema } }),
-    (attempt, error) =>
+  return structured(agent, [message], leadVisionSchema, {
+    attempts: leadPipeline.modelAttempts,
+    onAttemptFailed: (attempt, error) =>
       mastra
         .getLogger()
         ?.warn(`Lead vision attempt ${attempt}/${leadPipeline.modelAttempts} failed`, error),
-  )
+  })
 }
 
 /**
@@ -430,15 +429,15 @@ export async function writeLeadBrief(
   prompt: string,
 ): Promise<z.infer<typeof leadBriefSchema> | null> {
   const agent = mastra.getAgent(leadWriterId)
-  return withRetry<z.infer<typeof leadBriefSchema>>(
-    leadPipeline.modelAttempts,
-    () => agent.generate(prompt, { structuredOutput: { schema: leadBriefSchema } }),
-    (attempt, error) =>
+  return structured(agent, prompt, leadBriefSchema, {
+    attempts: leadPipeline.modelAttempts,
+    onAttemptFailed: (attempt, error) =>
       mastra
         .getLogger()
         ?.warn(`Lead writer attempt ${attempt}/${leadPipeline.modelAttempts} failed`, error),
     // The guard the job and article writers carry: debris from a broken JSON
     // answer is retried, not sent, since the schema sees only strings.
-    brief => leakedStructure([brief.summary, brief.angle, ...brief.watchOuts], Object.keys(leadBriefSchema.shape)),
-  )
+    reject: brief =>
+      leakedStructure([brief.summary, brief.angle, ...brief.watchOuts], Object.keys(leadBriefSchema.shape)),
+  })
 }
