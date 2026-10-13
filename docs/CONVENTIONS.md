@@ -51,7 +51,7 @@ needs a judgement no script can make, and is settled.
 | No AI-attribution trailer on a commit | 🔒 `commit-msg` |
 | A branch other than `main` is `<type>/<kebab-summary>` | 🔒 `pre-commit` |
 | `pnpm verify` is green before a commit exists | 🔒 `pre-commit`, `pre-merge-commit` |
-| Env is validated at boot and names what is missing | the process refuses to start — zod in `src/config/env.ts`, core vars at import, a bot's when it is built. Not in `pnpm verify`; ⏳ a test that the schema rejects an empty `.env` |
+| Env is validated at boot and names what is missing | 🧪 `src/config/__tests__/env.test.ts` — the core schema at import, a bot's when it is built, an empty value counted as missing |
 | A pipeline's catch-up bar clears its healthy ceiling (gate + widest fire gap) | 🧪 `definePipeline` throws at load, so every test importing a pipeline fails and so does boot — every scheduled pipeline is on the kit |
 | `pnpm db:generate` after a schema edit | 👁 — the `SessionStart` hook warns on mtimes; ⏳ a check comparing the schema to the last snapshot |
 | Never require an inbound port, tunnel or webhook | 📐 C9 — no `mode: 'auto'`/`'webhook'`, the agent's adapter says `mode: 'polling'`, every port in `docker-compose.yml` on `127.0.0.1` |
