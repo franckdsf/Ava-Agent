@@ -235,8 +235,9 @@ const coreSchema = z.object({
    * to the other without re-measuring.
    *
    * The `</think>` truncation this repo documents for reasoning models did **not**
-   * appear across 15 runs, and a failure degrades safely anyway — `proposeCompanies`
-   * returns an empty list, so a bad response costs that run's leads and nothing else.
+   * appear across 15 runs, and a failure degrades safely anyway — an unparseable
+   * answer throws and lands as a problem on the sonar row, so a bad response costs
+   * that search's leads and nothing else; the run continues.
    */
   AVA_MODEL_JOB_SCOUT: gatewayModelId.default('openrouter/perplexity/sonar-reasoning-pro'),
 

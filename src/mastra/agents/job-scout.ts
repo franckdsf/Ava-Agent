@@ -5,6 +5,7 @@ import { env } from '../../config/env.js'
 import { jobScout as scoutConfig } from '../../config/jobs.js'
 import { domainLabel } from '../../config/job-taxonomy.js'
 import type { JobSearch } from '../../db/schema.js'
+import { structured } from './structured.js'
 
 /**
  * The model behind the `sonar` job source: which companies are hiring for this
@@ -157,10 +158,12 @@ export function renderSearchForScouting(search: JobSearch): string {
 /**
  * Companies plausibly hiring for this search.
  *
- * Returns an empty list rather than throwing when the model gives nothing usable.
- * Unlike the beat scout — where no sites means `/follow` has failed and the reader
- * is waiting for an answer — this runs unattended beside nine other sources, and
- * one quiet source must not take down a run the boards would have filled.
+ * **Throws when the answer does not parse**, and returns an empty list only when
+ * the model really named no one. The two used to be the same `[]`, so a failed
+ * call looked like a quiet day on the sonar row. `fetchSonarSource` catches per
+ * search and records the throw as a problem on the row, so the run carries on —
+ * this runs unattended beside nine other sources, and one failed search must not
+ * take down a run the boards would have filled.
  *
  * Anything shaped like a careers or posting URL is dropped here rather than
  * trusted to the instructions, for the same reason `looksLikeAFeedUrl` exists: a
@@ -174,7 +177,8 @@ export async function proposeCompanies(
   agentId: string = jobScoutId,
 ): Promise<JobLead[]> {
   const agent = mastra.getAgent(agentId)
-  const response = await agent.generate(
+  const { leads } = await structured(
+    agent,
     [
       `Find ${scoutConfig.leadsPerSearch} companies hiring for this role:`,
       '',
@@ -184,10 +188,11 @@ export async function proposeCompanies(
         : '',
       '\nGive each one its name, its homepage, the role, and one line on why it fits.',
     ].join('\n'),
-    { structuredOutput: { schema: leadsSchema } },
+    leadsSchema,
+    { attempts: 1, orThrow: 'The job scout returned no parsable object' },
   )
 
-  return (response.object?.leads ?? [])
+  return leads
     .map(lead => ({
       company: stripCitations(lead.company),
       homepage: stripCitations(lead.homepage),

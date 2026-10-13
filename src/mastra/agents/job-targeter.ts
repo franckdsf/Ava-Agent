@@ -2,7 +2,7 @@ import type { Mastra } from '@mastra/core'
 import { Agent } from '@mastra/core/agent'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
-import { jobCommands } from '../../config/jobs.js'
+import { jobCommands, jobPipeline } from '../../config/jobs.js'
 import { domainIds, isKnownDomain, knownSeniority, seniorityIds } from '../../config/job-taxonomy.js'
 import { structured } from './structured.js'
 
@@ -270,15 +270,23 @@ export async function suggestTighterTarget(
  * Resolved through `mastra.getAgent` rather than by importing the agent, so the
  * call shows up in Studio like every other model call here.
  *
- * Throws when the model returns nothing parseable. The caller answers with the
- * usage line — "the model returned junk" and "you typed something unusable" look
- * identical to the reader and lead to the same next action, which is to say it
- * again.
+ * Asked `jobPipeline.modelAttempts` times, like its twin `parseClient`. A second
+ * call costs about one more bench worst case (9.2s, `AVA_MODEL_JOB_TARGETER`)
+ * behind the holding message, which beats making the reader type it again.
+ *
+ * Throws when every attempt returned nothing parseable. The caller answers with
+ * the usage line — "the model returned junk" and "you typed something unusable"
+ * look identical to the reader and lead to the same next action, which is to
+ * say it again.
  */
 export async function parseTarget(mastra: Mastra, request: string): Promise<ParsedTarget> {
   const agent = mastra.getAgent(jobTargeterId)
   const object = await structured(agent, request.slice(0, jobCommands.requestMaxChars), targetSchema, {
-    attempts: 1,
+    attempts: jobPipeline.modelAttempts,
+    onAttemptFailed: (attempt, error) =>
+      mastra
+        .getLogger()
+        ?.warn(`Job targeter attempt ${attempt}/${jobPipeline.modelAttempts} failed`, error),
     orThrow: 'The targeter returned no parseable object',
   })
 
