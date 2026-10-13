@@ -66,6 +66,7 @@ something looks the way it does.
 | [0046](0046-a-model-is-chosen-by-pnpm-bench.md) | A model is chosen by `pnpm bench`, against the incumbent, on the real call path | Accepted | `src/config/env.ts`, `src/mastra/agents/**`, `src/config/bench.ts`, `scripts/bench/**` | `pnpm verify` |
 | [0047](0047-a-bot-is-data-and-a-command-is-one-object.md) | A bot is data, built into an agent and a surface once; a command is one object | Accepted | `src/bots/**`, `src/services/telegram.ts`, `src/mastra/registrar.ts`, `src/mastra/chat-bots.ts`, `src/mastra/chat-surface.ts`, `src/mastra/quoted-message.ts`, `src/mastra/agents/chat-agent.ts`, `src/mastra/commands/**`, `scripts/checks/c7-bot-agnostic.mjs` | `pnpm verify` |
 | [0048](0048-a-model-is-asked-through-structured-with-its-attempts-written.md) | A model is asked through `structured()`, with how many times written at the call site | Accepted | `src/mastra/agents/**`, `src/services/structured-output.ts`, `scripts/checks/c5-model-boundary.mjs` | `pnpm verify` |
+| [0049](0049-the-database-is-read-only-through-src-db.md) | The database is read only through `src/db/`, and a helper exists once | Accepted | `src/db/**`, `src/mastra/tools/news.ts`, `src/lib/url.ts`, `src/services/posting-fields.ts`, `src/services/page-fetch.ts`, `scripts/checks/c6-data-access.mjs` | `pnpm verify` |
 
 **Reading 0001–0021:** they predate [0022](0022-ava-is-the-system-agents-have-names.md)
 and call the conversational agent *Ava*. That agent is now **Newy**; *Ava* is the

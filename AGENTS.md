@@ -15,7 +15,7 @@
 Operating contract for anyone — human or agent — working in this repo.
 
 - **What it is and how to run it:** [README.md](README.md)
-- **Why it looks like this:** [docs/decisions/](docs/decisions/README.md) — 48 ADRs, each declaring
+- **Why it looks like this:** [docs/decisions/](docs/decisions/README.md) — 49 ADRs, each declaring
   the files it governs and the command that proves it still holds
 - **What surprised us:** [docs/GOTCHAS/](docs/GOTCHAS/README.md) — nine routed files; read the one
   whose globs match what you are touching
@@ -123,7 +123,7 @@ check yet: [CONVENTIONS §1](docs/CONVENTIONS.md#1-rule-to-mechanism-map) says w
    - Never let drizzle own `mastra_*`.
    - Never hand-write a migration `pnpm db:generate` can emit. Hand-written SQL is for what drizzle
      cannot express — an FTS5 table (`0010`), a data change (`0011`, `0018`) — and its header says
-     which. FTS5 `MATCH` at query time (`tools/news.ts`) is the same exception.
+     which. FTS5 `MATCH` at query time (`db/articles.ts`) is the same exception.
 5. **Dedupe is global, not per-beat.** ([0019](docs/decisions/0019-beats-as-reader-owned-data.md))
    - Never dedupe per-beat — the key is a hash of the canonical link, and a story is delivered once.
 6. **Single replica.** ([0001](docs/decisions/0001-mastra-in-a-container-with-no-inbound-ports.md))
@@ -158,7 +158,7 @@ whether it writes, calls a model or needs `.env`. **`verify*` is offline and det
 
 | Command | Rule |
 | --- | --- |
-| `pnpm verify` | Before claiming any change works. Typecheck, the C1–C5, C7 and C8 rule checks, the tests — the `pre-commit` hook runs it and refuses the commit if it fails. |
+| `pnpm verify` | Before claiming any change works. Typecheck, the C1–C8 rule checks, the tests — the `pre-commit` hook runs it and refuses the commit if it fails. |
 | `pnpm db:generate` | **Required** after editing `src/db/schema.ts`, or the migration silently lags the code. |
 | `pnpm workflow:run <target>` | **The only script that is not a dry run.** Real feeds, real model calls, real Telegram messages. Read `--help` first. |
 

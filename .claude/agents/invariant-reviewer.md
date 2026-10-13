@@ -64,7 +64,7 @@ because that is the only thing `git` cannot tell you. Everything else you establ
    9. **One bot, one agent, one chat — and inside a chat, one tab, one kind of traffic.**
 
    **Then read `docs/CONVENTIONS.md` §1.** It tags every rule with what holds it. A 📐 or 🔒 row is
-   already checked by `pnpm verify` (C1–C5, C7, C8) or a git hook — do not spend your pass re-checking it; run
+   already checked by `pnpm verify` (C1–C8) or a git hook — do not spend your pass re-checking it; run
    `pnpm verify:rules` once if you need its verdict. **Your attention belongs on the 👁 and ⏳ rows:**
    nothing but you holds those.
 

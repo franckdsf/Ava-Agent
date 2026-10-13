@@ -102,6 +102,12 @@ and got twenty dialects of the same architecture.
 These documents describe this repo at the commit they were audited against, and the refactor will
 make them wrong — that is the point of it. So each opens with `audited_at: <commit>` frontmatter and
 is then **frozen**: never updated to match the new code. C1 still checks their links but not their
-backticked paths, which belong to the code as it was. The blueprint's durable content moves to
+backticked paths, which belong to the code as it was.
+
+**One exception, decided 2026-10-13:** a slice may add an *As built (slice N):* note under the
+part it landed, and correct a Part 7 check row with *Corrected when it landed:* — never rewrite the
+audited text. No date: `git log --grep "slice N"` finds the commits, and with them when. Those notes record
+where the build departed from the plan, and they are what
+`docs/ARCHITECTURE.md` is assembled from. The blueprint's durable content moves to
 `docs/ARCHITECTURE.md` and the ADRs; the rest stays as the evidence the new rules cite. An ADR saying
 "this prevents F3" is checkable only while F3 is readable.

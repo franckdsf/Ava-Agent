@@ -152,10 +152,20 @@ repository functions. The one exception is named, not implied: the FTS5 `MATCH` 
 moves to `db/articles.ts`, which is then the only runtime raw SQL. **Enforced by** a check:
 `drizzle-orm` and `db()` are imported only under `src/db/`.
 
+> *As built (slice 7):* as planned, plus one query that was written twice — `/beat`'s stats and the
+> `news-stats` tool are now one `beatActivity`. C6 also refuses a table imported outside `src/db/`
+> (row types stay importable) and allows `rawClient`, which `mastra/storage.ts` hands to Mastra's
+> store. [ADR-0049](../decisions/0049-the-database-is-read-only-through-src-db.md).
+
 ## Part 6 — The small copies (F10, F11)
 
 One `hostOf`, one `fetchPage` (in `services/page-fetch.ts`, which exists to be it), one `parseDate`.
 The Mastra skill: one tracked copy ([D3](#decisions)).
+
+> *As built (slice 7):* `hostOf` in `src/lib/url.ts`, strict — `feed-finder` adds the scheme to a bare
+> domain itself. `parseDate` with `clean` and `truncate`, which were copied beside it in `ats`,
+> `job-fetch` and `job-hn`, in `services/posting-fields.ts`. `feed-discovery` wraps `page-fetch` as the
+> job scout does. [ADR-0049](../decisions/0049-the-database-is-read-only-through-src-db.md).
 
 ---
 
@@ -166,7 +176,7 @@ New rule checks, each added in the slice that makes it true:
 | Check | Holds | Lands with |
 | --- | --- | --- |
 | C5 model boundary | `new Agent(` only in `src/mastra/agents/`; `.generate(` / `.stream(` only in `agents/structured.ts`. *Corrected when it landed:* the folder alone would have let a call inside it skip `attempts` | Part 4 |
-| C6 data access | `drizzle-orm` / `db()` only in `src/db/` | Part 5 |
+| C6 data access | `drizzle-orm` / `db()` only in `src/db/`. *Corrected when it landed:* a table import too, not row types; `rawClient` allowed for Mastra's store | Part 5 |
 | C7 bot-agnostic | no bot name in the code shared by every bot — services, db, lib, config, the registrar, runner, builder and routing. *Corrected when it landed:* "outside `src/bots/`" would have forbidden a bot's own workflows and commands, which Part 1 says it brings | Part 1 |
 | C8 one cadence | every scheduled `createWorkflow` gets its schedule from `definePipeline` | Part 3 |
 
