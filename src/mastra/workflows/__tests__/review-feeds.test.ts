@@ -39,6 +39,8 @@ const deliveringBeat = (...over: FeedPerformance[]) => [healthy, ...over]
 
 /** `cleared` hits in a hundred scored — the hit rate as a percentage. */
 const hits = (cleared: number, over: Partial<FeedPerformance> = {}) => stats('b', { cleared, ...over })
+/** `minHitRate` as hits in a hundred — the smallest count that keeps a feed. */
+const atRate = Math.round(feedReview.minHitRate * 100)
 
 describe('the beat-level guards', () => {
   it('a beat at the feed floor is never pruned', () => {
@@ -70,11 +72,13 @@ describe('the per-feed guards', () => {
 // Until 2026-10-13 one sent story, or one that cleared the bar, kept a feed for good — so a
 // site-wide feed with one real story a month in hundreds of off-topic ones was never dropped.
 describe('the hit rate', () => {
-  it(`a feed whose hits reach minHitRate (${Math.round(feedReview.minHitRate * 100)}%) is kept`, () => {
-    expect(verdictForBeat(liveFive, deliveringBeat(hits(5, { delivered: 1 }))).archive).toHaveLength(0)
+  it(`a feed whose hits reach minHitRate (${atRate}%) is kept`, () => {
+    expect(verdictForBeat(liveFive, deliveringBeat(hits(atRate, { delivered: 1 }))).archive).toHaveLength(0)
   })
   it('just below it, the feed is archived', () => {
-    expect(verdictForBeat(liveFive, deliveringBeat(hits(4, { delivered: 1 }))).archive.map(a => a.feed.feedUrl)).toEqual(['b'])
+    expect(
+      verdictForBeat(liveFive, deliveringBeat(hits(atRate - 1, { delivered: 1 }))).archive.map(a => a.feed.feedUrl),
+    ).toEqual(['b'])
   })
   it('one hit in a hundred is archived even though it was sent — the site-wide feed', () => {
     expect(
@@ -82,7 +86,7 @@ describe('the hit rate', () => {
     ).toEqual(['b'])
   })
   it('hits that lost arbitration count — a good feed is not punished for losing slots', () => {
-    expect(verdictForBeat(liveFive, deliveringBeat(hits(5, { delivered: 0 }))).archive).toHaveLength(0)
+    expect(verdictForBeat(liveFive, deliveringBeat(hits(atRate, { delivered: 0 }))).archive).toHaveLength(0)
   })
   it('the rate is over what was scored, not what was collected', () => {
     // 2 hits in 20 scored is 10%, though it is 2% of the 100 collected.

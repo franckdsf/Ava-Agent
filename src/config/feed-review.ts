@@ -61,11 +61,13 @@ export const feedReview = {
    * `pnpm discovery:check "rust programming language"` (2026-10-13) attached
    * InfoWorld's whole-site feed and The Hacker News's, ~70 off-topic entries a
    * day, each ranked every digest. One real Rust story a month cleared the bar
-   * and the old guard kept the feed. 5%, chosen by the reader: one hit in twenty
-   * scored keeps a feed, one in thirty does not — and an archived feed is
+   * and the old guard kept the feed. 3%, chosen by the reader: one hit in thirty
+   * scored keeps a feed, one in fifty does not — and an archived feed is
    * retried after `retryAfterDays`, so a quiet specialist gets a second month.
+   * (Set at 5% first, same day; lowered so a borderline news feed — 2 hits in
+   * 45 — is not dropped on one quiet month.)
    */
-  minHitRate: 0.05,
+  minHitRate: 0.03,
 
   /**
    * Articles the **beat** must have delivered in the window before any of its
