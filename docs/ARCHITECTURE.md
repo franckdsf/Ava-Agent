@@ -164,5 +164,5 @@ belongs to, not the host), and each pipeline's delivery claim.
 
 All eleven run in `pnpm verify`, which the `pre-commit` hook runs. Every check but C10 is a text check over
 `src/` and `docker-compose.yml` — they read source, not an AST, for the reason in `scripts/checks/_lib.mjs` — so each can be
-fooled on purpose; none has a baseline except C4's ratchet. The rules no machine holds are the 👁 and
+fooled on purpose; none carries a baseline — C4's was drained to zero. The rules no machine holds are the 👁 and
 ⏳ rows of [CONVENTIONS §1](CONVENTIONS.md#1-rule-to-mechanism-map).

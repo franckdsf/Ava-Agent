@@ -1,6 +1,1 @@
-{
-  "src/mastra/commands/targets.ts": 1,
-  "src/services/telegram.ts": 1,
-  "scripts/check-lead-scout.ts": 1,
-  "scripts/check-sonar.ts": 1
-}
+{}

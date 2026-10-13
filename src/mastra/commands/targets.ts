@@ -235,7 +235,9 @@ async function adviseOnLooseTarget(
 
   // Storing it must not cost the reader the advice itself, which is already
   // written and about to be shown.
-  await saveSuggestion(slug, suggestion).catch(() => {})
+  await saveSuggestion(slug, suggestion).catch(error =>
+    mastra.getLogger()?.warn('Could not store the tighter-target advice', { slug, error }),
+  )
   return suggestion
 }
 

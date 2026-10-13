@@ -37,7 +37,12 @@ const mastra = new Mastra({ agents: { ...leadScoutAgents, ...leadTargeterAgents 
 const seconds = (from: number) => `${((Date.now() - from) / 1000).toFixed(1)}s`
 
 const looksLikeSlug = !/\s/.test(argument)
-const stored = looksLikeSlug ? await getProfile(argument).catch(() => null) : null
+const stored = looksLikeSlug
+  ? await getProfile(argument).catch(error => {
+      console.warn(`── could not read stored profiles (${error instanceof Error ? error.message : error}); reading "${argument}" as text`)
+      return null
+    })
+  : null
 
 let profile: ClientProfile
 if (stored) {

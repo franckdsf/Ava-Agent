@@ -73,7 +73,12 @@ const now = Date.now()
  * slug (`beatCommands.slugPattern` shape), so this costs nothing real.
  */
 const looksLikeSlug = !/\s/.test(argument)
-const stored = looksLikeSlug ? await getSearch(argument).catch(() => undefined) : undefined
+const stored = looksLikeSlug
+  ? await getSearch(argument).catch(error => {
+      console.warn(`── could not read stored searches (${error instanceof Error ? error.message : error}); reading "${argument}" as text`)
+      return undefined
+    })
+  : undefined
 let search: JobSearch
 
 if (stored) {

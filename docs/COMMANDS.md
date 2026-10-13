@@ -31,7 +31,7 @@ Its parts, each runnable alone:
 | `pnpm verify:docs` | every doc link, anchor, backticked path, `pnpm` command and ADR `applies_to` resolves | C1 |
 | `pnpm verify:cycles` | no runtime import cycle in `src/` or `scripts/` | C2 |
 | `pnpm verify:paths` | no path in `src/` resolved against cwd | C3 |
-| `pnpm verify:catch` | no empty catch, no new swallowed promise beyond `scripts/checks/c4-baseline.json` | C4 |
+| `pnpm verify:catch` | no empty catch, no swallowed promise — `scripts/checks/c4-baseline.json` is empty | C4 |
 | `pnpm verify:models` | an agent is built only in `src/mastra/agents/`, and a model is asked only through `structured()` | C5 |
 | `pnpm verify:data` | the database is read and written only in `src/db/` | C6 |
 | `pnpm verify:bots` | the code shared by every bot names no bot — services, db, lib, config, the registrar, runner, builder and routing | C7 |

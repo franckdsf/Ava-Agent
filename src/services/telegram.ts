@@ -264,7 +264,14 @@ export function createTelegramTransport<Slug extends string>(
     }
 
     const chain: Hop[] = []
-    const beatTopic = await ensureBeatTopic(target).catch(() => undefined)
+    // A beat whose tab cannot be found or made still gets its message — in News, below — so the
+    // failure is logged rather than thrown.
+    const beatTopic = await ensureBeatTopic(target).catch(error => {
+      logger.warn(`${bot.id}'s tab for beat ${target.slug} unavailable, sending to the fallback`, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
+    })
     if (beatTopic !== undefined) {
       chain.push(hop(beatTopicSlug(target.slug), beatTopic, target.slug))
     }

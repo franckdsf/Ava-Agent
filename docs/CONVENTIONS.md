@@ -42,7 +42,7 @@ needs a judgement no script can make, and is settled.
 | Docs, ADR `applies_to`, and `pnpm` commands point at things that exist | 📐 C1 |
 | No import cycles | 📐 C2 |
 | No path in `src/` resolved against cwd — `resolveFromRoot()` | 📐 C3 |
-| No error swallowed silently — empty `catch {}`, `.catch(() => {})` | 📐 C4 (a ratchet: [§3](#3-known-debt--baselines)) |
+| No error swallowed silently — empty `catch {}`, `.catch(() => {})` | 📐 C4 (its ratchet is drained: [§3](#3-known-debt--baselines)) |
 | An agent is built only in `src/mastra/agents/`, and a model is asked only through `structured()`, its `attempts` written at the call site | 📐 C5 |
 | The database is read and written only in `src/db/` — no `drizzle-orm`, `db()` or table outside it; `rawClient` only for Mastra's store | 📐 C6 |
 | The code written once for every bot names no bot — a bot is a file in `src/bots/`, and the shared layers take it as an argument | 📐 C7 |
@@ -122,9 +122,9 @@ existing cases as debt that may only shrink: more than the baseline fails (a new
 too until the entry is lowered — so a fix is recorded in the commit that makes it, and the list never
 claims debt that is gone.
 
-| Baseline | Rule | Cases at adoption |
-| --- | --- | --- |
-| `scripts/checks/c4-baseline.json` | no swallowed promise | 15, in 8 files — mostly best-effort Telegram notices |
+| Baseline | Rule | Cases at adoption | Now |
+| --- | --- | --- | --- |
+| `scripts/checks/c4-baseline.json` | no swallowed promise | 15, in 8 files — mostly best-effort Telegram notices | **0** since 2026-10-13 — kept as `{}`, so a new case fails at zero allowed |
 
 **Never raise a baseline.** A new case is fixed or it does not land. Raising one is a decision that
 the rule no longer holds — supersede it in writing instead.
