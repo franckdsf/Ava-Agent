@@ -80,6 +80,10 @@ export const LEADS = definePipeline({
 | **the run log** | `open` writes the `pipeline_runs` row, the pipeline finishes it with its counters ([ADR-0045](decisions/0045-one-run-log-for-every-pipeline.md)) |
 | **catch-up** | `boot-catchup.ts` iterates `PIPELINES`, so a defined pipeline is caught up by being defined |
 
+**Notices are the transport's, not the kit's** — the blueprint put `notify` in the kit; it landed on
+the bot's transport, so a command's "working on it" uses it too. It resolves `false` and logs rather
+than throwing. It is for notices only: a failed *delivery* must throw, so its claim is released.
+
 The three **maintenance** workflows — prune, the weekly feed review, the weekly memory review — have
 no gate, claim or catch-up, and say why on a `// C8: maintenance` line. `discover-feeds` is
 reader-triggered by `/follow`. **Delivery claims stay per pipeline** (`claimForDelivery`,
