@@ -10,7 +10,7 @@ only a reader does** — because that is the difference between a rule and a hop
 | --- | --- |
 | 🔬 **TYPE** | `pnpm typecheck` makes the violation an error |
 | 🧪 **TEST** | a test under `__tests__/` asserts it, in `pnpm test` |
-| 📐 **SCRIPT** | a rule check — C1–C9 — in `pnpm verify:rules` |
+| 📐 **SCRIPT** | a rule check — C1–C10 — in `pnpm verify:rules` |
 | 🔒 **HOOK** | a git hook refuses the commit |
 | 👁 **REVIEW** | judgement — the invariant-reviewer and you. A guideline, and it will drift |
 | ⏳ | 👁 today, mechanisable, and a candidate for the refactor ([§1](#1-rule-to-mechanism-map)) |
@@ -20,7 +20,7 @@ drift. Writing it in bold and treating it as binding is how documentation become
 the code drifts underneath it — the failure the boilerplate this repo's tooling comes from was built
 against ([audit/](audit/README.md)).
 
-`pnpm verify` runs everything mechanical: typecheck, C1–C9, the tests. It runs in two places: on
+`pnpm verify` runs everything mechanical: typecheck, C1–C10, the tests. It runs in two places: on
 demand, and in the `pre-commit` / `pre-merge-commit` hooks, so a failing commit cannot be created.
 **There is no CI** — this repo has no remote yet — so a `--no-verify` commit is caught by nothing.
 A third place is advisory: the `Stop` hook in `.claude/` runs the same C checks against the working set at the
@@ -53,7 +53,7 @@ needs a judgement no script can make, and is settled.
 | `pnpm verify` is green before a commit exists | 🔒 `pre-commit`, `pre-merge-commit` |
 | Env is validated at boot and names what is missing | 🧪 `src/config/__tests__/env.test.ts` — the core schema at import, a bot's when it is built, an empty value counted as missing |
 | A pipeline's catch-up bar clears its healthy ceiling (gate + widest fire gap) | 🧪 `definePipeline` throws at load, so every test importing a pipeline fails and so does boot — every scheduled pipeline is on the kit |
-| `pnpm db:generate` after a schema edit | 👁 — the `SessionStart` hook warns on mtimes; ⏳ a check comparing the schema to the last snapshot |
+| `pnpm db:generate` after a schema edit | 📐 C10 — the real `drizzle-kit generate` into a scratch copy of `drizzle/` writes nothing; the `SessionStart` hook still warns on mtimes, earlier |
 | Never require an inbound port, tunnel or webhook | 📐 C9 — no `mode: 'auto'`/`'webhook'`, the agent's adapter says `mode: 'polling'`, every port in `docker-compose.yml` on `127.0.0.1` |
 | Never give an outbound Telegram instance a `mode`, never `mode: 'auto'` | 📐 C9 |
 | Never start `curateAll` from a conversation | 📐 C9 — no `curateAll` or `'curate-all'` in the code of `tools/` or `commands/` |

@@ -125,7 +125,7 @@ syntax stays in the tool, which decides what a phrase means
 
 C6 refuses `drizzle-orm`, anything from `db/client` and a table from `db/schema` outside `src/db/`;
 row types stay importable, and `mastra/storage.ts` may take `rawClient` to hand Mastra its store.
-A schema edit means `pnpm db:generate` in the same commit.
+A schema edit means `pnpm db:generate` in the same commit, and C10 fails the commit that forgets.
 [ADR-0049](decisions/0049-the-database-is-read-only-through-src-db.md) ·
 [ADR-0006](decisions/0006-drizzle-orm-for-application-tables.md)
 
@@ -159,8 +159,9 @@ belongs to, not the host), and each pipeline's delivery claim.
 | C7 | the code shared by every bot names no bot | `pnpm verify:bots` |
 | C8 | every pipeline's cadence and claim from `definePipeline` | `pnpm verify:cadence` |
 | C9 | the invariants a line of text can break: adapter mode, loopback ports, one replica, no `curateAll` from a conversation, no lead writer in the jobs run, no `mastra_` table | `pnpm verify:invariants` |
+| C10 | the migrations match the schema — `drizzle-kit generate` into a scratch copy writes nothing | `pnpm verify:migrations` |
 
-All nine run in `pnpm verify`, which the `pre-commit` hook runs. Every check is a text check over
+All ten run in `pnpm verify`, which the `pre-commit` hook runs. Every check but C10 is a text check over
 `src/` and `docker-compose.yml` — they read source, not an AST, for the reason in `scripts/checks/_lib.mjs` — so each can be
 fooled on purpose; none has a baseline except C4's ratchet. The rules no machine holds are the 👁 and
 ⏳ rows of [CONVENTIONS §1](CONVENTIONS.md#1-rule-to-mechanism-map).

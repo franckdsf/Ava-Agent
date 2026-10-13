@@ -47,6 +47,11 @@ const CHECKS = [
     script: "c9-invariant-text.mjs",
     when: (f) => f.startsWith("src/") || f === "docker-compose.yml",
   },
+  {
+    name: "C10 migrations",
+    script: "c10-migrations.mjs",
+    when: (f) => f.startsWith("src/db/") || f.startsWith("drizzle/"),
+  },
 ];
 
 const changed = changedFiles();
