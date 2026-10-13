@@ -18,11 +18,11 @@
  * arrived at from the other direction, when Hacker News's unclosed `<p>` tags
  * were fixed in `job-hn.ts` instead of in the shared `htmlToText`.
  *
- * `feed-discovery.ts` keeps its own copy on purpose. It is the news pipeline's,
- * it returns a bare string, and it reads `discovery.browserUserAgent` for a
- * reason its own note records. Folding it in here would mean editing a working
- * path in a second pipeline to no benefit, which is the drift this comment exists
- * to prevent.
+ * `feed-discovery.ts` kept its own copy until slice 7 (audit F10), on the grounds
+ * that folding it in would edit a working path in a second pipeline. The copy was
+ * the same fetch — headers, redirects, empty body on a non-200 — so it is now a
+ * wrapper like the job scout's: it passes `discovery.browserUserAgent` and its own
+ * timeout, and returns the bare string its callers read.
  *
  * Nothing here writes, and no conditional-request state is recorded — the same
  * reason `checkFeed()` does its own fetch.

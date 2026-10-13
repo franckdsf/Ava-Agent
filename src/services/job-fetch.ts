@@ -4,6 +4,7 @@ import type { JobRemote, JobSource } from '../db/schema.js'
 import { detectAtsBoard, fetchAtsBoard } from './ats.js'
 import { htmlToText } from './article.js'
 import { fetchHiringThread } from './job-hn.js'
+import { clean, parseDate, truncate } from './posting-fields.js'
 
 /**
  * Fetching job sources, and normalizing whatever comes back into one shape.
@@ -80,23 +81,6 @@ const parser = new Parser({
   headers: { 'user-agent': jobPipeline.userAgent },
   customFields: { item: ['region', 'category'] },
 })
-
-const clean = (value: unknown): string | null => {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
-}
-
-const truncate = (value: string | null): string | null =>
-  value === null ? null : value.slice(0, jobPipeline.maxDescriptionChars)
-
-/** Parses a date a board printed, in whatever form, to epoch ms or null. */
-function parseDate(value: unknown): number | null {
-  if (typeof value === 'number') return value > 1e12 ? value : value * 1000
-  if (typeof value !== 'string' || !value.trim()) return null
-  const parsed = Date.parse(value)
-  return Number.isNaN(parsed) ? null : parsed
-}
 
 /**
  * Remotive — `https://remotive.com/api/remote-jobs`.

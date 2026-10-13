@@ -1,4 +1,5 @@
 import { feedFinder } from '../config/feed-finder.js'
+import { hostOf } from '../lib/url.js'
 import { searchRssFinder } from './rss-finder.js'
 
 /**
@@ -160,13 +161,13 @@ export async function searchTopics(queries: readonly string[]): Promise<FoundFee
  * imprecise.
  */
 export async function findFeedsForDomain(domain: string): Promise<FoundFeed[]> {
-  const wanted = hostOf(domain)
+  const wanted = hostOf(withScheme(domain))
   const search = await searchRssFinder(domain)
 
   return search.feeds
     .filter(feed => {
       if (wanted === null) return true
-      const host = hostOf(feed.url)
+      const host = hostOf(withScheme(feed.url))
       return host !== null && (host === wanted || host.endsWith(`.${wanted}`) || wanted.endsWith(`.${host}`))
     })
     .map(feed => ({
@@ -196,11 +197,10 @@ export function passesGates(feed: FoundFeed, now = Date.now()): boolean {
   return true
 }
 
-function hostOf(raw: string): string | null {
-  try {
-    const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
-    return new URL(withScheme).hostname.replace(/^www\./, '').toLowerCase()
-  } catch {
-    return null
-  }
+/**
+ * A bare `formula1.com` as a URL, so the strict `hostOf` can read it. The reader
+ * types a domain, and rss-finder's answers arrive either way.
+ */
+function withScheme(raw: string): string {
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
 }

@@ -2,6 +2,7 @@ import { jobPipeline, jobScout } from '../config/jobs.js'
 import type { JobRemote } from '../db/schema.js'
 import { htmlToText } from './article.js'
 import type { RawPosting } from './job-fetch.js'
+import { clean, parseDate, truncate } from './posting-fields.js'
 
 /**
  * Applicant-tracking boards, read through their own public APIs.
@@ -208,22 +209,6 @@ export function atsBoardAsSource(
     url: atsBoardUrl(board),
     label,
   }
-}
-
-const clean = (value: unknown): string | null => {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
-}
-
-const truncate = (value: string | null): string | null =>
-  value === null ? null : value.slice(0, jobPipeline.maxDescriptionChars)
-
-function parseDate(value: unknown): number | null {
-  if (typeof value === 'number') return value > 1e12 ? value : value * 1000
-  if (typeof value !== 'string' || !value.trim()) return null
-  const parsed = Date.parse(value)
-  return Number.isNaN(parsed) ? null : parsed
 }
 
 /**

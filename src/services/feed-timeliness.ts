@@ -1,6 +1,7 @@
 import Parser from 'rss-parser'
 import { feedFinder, RACE_STOPWORDS } from '../config/feed-finder.js'
 import { pipeline } from '../config/pipeline.js'
+import { hostOf } from '../lib/url.js'
 
 /**
  * Which sources **break** a story, and which repeat it days later.
@@ -311,14 +312,6 @@ export async function raceFeeds(feedUrls: readonly string[]): Promise<RaceResult
  * at the top or the bottom of them — it is an unknown, and an unknown outranking
  * a source measured at two hours behind would be the report lying.
  */
-function hostOf(url: string): string | null {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '').toLowerCase()
-  } catch {
-    return null
-  }
-}
-
 export function byTimeliness(a: Timeliness, b: Timeliness): number {
   if (a.medianLagHours === null && b.medianLagHours === null) return b.stories - a.stories
   if (a.medianLagHours === null) return 1

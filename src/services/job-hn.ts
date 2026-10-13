@@ -2,6 +2,7 @@ import { jobPipeline, jobHiringThread } from '../config/jobs.js'
 import { htmlToText } from './article.js'
 import type { JobRemote } from '../db/schema.js'
 import type { RawPosting } from './job-fetch.js'
+import { clean } from './posting-fields.js'
 
 /**
  * Hacker News's monthly "Ask HN: Who is hiring?" thread, as a job source.
@@ -63,12 +64,6 @@ export interface HnFetchResult {
   /** Comments that carried no readable role. Expected to be a minority. */
   unparsed: number
   error?: string
-}
-
-const clean = (value: unknown): string | null => {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
 }
 
 async function getJson(url: string, signal: AbortSignal): Promise<unknown> {

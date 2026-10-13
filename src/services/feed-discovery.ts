@@ -1,5 +1,7 @@
 import { discovery } from '../config/discovery.js'
+import { hostOf } from '../lib/url.js'
 import { checkFeed, normalizeFeedUrl, type FeedCheck } from './feed-check.js'
+import { fetchPage as fetchWebPage } from './page-fetch.js'
 
 /**
  * Site → feed, deterministically. The half of `/follow` that no model touches.
@@ -44,19 +46,11 @@ export interface SiteDiscovery {
  * because the well-known paths are still worth trying against a page that 403s.
  */
 async function fetchPage(url: string): Promise<string> {
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': discovery.browserUserAgent,
-        Accept: 'text/html,application/xhtml+xml',
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(discovery.pageTimeoutMs),
-    })
-    return response.ok ? await response.text() : ''
-  } catch {
-    return ''
-  }
+  const page = await fetchWebPage(url, {
+    userAgent: discovery.browserUserAgent,
+    timeoutMs: discovery.pageTimeoutMs,
+  })
+  return page.html
 }
 
 /**
@@ -212,13 +206,4 @@ export async function discoverFeeds(
     seen.add(result.feed.url)
     return true
   })
-}
-
-/** Hostname without `www.`, or null when the string isn't a URL. */
-function hostOf(url: string): string | null {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '').toLowerCase()
-  } catch {
-    return null
-  }
 }
