@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { db, migrate } from './client.js'
 import { feedback } from './schema.js'
 import type { Article, Vote } from './schema.js'
@@ -61,4 +61,34 @@ export async function recentFeedback(beatSlug: string, limit: number): Promise<F
     .where(eq(feedback.beatSlug, beatSlug))
     .orderBy(desc(feedback.createdAt))
     .limit(limit)
+}
+
+/**
+ * The reader's own votes, newest first, optionally one beat or one direction.
+ *
+ * No join to `articles`: a vote carries its own title and source so it survives
+ * the article being pruned. Votes outlive articles here by design.
+ */
+export async function votes(opts: {
+  beat?: string
+  vote?: Vote
+  limit: number
+}): Promise<{ title: string; source: string; vote: Vote; beat: string }[]> {
+  await migrate()
+  return db()
+    .select({
+      title: feedback.title,
+      source: feedback.source,
+      vote: feedback.vote,
+      beat: feedback.beatSlug,
+    })
+    .from(feedback)
+    .where(
+      and(
+        ...(opts.beat ? [eq(feedback.beatSlug, opts.beat)] : []),
+        ...(opts.vote ? [eq(feedback.vote, opts.vote)] : []),
+      ),
+    )
+    .orderBy(desc(feedback.createdAt))
+    .limit(opts.limit)
 }

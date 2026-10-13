@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
+import { pipeline } from '../config/pipeline.js'
 import { batchAll, db, migrate } from './client.js'
 import { articleBeats, articles } from './schema.js'
 import type { Article, DeliveryKind } from './schema.js'
@@ -519,5 +520,129 @@ export async function deleteArticlesOlderThan(
     deletedLinks += links.length
     deletedArticles += gone.length
     if (gone.length < batchSize) return { articles: deletedArticles, links: deletedLinks }
+  }
+}
+
+/* ───────────────────── reads for the conversational agent ───────────────────── */
+
+/**
+ * Delivered articles inside a window, newest first — "what did you send me".
+ *
+ * Filters on `deliveredBeat`, not on the link table: "what did you send me on
+ * Design" is about which beat won the story, and a beat that scored it and lost
+ * did not send it.
+ */
+export async function deliveredArticles(opts: {
+  beat?: string
+  since: number
+  limit: number
+}): Promise<Article[]> {
+  await migrate()
+  return db()
+    .select()
+    .from(articles)
+    .where(
+      and(
+        isNotNull(articles.deliveredAt),
+        gte(articles.deliveredAt, opts.since),
+        ...(opts.beat ? [eq(articles.deliveredBeat, opts.beat)] : []),
+      ),
+    )
+    .orderBy(desc(articles.deliveredAt))
+    .limit(opts.limit)
+}
+
+/**
+ * Article ids for one FTS5 match expression, best first by bm25 over
+ * `pipeline.searchColumnWeights`.
+ *
+ * **The one raw SQL a run executes** — FTS5 `MATCH` and `bm25()` are what
+ * drizzle cannot express (invariant 4). `match` must already be safe FTS5: the
+ * caller quotes each term, because punctuation is match syntax.
+ *
+ * The beat filter is an EXISTS against the link table rather than a join: an
+ * article on two beats would otherwise come back twice and eat the limit.
+ */
+export async function searchArticleIds(match: string, beat: string | undefined, limit: number): Promise<string[]> {
+  await migrate()
+  const weights = pipeline.searchColumnWeights
+  const rows = await db().all<{ id: string }>(sql`
+    select ${articles.id} as id
+    from articles_fts
+    join ${articles} on ${articles}.rowid = articles_fts.rowid
+    where articles_fts match ${match}
+    ${beat
+      ? sql`and exists (
+            select 1 from ${articleBeats}
+            where ${articleBeats.articleId} = ${articles.id}
+              and ${articleBeats.beatSlug} = ${beat}
+          )`
+      : sql``
+    }
+    order by bm25(articles_fts, ${weights.title}, ${weights.excerpt}, ${weights.content})
+    limit ${limit}
+  `)
+  return rows.map(row => row.id)
+}
+
+/**
+ * Articles by id, **in the order given**. `inArray` returns rows in storage
+ * order, so a ranking computed elsewhere — bm25's — is re-applied here rather
+ * than lost on the way back. An id with no row is skipped.
+ */
+export async function articlesByIds(ids: string[]): Promise<Article[]> {
+  if (ids.length === 0) return []
+  await migrate()
+  const rows = await db().select().from(articles).where(inArray(articles.id, ids))
+  const byId = new Map(rows.map(row => [row.id, row]))
+  return ids.flatMap(id => {
+    const row = byId.get(id)
+    return row ? [row] : []
+  })
+}
+
+/**
+ * Every beat's verdict on a batch of articles, best score first, in one query —
+ * per-article lookups would be N+1 across a fifteen-result search.
+ */
+export async function verdictsForArticles(articleIds: string[]): Promise<
+  { articleId: string; beatSlug: string; score: number | null; subtopic: string | null; reason: string | null }[]
+> {
+  if (articleIds.length === 0) return []
+  await migrate()
+  return db()
+    .select({
+      articleId: articleBeats.articleId,
+      beatSlug: articleBeats.beatSlug,
+      score: articleBeats.score,
+      subtopic: articleBeats.subtopic,
+      reason: articleBeats.reason,
+    })
+    .from(articleBeats)
+    .where(inArray(articleBeats.articleId, articleIds))
+    .orderBy(desc(articleBeats.score))
+}
+
+/**
+ * Linked / ranked / delivered for one beat, over articles discovered since
+ * `since`. Read by `news-stats` and by `/beat`, which ran this query twice.
+ *
+ * `delivered` counts what *this* beat won and sent, so the numbers across beats
+ * sum to the messages sent rather than double-counting a shared story.
+ */
+export async function beatActivity(
+  slug: string,
+  since: number,
+): Promise<{ linked: number; ranked: number; delivered: number }> {
+  await migrate()
+  const rows = await db()
+    .select({ rankedAt: articleBeats.rankedAt, deliveredBeat: articles.deliveredBeat })
+    .from(articleBeats)
+    .innerJoin(articles, eq(articles.id, articleBeats.articleId))
+    .where(and(eq(articleBeats.beatSlug, slug), gte(articles.discoveredAt, since)))
+  return {
+    linked: rows.length,
+    ranked: rows.filter(row => row.rankedAt !== null).length,
+    delivered: rows.filter(row => row.deliveredBeat === slug).length,
   }
 }

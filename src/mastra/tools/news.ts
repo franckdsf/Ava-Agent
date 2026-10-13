@@ -1,11 +1,18 @@
 import { createTool } from '@mastra/core/tools'
-import { and, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { pipeline } from '../../config/pipeline.js'
-import { verdictsForArticle } from '../../db/articles.js'
+import {
+  articlesByIds,
+  beatActivity,
+  deliveredArticles,
+  getArticle,
+  searchArticleIds,
+  verdictsForArticle,
+  verdictsForArticles,
+} from '../../db/articles.js'
 import { activeBeats } from '../../db/beats.js'
-import { db, migrate } from '../../db/client.js'
-import { articleBeats, articles, feedback } from '../../db/schema.js'
+import { votes } from '../../db/feedback.js'
+import type { Article } from '../../db/schema.js'
 import { articleBody } from '../../services/article.js'
 
 /**
@@ -91,33 +98,21 @@ const articleShape = z.object({
   verdicts: z.array(verdictShape),
 })
 
-type ArticleRow = typeof articles.$inferSelect
-
 /**
  * Attaches every beat's verdict to a batch of articles, in one extra query.
  *
  * Per-article lookups would be N+1 across a 15-result search, and the verdicts
  * are small — a slug, an integer and fifteen words.
  */
-async function withVerdicts(rows: ArticleRow[]) {
+async function withVerdicts(rows: Article[]) {
   if (rows.length === 0) return []
-  const links = await db()
-    .select({
-      articleId: articleBeats.articleId,
-      beat: articleBeats.beatSlug,
-      score: articleBeats.score,
-      subtopic: articleBeats.subtopic,
-      reason: articleBeats.reason,
-    })
-    .from(articleBeats)
-    .where(inArray(articleBeats.articleId, rows.map(row => row.id)))
-    .orderBy(desc(articleBeats.score))
+  const links = await verdictsForArticles(rows.map(row => row.id))
 
   const byArticle = new Map<string, z.infer<typeof verdictShape>[]>()
   for (const link of links) {
     const existing = byArticle.get(link.articleId)
     const verdict = {
-      beat: link.beat,
+      beat: link.beatSlug,
       score: link.score,
       subtopic: link.subtopic,
       reason: link.reason,
@@ -160,22 +155,7 @@ export const recentNews = createTool({
   }),
   outputSchema: z.object({ articles: z.array(articleShape) }),
   execute: async ({ beat, days, limit }) => {
-    await migrate()
-    // Filters on `deliveredBeat`, not on the link table: "what did you send me
-    // on Design" is about which beat won the story, and a beat that scored it
-    // and lost did not send it.
-    const rows = await db()
-      .select()
-      .from(articles)
-      .where(
-        and(
-          isNotNull(articles.deliveredAt),
-          gte(articles.deliveredAt, since(days)),
-          ...(beat ? [eq(articles.deliveredBeat, beat)] : []),
-        ),
-      )
-      .orderBy(desc(articles.deliveredAt))
-      .limit(limit)
+    const rows = await deliveredArticles({ beat, since: since(days), limit })
     return { articles: await withVerdicts(rows) }
   },
 })
@@ -198,30 +178,6 @@ function searchTerms(query: string): string[] {
     .map(term => `"${term}"`)
 }
 
-/** Article ids for one match expression, best first. */
-async function rankedIds(match: string, beat: string | undefined, limit: number) {
-  const weights = pipeline.searchColumnWeights
-  // The beat filter is an EXISTS against the link table rather than a join: an
-  // article on two beats would otherwise come back twice and eat the limit.
-  const rows = await db().all<{ id: string }>(sql`
-    select ${articles.id} as id
-    from articles_fts
-    join ${articles} on ${articles}.rowid = articles_fts.rowid
-    where articles_fts match ${match}
-    ${beat
-      ? sql`and exists (
-            select 1 from ${articleBeats}
-            where ${articleBeats.articleId} = ${articles.id}
-              and ${articleBeats.beatSlug} = ${beat}
-          )`
-      : sql``
-    }
-    order by bm25(articles_fts, ${weights.title}, ${weights.excerpt}, ${weights.content})
-    limit ${limit}
-  `)
-  return rows.map(row => row.id)
-}
-
 export const searchNews = createTool({
   id: 'search-news',
   description:
@@ -236,7 +192,6 @@ export const searchNews = createTool({
   }),
   outputSchema: z.object({ articles: z.array(articleShape) }),
   execute: async ({ query, beat, limit }) => {
-    await migrate()
     const terms = searchTerms(query)
     if (terms.length === 0) return { articles: [] }
 
@@ -247,19 +202,9 @@ export const searchNews = createTool({
     // sort it out, since a rare term like "500" outweighs a common one like
     // "model". Both empty still means both empty, so "I have nothing on that"
     // stays a real answer.
-    const all = await rankedIds(terms.join(' AND '), beat, limit)
-    const ranked = all.length > 0 ? all : await rankedIds(terms.join(' OR '), beat, limit)
-    if (ranked.length === 0) return { articles: [] }
-
-    const rows = await db().select().from(articles).where(inArray(articles.id, ranked))
-    // `inArray` returns rows in storage order, so bm25's ranking is re-applied
-    // from the id list rather than lost on the way back.
-    const byId = new Map(rows.map(row => [row.id, row]))
-    const ordered = ranked.flatMap(id => {
-      const row = byId.get(id)
-      return row ? [row] : []
-    })
-    return { articles: await withVerdicts(ordered) }
+    const all = await searchArticleIds(terms.join(' AND '), beat, limit)
+    const ranked = all.length > 0 ? all : await searchArticleIds(terms.join(' OR '), beat, limit)
+    return { articles: await withVerdicts(await articlesByIds(ranked)) }
   },
 })
 
@@ -287,9 +232,7 @@ export const readArticle = createTool({
       .describe('Null when no article has that id.'),
   }),
   execute: async ({ id }) => {
-    await migrate()
-    const rows = await db().select().from(articles).where(eq(articles.id, id)).limit(1)
-    const row = rows[0]
+    const row = await getArticle(id)
     if (!row) return { article: null }
 
     // Feed body when there is one, a live fetch when there isn't, and never
@@ -329,29 +272,10 @@ export const newsStats = createTool({
     ),
   }),
   execute: async ({ days }) => {
-    await migrate()
     const cutoff = since(days)
-    const beats = await activeBeats()
-
     const stats = []
-    for (const beat of beats) {
-      const rows = await db()
-        .select({
-          rankedAt: articleBeats.rankedAt,
-          deliveredBeat: articles.deliveredBeat,
-        })
-        .from(articleBeats)
-        .innerJoin(articles, eq(articles.id, articleBeats.articleId))
-        .where(and(eq(articleBeats.beatSlug, beat.slug), gte(articles.discoveredAt, cutoff)))
-      stats.push({
-        slug: beat.slug,
-        title: beat.title,
-        linked: rows.length,
-        ranked: rows.filter(row => row.rankedAt !== null).length,
-        // Delivered *by this beat*, so the numbers across beats sum to the
-        // number of messages sent rather than double-counting a shared story.
-        delivered: rows.filter(row => row.deliveredBeat === beat.slug).length,
-      })
+    for (const beat of await activeBeats()) {
+      stats.push({ slug: beat.slug, title: beat.title, ...(await beatActivity(beat.slug, cutoff)) })
     }
     return { days, beats: stats }
   },
@@ -403,26 +327,7 @@ export const myFeedback = createTool({
     ),
   }),
   execute: async ({ beat, vote, limit }) => {
-    await migrate()
-    // No join to `articles`: a vote carries its own title and source so it
-    // survives the article being pruned. Votes outlive articles here by design.
-    const rows = await db()
-      .select({
-        title: feedback.title,
-        source: feedback.source,
-        vote: feedback.vote,
-        beat: feedback.beatSlug,
-      })
-      .from(feedback)
-      .where(
-        and(
-          ...(beat ? [eq(feedback.beatSlug, beat)] : []),
-          ...(vote ? [eq(feedback.vote, vote)] : []),
-        ),
-      )
-      .orderBy(desc(feedback.createdAt))
-      .limit(limit)
-    return { votes: rows }
+    return { votes: await votes({ beat, vote, limit }) }
   },
 })
 
