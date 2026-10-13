@@ -276,11 +276,8 @@ claim before passing it on.
 ## Current state
 
 **Two agents on two bot tokens, one reader.** Newy runs the news pipeline; Joob runs the jobs and
-leads pipelines. **A bot is a data file in `src/bots/`** — id, env prefix, tabs, profile — and
-everything else is built from it once: `transportFor(bot)`, `createChatAgent` for its agent, and
-`registerBot` for its slash commands, each of which is one `Command` object beside its handler, run
-by `runCommand`. `src/mastra/chat-bots.ts` lists the bots `index.ts` registers; C7 keeps the shared
-half from naming one ([ADR-0047](docs/decisions/0047-a-bot-is-data-and-a-command-is-one-object.md)). The environment holds only who the reader is:
+leads pipelines. How a bot, a command, a pipeline, a model call and a database read are built — and
+the check holding each — is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The environment holds only who the reader is:
 `AVA_TELEGRAM_USER_ID` is both the allowlist and, in a DM, the chat each bot pushes to
 ([ADR-0041](docs/decisions/0041-one-deployment-one-reader.md)). `OPENROUTER_API_KEY` is the only key
 a deployment must have; `REPLICATE_API_KEY` is optional and `imageTools` is empty without it.
@@ -308,12 +305,7 @@ above `retentionDays` (60).
 **The leads side** fires at each of `leadPipeline.runHours` (09:00, 21:00) on its own
 `leadPipeline.intervalHours` (**44**, not the jobs pipeline's 20) with `retentionDays` 180. The two
 intervals are different numbers for different pipelines and have been confused before — read the
-config, not a remembered figure. All three pipelines are on the kit: `NEWS`, `JOBS` and `LEADS`
-in `src/mastra/pipelines.ts` hold their cadence, and `open()` hands the cycle back to a run that
-stops before spending anything ([ADR-0044](docs/decisions/0044-a-pipeline-s-cadence-is-one-definition.md)).
-Every run that opens writes one `pipeline_runs` row, the kit inserting it and the pipeline finishing it
-([ADR-0045](docs/decisions/0045-one-run-log-for-every-pipeline.md)); C8 refuses a claim or a schedule
-written outside the kit, and the three maintenance workflows carry a `// C8: maintenance` line.
+config, not a remembered figure. All three share the pipeline kit in `src/mastra/pipelines.ts`.
 
 **Verified live 2026-08-23** (`pnpm telegram:check`): both bots resolve one private chat id, Threaded
 Mode on, all six tabs found, both profiles up to date.

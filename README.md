@@ -71,9 +71,14 @@ help text (`/start` in either chat prints the rest).
 └──────────────────────────────────────────────┘   └─────────────────────────┘
 ```
 
-Only two steps of the pipeline call a model — ranking and composing the
-digest. Ingest, dedupe, and clustering are deterministic, so a scheduled job
-never has an LLM improvising its own control flow.
+In a scheduled run the model judges and writes; code decides everything
+else. Ingest, dedupe, filtering, clustering and the schedule are
+deterministic. A model scores a fixed batch — articles against a beat,
+postings against your CV, companies against a client profile — and writes
+the message for each winner. Where a model *proposes* something (a site to
+follow, an employer that might be hiring), code verifies it before anything
+is stored. So a scheduled job never has an LLM improvising its own control
+flow. How the code is put together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 Built on [Mastra](https://mastra.ai) for agents/workflows, libSQL for
 storage, and `@chat-adapter/telegram` for delivery. Any model reachable
