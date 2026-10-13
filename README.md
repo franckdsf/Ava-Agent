@@ -114,6 +114,8 @@ More scripts and what each proves: [docs/COMMANDS.md](docs/COMMANDS.md).
 
 - [AGENTS.md](AGENTS.md) — the operating contract: invariants, gotchas, and
   patterns for anyone (human or agent) working in this repo
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the code fits together: bots as data, the
+  pipeline kit, and the model and data boundaries, each with the check that holds it
 - [docs/decisions/](docs/decisions/README.md) — ADRs explaining why it looks
   the way it does, including the ideas that were tried and reversed
 

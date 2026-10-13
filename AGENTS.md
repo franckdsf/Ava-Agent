@@ -21,7 +21,7 @@ Operating contract for anyone — human or agent — working in this repo.
   whose globs match what you are touching
 - **What each command proves:** [docs/COMMANDS.md](docs/COMMANDS.md)
 - **Which rules a machine holds, and which only a reader does:** [docs/CONVENTIONS.md](docs/CONVENTIONS.md)
-- **How the refactor is planned — audit first, from the code:** [docs/audit/](docs/audit/README.md)
+- **How it fits together:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the refactor's frozen evidence is [docs/audit/](docs/audit/README.md)
 - **Where things run and who owns them:** [docs/external/](docs/external/README.md)
 
 ---

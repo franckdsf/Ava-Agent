@@ -5,4 +5,5 @@ first. It is vendor-neutral so every agent tool finds the same rules, rather tha
 each one getting its own drifting copy.
 
 - **How to run it:** [README.md](README.md)
+- **How it fits together:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - **Why it looks like this:** [docs/decisions/](docs/decisions/README.md)

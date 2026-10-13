@@ -27,8 +27,6 @@ const findings = [];
  * can only shrink, and a typo is still caught because a typo is not in here.
  */
 const PLANNED = new Set([
-  // What the refactor's blueprint becomes (docs/audit/README.md).
-  "docs/ARCHITECTURE.md",
   // A planned command is listed as `pnpm <script>`.
 ]);
 

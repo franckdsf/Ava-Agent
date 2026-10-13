@@ -1,5 +1,9 @@
 # Audit — the method the refactor starts from
 
+> **Frozen: the refactor landed on 2026-10-13** (slices 0–7, `git log --grep "slice"`). How the code
+> is put together now is [ARCHITECTURE.md](../ARCHITECTURE.md). These documents stay as the evidence
+> the ADRs cite — read them for *why*, never for *what is*.
+
 This repo's rule tooling — the C-checks, the git hooks, the `Stop` hook, [CONVENTIONS.md](../CONVENTIONS.md)
 — was imported from a production-ready boilerplate. That boilerplate was not designed from a blank
 page: it was built from an **audit of the project before it**, written down in five documents and
