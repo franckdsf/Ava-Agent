@@ -3,6 +3,7 @@ import { Agent } from '@mastra/core/agent'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { summary } from '../../config/summary.js'
+import { structured } from './structured.js'
 
 /**
  * The summarizer behind `/summarize` and behind Newy's `summarize-video` tool.
@@ -399,17 +400,18 @@ export async function summarizeSource(
     options.text,
   ].join('\n')
 
-  const response = await mastra.getAgent(summarizerId).generate(message, {
-    structuredOutput: { schema: summarySchema },
+  const object = await structured(mastra.getAgent(summarizerId), message, summarySchema, {
+    attempts: 1,
+    orThrow: 'Summarizer returned no usable summary',
   })
 
   // No parsed object, or nothing in it, is a failed call rather than an empty
   // source — the caller has to be able to tell the reader that, since this
   // command's whole output is the one message it did not manage to send.
-  const paragraphs = response.object?.paragraphs.map(block => block.trim()).filter(Boolean) ?? []
+  const paragraphs = object.paragraphs.map(block => block.trim()).filter(Boolean)
   if (paragraphs.length === 0) {
-    throw new Error('Summarizer returned no usable summary.')
+    throw new Error('Summarizer returned no usable summary')
   }
 
-  return { language: response.object?.language ?? options.language, paragraphs }
+  return { language: object.language ?? options.language, paragraphs }
 }

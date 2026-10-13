@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { beatCommands } from '../../config/pipeline.js'
 import { buildRubric, discovery } from '../../config/discovery.js'
 import { env } from '../../config/env.js'
+import { structured } from './structured.js'
 
 /**
  * The two model calls behind `/follow`, and they are deliberately two.
@@ -233,13 +234,10 @@ export function oneEmoji(raw: string): string | null {
  */
 export async function nameBeat(mastra: Mastra, subject: string): Promise<NamedBeat> {
   const agent = mastra.getAgent(namerId)
-  const response = await agent.generate(
-    `The reader wants to follow this subject:\n\n${subject}`,
-    { structuredOutput: { schema: namedSchema } },
-  )
-
-  const named = response.object
-  if (!named) throw new Error('The beat namer returned no parsable object.')
+  const named = await structured(agent, `The reader wants to follow this subject:\n\n${subject}`, namedSchema, {
+    attempts: 1,
+    orThrow: 'The beat namer returned no parsable object',
+  })
 
   const title = named.title.trim()
   const slug = slugFromTitle(title)
@@ -299,7 +297,8 @@ export async function proposeSites(
   avoidHosts: readonly string[] = [],
 ): Promise<{ name: string; homepage: string }[]> {
   const agent = mastra.getAgent(scoutId)
-  const response = await agent.generate(
+  const { sites } = await structured(
+    agent,
     [
       `Find ${discovery.sitesRequested} websites that publish frequently about: ${subject}`,
       avoidHosts.length > 0
@@ -307,11 +306,10 @@ export async function proposeSites(
         : '',
       '\nGive each site its name, its homepage URL, and one line on what it publishes.',
     ].join('\n'),
-    { structuredOutput: { schema: sitesSchema } },
+    sitesSchema,
+    { attempts: 1, orThrow: 'The scout found no sites for that subject' },
   )
-
-  const sites = response.object?.sites
-  if (!sites || sites.length === 0) throw new Error('The scout found no sites for that subject.')
+  if (sites.length === 0) throw new Error('The scout found no sites for that subject')
 
   return sites
     .map(site => ({ name: site.name.trim(), homepage: site.homepage.trim() }))

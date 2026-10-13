@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { memoryConfig } from '../../config/memory.js'
 import { env } from '../../config/env.js'
 import { memoriesForPrompt, type Memory } from '../../db/memories.js'
+import { structured } from './structured.js'
 
 /**
  * The block of notes prepended to Agent's instructions on every turn.
@@ -238,7 +239,8 @@ export async function reviewMemories(
   if (notes.short.length === 0) return []
 
   const agent = mastra.getAgent(memoryReviewerId)
-  const response = await agent.generate(
+  const object = await structured(
+    agent,
     [
       `## LASTING notes — context only, ${notes.long.length} of them`,
       notes.long.length > 0 ? renderForReview(notes.long) : '(none yet)',
@@ -247,15 +249,12 @@ export async function reviewMemories(
       'Format: id | date the fact was true | fact',
       renderForReview(notes.short),
     ].join('\n'),
-    { structuredOutput: { schema: reviewSchema } },
+    reviewSchema,
+    { attempts: 1, orThrow: 'Memory reviewer returned no parsable object; leaving notes untouched' },
   )
 
-  if (!response.object) {
-    throw new Error('Memory reviewer returned no parsable object; leaving notes untouched.')
-  }
-
   const byId = new Map(notes.short.map(note => [note.id, note]))
-  return response.object.promote.flatMap(({ id, reason }) => {
+  return object.promote.flatMap(({ id, reason }) => {
     const note = byId.get(id)
     return note ? [{ id, fact: note.fact, reason }] : []
   })

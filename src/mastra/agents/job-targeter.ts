@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { jobCommands } from '../../config/jobs.js'
 import { domainIds, isKnownDomain, knownSeniority, seniorityIds } from '../../config/job-taxonomy.js'
+import { structured } from './structured.js'
 
 /**
  * The one model call behind `/target`.
@@ -243,7 +244,8 @@ export async function suggestTighterTarget(
 ): Promise<z.infer<typeof adviceSchema> | null> {
   try {
     const agent = mastra.getAgent(advisorId)
-    const response = await agent.generate(
+    return await structured(
+      agent,
       [
         '## Their CV',
         cv,
@@ -254,9 +256,9 @@ export async function suggestTighterTarget(
         '## What it parsed to',
         JSON.stringify(parsed, null, 2),
       ].join('\n'),
-      { structuredOutput: { schema: adviceSchema } },
+      adviceSchema,
+      { attempts: 1 },
     )
-    return response.object ?? null
   } catch {
     return null
   }
@@ -275,18 +277,18 @@ export async function suggestTighterTarget(
  */
 export async function parseTarget(mastra: Mastra, request: string): Promise<ParsedTarget> {
   const agent = mastra.getAgent(jobTargeterId)
-  const response = await agent.generate(request.slice(0, jobCommands.requestMaxChars), {
-    structuredOutput: { schema: targetSchema },
+  const object = await structured(agent, request.slice(0, jobCommands.requestMaxChars), targetSchema, {
+    attempts: 1,
+    orThrow: 'The targeter returned no parseable object',
   })
-  if (!response.object) throw new Error('The targeter returned no parseable object')
 
   // A domain the vocabulary does not know is dropped to null rather than stored.
   // Storing it would filter on a value nothing can ever match — which does not
   // error, it just quietly rejects every posting that names any field at all,
   // and the reader sees a search that found nothing rather than a broken one.
-  const domain = isKnownDomain(response.object.domain) ? response.object.domain : null
+  const domain = isKnownDomain(object.domain) ? object.domain : null
   // The same discipline for seniority. The prompt used to offer "director",
   // which `SENIORITY` does not have: a band the filter cannot match drops every
   // posting whose title names a different level, silently.
-  return { ...response.object, domain, seniority: knownSeniority(response.object.seniority) }
+  return { ...object, domain, seniority: knownSeniority(object.seniority) }
 }

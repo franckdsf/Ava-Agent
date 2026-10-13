@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { type TranslationDefinition, translation } from '../../config/translation.js'
 import { memoriesForPrompt } from '../../db/memories.js'
+import { structured } from './structured.js'
 
 /**
  * The translator behind `/translearn` and `/translate`.
@@ -316,20 +317,20 @@ export async function translateChunk(
 }
 
 async function attempt(mastra: Mastra, message: string, index: number): Promise<Translation> {
-  const response = await mastra.getAgent(translatorId).generate(message, {
-    structuredOutput: { schema: translationSchema },
-  })
-
+  // One attempt: the retry that matters here is on content, not parsing — the
+  // degenerate-answer loop in the caller re-asks once.
+  //
   // A chunk with no parsed object is a failed chunk, not an empty one — the
   // caller has already sent the parts before it and must be able to tell the
   // reader the article stops here rather than silently ending it early.
-  if (!response.object) {
-    throw new Error(`Translator returned no parsable object for part ${index}.`)
-  }
+  const object = await structured(mastra.getAgent(translatorId), message, translationSchema, {
+    attempts: 1,
+    orThrow: `Translator returned no parsable object for part ${index}`,
+  })
 
   return {
-    ...response.object,
-    paragraphs: response.object.paragraphs.map(pruneGlosses),
+    ...object,
+    paragraphs: object.paragraphs.map(pruneGlosses),
   }
 }
 
