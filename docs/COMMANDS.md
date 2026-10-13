@@ -36,7 +36,8 @@ Its parts, each runnable alone:
 | `pnpm verify:data` | the database is read and written only in `src/db/` | C6 |
 | `pnpm verify:bots` | the code shared by every bot names no bot — services, db, lib, config, the registrar, runner, builder and routing | C7 |
 | `pnpm verify:cadence` | every pipeline's claim and schedule come from `definePipeline` | C8 |
-| `pnpm verify:rules` | C1–C8 together | |
+| `pnpm verify:invariants` | the invariants a line of text can break — adapter mode, loopback ports, one replica, no `curateAll` from a conversation, no lead writer in the jobs run, no `mastra_` table | C9 |
+| `pnpm verify:rules` | C1–C9 together | |
 | `pnpm test` | every `__tests__/**/*.test.ts` — offline; `pnpm test:watch` to iterate | 🧪 |
 
 What each rule holds, and which rules nothing holds yet: [CONVENTIONS.md](CONVENTIONS.md).

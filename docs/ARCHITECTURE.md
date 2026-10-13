@@ -158,8 +158,9 @@ belongs to, not the host), and each pipeline's delivery claim.
 | C6 | the database through `src/db/` | `pnpm verify:data` |
 | C7 | the code shared by every bot names no bot | `pnpm verify:bots` |
 | C8 | every pipeline's cadence and claim from `definePipeline` | `pnpm verify:cadence` |
+| C9 | the invariants a line of text can break: adapter mode, loopback ports, one replica, no `curateAll` from a conversation, no lead writer in the jobs run, no `mastra_` table | `pnpm verify:invariants` |
 
-All eight run in `pnpm verify`, which the `pre-commit` hook runs. Every check is a text check over
-`src/` — they read source, not an AST, for the reason in `scripts/checks/_lib.mjs` — so each can be
+All nine run in `pnpm verify`, which the `pre-commit` hook runs. Every check is a text check over
+`src/` and `docker-compose.yml` — they read source, not an AST, for the reason in `scripts/checks/_lib.mjs` — so each can be
 fooled on purpose; none has a baseline except C4's ratchet. The rules no machine holds are the 👁 and
 ⏳ rows of [CONVENTIONS §1](CONVENTIONS.md#1-rule-to-mechanism-map).

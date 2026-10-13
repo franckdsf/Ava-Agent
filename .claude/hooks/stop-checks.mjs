@@ -42,6 +42,11 @@ const CHECKS = [
   { name: "C6 data access", script: "c6-data-access.mjs", when: (f) => f.startsWith("src/") },
   { name: "C7 bot-agnostic", script: "c7-bot-agnostic.mjs", when: (f) => f.startsWith("src/") },
   { name: "C8 one cadence", script: "c8-one-cadence.mjs", when: (f) => f.startsWith("src/") },
+  {
+    name: "C9 invariant text",
+    script: "c9-invariant-text.mjs",
+    when: (f) => f.startsWith("src/") || f === "docker-compose.yml",
+  },
 ];
 
 const changed = changedFiles();

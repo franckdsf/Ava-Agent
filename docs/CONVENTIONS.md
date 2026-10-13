@@ -10,7 +10,7 @@ only a reader does** — because that is the difference between a rule and a hop
 | --- | --- |
 | 🔬 **TYPE** | `pnpm typecheck` makes the violation an error |
 | 🧪 **TEST** | a test under `__tests__/` asserts it, in `pnpm test` |
-| 📐 **SCRIPT** | a rule check — C1–C8 — in `pnpm verify:rules` |
+| 📐 **SCRIPT** | a rule check — C1–C9 — in `pnpm verify:rules` |
 | 🔒 **HOOK** | a git hook refuses the commit |
 | 👁 **REVIEW** | judgement — the invariant-reviewer and you. A guideline, and it will drift |
 | ⏳ | 👁 today, mechanisable, and a candidate for the refactor ([§1](#1-rule-to-mechanism-map)) |
@@ -20,7 +20,7 @@ drift. Writing it in bold and treating it as binding is how documentation become
 the code drifts underneath it — the failure the boilerplate this repo's tooling comes from was built
 against ([audit/](audit/README.md)).
 
-`pnpm verify` runs everything mechanical: typecheck, C1–C8, the tests. It runs in two places: on
+`pnpm verify` runs everything mechanical: typecheck, C1–C9, the tests. It runs in two places: on
 demand, and in the `pre-commit` / `pre-merge-commit` hooks, so a failing commit cannot be created.
 **There is no CI** — this repo has no remote yet — so a `--no-verify` commit is caught by nothing.
 A third place is advisory: the `Stop` hook in `.claude/` runs the same C checks against the working set at the
@@ -54,14 +54,14 @@ needs a judgement no script can make, and is settled.
 | Env is validated at boot and names what is missing | the process refuses to start — zod in `src/config/env.ts`, core vars at import, a bot's when it is built. Not in `pnpm verify`; ⏳ a test that the schema rejects an empty `.env` |
 | A pipeline's catch-up bar clears its healthy ceiling (gate + widest fire gap) | 🧪 `definePipeline` throws at load, so every test importing a pipeline fails and so does boot — every scheduled pipeline is on the kit |
 | `pnpm db:generate` after a schema edit | 👁 — the `SessionStart` hook warns on mtimes; ⏳ a check comparing the schema to the last snapshot |
-| Never require an inbound port, tunnel or webhook | ⏳ — `mode: 'polling'` on every Telegram adapter, ports bound to loopback in `docker-compose.yml` |
-| Never give an outbound Telegram instance a `mode`, never `mode: 'auto'` | ⏳ — same check |
-| Never start `curateAll` from a conversation | ⏳ — no reference in `src/mastra/tools/**` or `src/mastra/commands/**` |
-| Never write `lead_signals` from the jobs workflow | ⏳ — `find-jobs.ts` imports no lead writer |
+| Never require an inbound port, tunnel or webhook | 📐 C9 — no `mode: 'auto'`/`'webhook'`, the agent's adapter says `mode: 'polling'`, every port in `docker-compose.yml` on `127.0.0.1` |
+| Never give an outbound Telegram instance a `mode`, never `mode: 'auto'` | 📐 C9 |
+| Never start `curateAll` from a conversation | 📐 C9 — no `curateAll` or `'curate-all'` in the code of `tools/` or `commands/` |
+| Never write `lead_signals` from the jobs workflow | 📐 C9 — `find-jobs.ts` imports nothing from `db/leads` |
 | Never let anything conversational write what a run produced | ⏳ — an import allowlist from `tools/` and `commands/` into `src/db/` |
-| Never let drizzle own `mastra_*` | ⏳ — no `mastra_` table in `src/db/schema.ts` |
+| Never let drizzle own `mastra_*` | 📐 C9 — no `mastra_` table in `src/db/schema.ts` |
 | Never hand-write a migration `db:generate` can emit | 👁 — each hand-written one says why in its header |
-| Never run two replicas | ⏳ — no `replicas`/`scale` in `docker-compose.yml` |
+| Never run two replicas | 📐 C9 — no `replicas:`/`scale:` in `docker-compose.yml` |
 | Never commit `.history/` | 🔒 `.gitignore` |
 | Never give a scheduled model call control flow it can choose | 👁 — a shape, not a call site ([ADR-0042](decisions/0042-a-scheduled-model-call-has-a-shape-not-a-list.md)) |
 | Never correct a memory, a beat or a rubric — supersede it | 👁 |
