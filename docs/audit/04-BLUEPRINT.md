@@ -139,6 +139,11 @@ Anyone may *call* an `agents/` function — the `services/job-scout.ts` edge is 
 rule. ADR-0042 ("a scheduled model call has a shape") then has a place to point at. **Enforced by** a
 check: `new Agent(`, `.generate(`, `.stream(` occur only under `src/mastra/agents/`.
 
+> *As built (slice 6):* the boundary is the function, not the folder — `.generate(` only in
+> `agents/structured.ts`, so a call inside `agents/` cannot skip `attempts` either. 17 calls, not 11;
+> `/target` now asks twice like `/client`, and a job-scout parse failure is a problem on the sonar row.
+> [ADR-0048](../decisions/0048-a-model-is-asked-through-structured-with-its-attempts-written.md).
+
 ## Part 5 — Data access stays in `src/db/` (F9, D2)
 
 Every write already does. Reads join them: the queries in `tools/news.ts`, `commands/beats.ts`,
@@ -160,7 +165,7 @@ New rule checks, each added in the slice that makes it true:
 
 | Check | Holds | Lands with |
 | --- | --- | --- |
-| C5 model boundary | `new Agent(` / `.generate(` / `.stream(` only in `src/mastra/agents/` | Part 4 |
+| C5 model boundary | `new Agent(` only in `src/mastra/agents/`; `.generate(` / `.stream(` only in `agents/structured.ts`. *Corrected when it landed:* the folder alone would have let a call inside it skip `attempts` | Part 4 |
 | C6 data access | `drizzle-orm` / `db()` only in `src/db/` | Part 5 |
 | C7 bot-agnostic | no bot name in the code shared by every bot — services, db, lib, config, the registrar, runner, builder and routing. *Corrected when it landed:* "outside `src/bots/`" would have forbidden a bot's own workflows and commands, which Part 1 says it brings | Part 1 |
 | C8 one cadence | every scheduled `createWorkflow` gets its schedule from `definePipeline` | Part 3 |

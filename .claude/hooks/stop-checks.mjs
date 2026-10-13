@@ -38,6 +38,8 @@ const CHECKS = [
     script: "c4-silent-catch.mjs",
     when: (f) => f.startsWith("src/") || f.startsWith("scripts/") || f.startsWith(".claude/hooks/"),
   },
+  { name: "C5 model boundary", script: "c5-model-boundary.mjs", when: (f) => f.startsWith("src/") },
+  { name: "C7 bot-agnostic", script: "c7-bot-agnostic.mjs", when: (f) => f.startsWith("src/") },
   { name: "C8 one cadence", script: "c8-one-cadence.mjs", when: (f) => f.startsWith("src/") },
 ];
 

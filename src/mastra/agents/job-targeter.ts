@@ -271,8 +271,9 @@ export async function suggestTighterTarget(
  * call shows up in Studio like every other model call here.
  *
  * Asked `jobPipeline.modelAttempts` times, like its twin `parseClient`. A second
- * call costs about one more bench worst case (9.2s, `AVA_MODEL_JOB_TARGETER`)
- * behind the holding message, which beats making the reader type it again.
+ * call costs one more bench worst case (9.2s and 15.5s in two runs, beside
+ * `AVA_MODEL_JOB_TARGETER`) behind the holding message, which beats making the
+ * reader type it again.
  *
  * Throws when every attempt returned nothing parseable. The caller answers with
  * the usage line — "the model returned junk" and "you typed something unusable"

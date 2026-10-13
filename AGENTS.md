@@ -15,7 +15,7 @@
 Operating contract for anyone — human or agent — working in this repo.
 
 - **What it is and how to run it:** [README.md](README.md)
-- **Why it looks like this:** [docs/decisions/](docs/decisions/README.md) — 47 ADRs, each declaring
+- **Why it looks like this:** [docs/decisions/](docs/decisions/README.md) — 48 ADRs, each declaring
   the files it governs and the command that proves it still holds
 - **What surprised us:** [docs/GOTCHAS/](docs/GOTCHAS/README.md) — nine routed files; read the one
   whose globs match what you are touching
@@ -158,7 +158,7 @@ whether it writes, calls a model or needs `.env`. **`verify*` is offline and det
 
 | Command | Rule |
 | --- | --- |
-| `pnpm verify` | Before claiming any change works. Typecheck, the C1–C4, C7 and C8 rule checks, the tests — the `pre-commit` hook runs it and refuses the commit if it fails. |
+| `pnpm verify` | Before claiming any change works. Typecheck, the C1–C5, C7 and C8 rule checks, the tests — the `pre-commit` hook runs it and refuses the commit if it fails. |
 | `pnpm db:generate` | **Required** after editing `src/db/schema.ts`, or the migration silently lags the code. |
 | `pnpm workflow:run <target>` | **The only script that is not a dry run.** Real feeds, real model calls, real Telegram messages. Read `--help` first. |
 
@@ -200,8 +200,8 @@ feed, and code establishes the URL the model only proposed.
 
 **A model call that fails must leave its batch untouched, not settle it.** `generate()` throws on a
 schema mismatch rather than returning a null object, and the `?? fallback` pattern used elsewhere in
-this repo does not catch it. `withRetry` in `src/services/structured-output.ts` is the explicit
-loop; `.default([])` on the schema is the wrong fix and was tried first.
+this repo does not catch it. **Every call goes through `structured()`** (`src/mastra/agents/`, C5), which
+returns `null` or throws, never a default; `.default([])` on the schema is the wrong fix, tried first.
 
 **Scoring is one batch call per search**, not one call per posting — `find-jobs` runs
 `.foreach(scoreSearch)`, each over at most `maxJobsPerScoringRun` postings. The deterministic filters

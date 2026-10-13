@@ -186,6 +186,8 @@ const coreSchema = z.object({
    * gave misread the app: it took `mustHave: ["Go","Rust"]` as an AND filter
    * (`filterJobs` keeps a posting mentioning any) and `seniority: ["manager"]`
    * as invalid (`SENIORITY` has it). On what code can check the two were level.
+   * Re-run 2026-10-13 through `structured()` at 2 attempts: 6/6, 0 retries, every
+   * parse exact, 8.6s median, 15.5s worst — the judge ranked it first.
    * The previous `deepseek-v4-flash-0731` failed 10 of 24 parses and timed out
    * at ten minutes in two runs of six.
    */

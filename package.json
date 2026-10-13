@@ -37,10 +37,11 @@
     "verify:bots": "node scripts/checks/c7-bot-agnostic.mjs",
     "verify:cadence": "node scripts/checks/c8-one-cadence.mjs",
     "verify:catch": "node scripts/checks/c4-silent-catch.mjs",
+    "verify:models": "node scripts/checks/c5-model-boundary.mjs",
     "verify:cycles": "node scripts/checks/c2-import-cycles.mjs",
     "verify:docs": "node scripts/checks/c1-doc-integrity.mjs",
     "verify:paths": "node scripts/checks/c3-anchored-paths.mjs",
-    "verify:rules": "pnpm verify:docs && pnpm verify:cycles && pnpm verify:paths && pnpm verify:catch && pnpm verify:bots && pnpm verify:cadence",
+    "verify:rules": "pnpm verify:docs && pnpm verify:cycles && pnpm verify:paths && pnpm verify:catch && pnpm verify:models && pnpm verify:bots && pnpm verify:cadence",
     "workflow:run": "tsx --env-file-if-exists=.env scripts/run-workflow.ts",
     "youtube:check": "tsx scripts/check-youtube.ts"
   },
