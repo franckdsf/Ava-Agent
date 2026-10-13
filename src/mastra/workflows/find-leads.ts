@@ -6,6 +6,7 @@ import {
   activeProfiles,
   claimLeadDelivery,
   getLeads,
+  getSignal,
   inCooldown,
   insertSignals,
   listDeliverable,
@@ -378,7 +379,7 @@ const deliverProfile = createStep({
       if (!lead) continue
       if (sentThisRun.has(lead.id)) continue
 
-      const signal = await signalFor(candidate.signalId)
+      const signal = await getSignal(candidate.signalId)
       if (!signal) continue
 
       // Vision, bounded three ways: only here, only on a survivor, and only
@@ -510,16 +511,6 @@ const report = createStep({
     }
   },
 })
-
-/** One signal by id. Small enough to be worth a helper rather than a join. */
-async function signalFor(id: string): Promise<LeadSignal | null> {
-  const { db, migrate } = await import('../../db/client.js')
-  const { leadSignals } = await import('../../db/schema.js')
-  const { eq } = await import('drizzle-orm')
-  await migrate()
-  const [row] = await db().select().from(leadSignals).where(eq(leadSignals.id, id)).limit(1)
-  return row ?? null
-}
 
 /**
  * One lead as a Telegram message.

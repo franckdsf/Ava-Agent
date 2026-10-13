@@ -671,3 +671,29 @@ export async function jobCounts(): Promise<{ stored: number; delivered: number; 
     sources: sources.length,
   }
 }
+
+/**
+ * Postings discovered since `since`, newest first — what the leads pipeline reads
+ * as hiring signals (`hiringSignalsFromJobs`). Only the columns a signal is
+ * built from.
+ */
+export async function recentPostings(
+  since: number,
+  limit: number,
+): Promise<Pick<Job, 'company' | 'title' | 'location' | 'url' | 'sourceId' | 'discoveredAt' | 'postedAt'>[]> {
+  await migrate()
+  return db()
+    .select({
+      company: jobs.company,
+      title: jobs.title,
+      location: jobs.location,
+      url: jobs.url,
+      sourceId: jobs.sourceId,
+      discoveredAt: jobs.discoveredAt,
+      postedAt: jobs.postedAt,
+    })
+    .from(jobs)
+    .where(gte(jobs.discoveredAt, since))
+    .orderBy(desc(jobs.discoveredAt))
+    .limit(limit)
+}

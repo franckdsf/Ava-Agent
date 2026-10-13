@@ -166,6 +166,13 @@ export async function insertSignals(rows: NewLeadSignal[]): Promise<number> {
   return result.rowsAffected ?? 0
 }
 
+/** One signal by id, or null. */
+export async function getSignal(id: string): Promise<LeadSignal | null> {
+  await migrate()
+  const [row] = await db().select().from(leadSignals).where(eq(leadSignals.id, id)).limit(1)
+  return row ?? null
+}
+
 export async function getLeads(ids: string[]): Promise<Lead[]> {
   if (ids.length === 0) return []
   await migrate()

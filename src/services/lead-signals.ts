@@ -1,8 +1,6 @@
-import { and, desc, gte } from 'drizzle-orm'
 import { jobScout } from '../config/jobs.js'
 import { NOT_AN_EMPLOYER_HOSTS, leadPipeline, type LeadSignalKind } from '../config/leads.js'
-import { db, migrate } from '../db/client.js'
-import { jobs } from '../db/schema.js'
+import { recentPostings } from '../db/jobs.js'
 import { htmlToText } from './article.js'
 import { canonicalizeSourceUrl, isPlatformHost, normalizeHost, signalId } from './lead-identity.js'
 import { fetchPage } from './page-fetch.js'
@@ -99,23 +97,8 @@ export function isNotACompanyHost(host: string): boolean {
  * 60-day prune — so unlike the open web this source cannot flood a run.
  */
 export async function hiringSignalsFromJobs(limit: number): Promise<SignalHarvest> {
-  await migrate()
   const cutoff = Date.now() - leadPipeline.signalWindowDays * 86_400_000
-
-  const rows = await db()
-    .select({
-      company: jobs.company,
-      title: jobs.title,
-      location: jobs.location,
-      url: jobs.url,
-      sourceId: jobs.sourceId,
-      discoveredAt: jobs.discoveredAt,
-      postedAt: jobs.postedAt,
-    })
-    .from(jobs)
-    .where(and(gte(jobs.discoveredAt, cutoff)))
-    .orderBy(desc(jobs.discoveredAt))
-    .limit(limit)
+  const rows = await recentPostings(cutoff, limit)
 
   const signals: RawSignal[] = []
   const seen = new Set<string>()

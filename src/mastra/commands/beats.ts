@@ -1,9 +1,9 @@
 import type { Mastra } from '@mastra/core'
-import { and, eq, gte } from 'drizzle-orm'
 import { NEWY_BOT, type NewyTopicSlug } from '../../bots/newy.js'
 import { beatCommands, pipeline } from '../../config/pipeline.js'
 import {
   articleIdsFromFeed,
+  beatActivity,
   feedPerformance,
   linkToBeats,
   verdictsForArticle,
@@ -20,8 +20,6 @@ import {
   setBeatArchived,
   type Beat,
 } from '../../db/beats.js'
-import { db, migrate } from '../../db/client.js'
-import { articleBeats, articles } from '../../db/schema.js'
 import { scopeArxivFeed } from '../../services/arxiv.js'
 import { checkFeed, normalizeFeedUrl, sourceLabel } from '../../services/feed-check.js'
 import { quotedSource } from '../../services/quoted-article.js'
@@ -168,24 +166,7 @@ async function resolveSlug(
 const since = (days: number) => Date.now() - days * 24 * 60 * 60 * 1000
 
 /** Linked / ranked / delivered for one beat over the reporting window. */
-async function beatStats(slug: string) {
-  await migrate()
-  const rows = await db()
-    .select({ rankedAt: articleBeats.rankedAt, deliveredBeat: articles.deliveredBeat })
-    .from(articleBeats)
-    .innerJoin(articles, eq(articles.id, articleBeats.articleId))
-    .where(
-      and(
-        eq(articleBeats.beatSlug, slug),
-        gte(articles.discoveredAt, since(beatCommands.statsDays)),
-      ),
-    )
-  return {
-    linked: rows.length,
-    ranked: rows.filter(row => row.rankedAt !== null).length,
-    delivered: rows.filter(row => row.deliveredBeat === slug).length,
-  }
-}
+const beatStats = (slug: string) => beatActivity(slug, since(beatCommands.statsDays))
 
 /* ───────────────────────────────── /follow ─────────────────────────────────── */
 
