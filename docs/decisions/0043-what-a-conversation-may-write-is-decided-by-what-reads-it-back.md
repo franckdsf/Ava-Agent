@@ -1,14 +1,14 @@
 ---
 id: 0043
-applies_to: ["src/mastra/tools/**", "src/mastra/commands/**", "src/mastra/agents/newy.ts", "src/mastra/agents/joob.ts", "src/db/schema.ts"]
-status: accepted
+applies_to: ["src/mastra/tools/**", "src/mastra/commands/**", "src/mastra/agents/newy.ts", "src/mastra/agents/joob.ts", "src/mastra/workflows/discover-feeds.ts", "src/db/schema.ts"]
+status: amended
 supersedes: []
 verify: "pnpm typecheck"
 ---
 
 # ADR-0043: What a conversation may write is decided by what reads it back
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-10-13)
 - **Date:** 2026-08-23
 - **Records:** invariant 8, enforced since the first conversational tool shipped and never filed as a
   decision. Like [ADR-0042](0042-a-scheduled-model-call-has-a-shape-not-a-list.md), this is a
@@ -91,3 +91,33 @@ all.
 No mechanical check. The enforcement is the reader-of-the-table question asked at review time, and
 `.claude/agents/invariant-reviewer.md` carries it as a criterion. A tool that writes a table should
 not merge without an answer to *what reads this back?*
+
+---
+
+## Amendments, 2026-10-13
+
+**"Never `article_beats`" was wrong for one write, and the config side had been making it all
+along.** `/addfeed` and the `discover-feeds` run `/follow` starts both call `linkToBeats`, linking
+articles already stored from a newly subscribed feed to its beat. The backfill predates this ADR by
+a month (2026-07-29) and was never named as an exception; it surfaced when the conversational
+imports into `src/db/` were listed for a check.
+
+It is kept, because without it a new subscription gets nothing for days: a feed another beat
+already polls answers 304 on the next run, so its stored stories are never linked to the new beat
+until the feed changes. And it passes this ADR's own test. An **unscored link** — no score, no
+verdict, no `deliveredAt`, ignored when the link exists (`onConflictDoNothing`) — is *input to a
+future run*: the ranker scores it like any link ingest writes. So the categories become:
+
+- **Input to a future run** — `memories`, `beats`, `beat_feeds`, **and an unscored link in
+  `article_beats`, written only by `linkToBeats`**.
+- **Never** — `articles`, `feedback`, any score or verdict, any `deliveredAt`; and any other write to
+  `article_beats` (`saveRankings`, `saveClusters`, a delivery claim).
+
+"May not touch the news tables" for the `/follow` run reads the same way: it may link, nothing more.
+**One-way, but not always asynchronous:** a link written while `curateAll` is ranking that beat can
+be picked up by that run's ranking step — exactly as if ingest had written it, so nothing is scored,
+sent or reset that would not have been.
+
+The Verify line above is also overtaken: which `src/db/` functions a conversation may import is now
+held by C11 (`pnpm verify:conversation`): each one is listed, every write beside the category above
+that allows it, and a new one fails `pnpm verify` until it is added with that answer.

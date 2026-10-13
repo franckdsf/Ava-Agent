@@ -30,6 +30,16 @@ it('rejects a dynamic import of the client — the shape find-leads used', () =>
   expect(output).toContain('src/mastra/workflows/find-leads.ts:2')
 })
 
+// A guard: an import pattern that spans statements would read this `db` import as part of the type
+// import above it, and skip it. C11's first draft did exactly that.
+it('rejects the client imported right after a type import', () => {
+  const { code, output } = runCheck('c6-data-access.mjs', {
+    'src/services/x.ts': "import type { Job } from '../db/schema.js'\nimport { db } from '../db/client.js'",
+  })
+  expect(code).toBe(1)
+  expect(output).toContain('src/services/x.ts:2')
+})
+
 it('rejects batchAll — it writes — and rawClient anywhere but Mastra’s store', () => {
   const { code, output } = runCheck('c6-data-access.mjs', {
     'src/services/x.ts': "import { batchAll } from '../db/client.js'",

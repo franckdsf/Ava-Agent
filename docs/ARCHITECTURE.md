@@ -23,7 +23,7 @@ calls and database reads; the sections below are what it left.
 | `src/services/` | pure logic and outbound I/O — feeds, boards, filters, Telegram transport | C7 (names no bot) |
 | `src/mastra/agents/` | every `new Agent(`, every prompt, and `structured()` — the one model call | C5 |
 | `src/mastra/commands/` | slash commands, one `Command` object beside its handler | — |
-| `src/mastra/tools/` | what a conversational agent may call — reads, and the writes ADR-0043 allows | 👁 invariant 8 |
+| `src/mastra/tools/` | what a conversational agent may call — reads, and the writes ADR-0043 allows | C11 |
 | `src/mastra/workflows/` | the scheduled and reader-triggered runs, each its own steps | C8 |
 | `src/mastra/` (top) | what is built once for every bot and pipeline: registrar, chat routing, the kit, catch-up | C7, C8 |
 
@@ -160,8 +160,9 @@ belongs to, not the host), and each pipeline's delivery claim.
 | C8 | every pipeline's cadence and claim from `definePipeline` | `pnpm verify:cadence` |
 | C9 | the invariants a line of text can break: adapter mode, loopback ports, one replica, no `curateAll` from a conversation, no lead writer in the jobs run, no `mastra_` table | `pnpm verify:invariants` |
 | C10 | the migrations match the schema — `drizzle-kit generate` into a scratch copy writes nothing | `pnpm verify:migrations` |
+| C11 | a conversation imports only the `src/db/` functions written down, each write with its reason | `pnpm verify:conversation` |
 
-All ten run in `pnpm verify`, which the `pre-commit` hook runs. Every check but C10 is a text check over
+All eleven run in `pnpm verify`, which the `pre-commit` hook runs. Every check but C10 is a text check over
 `src/` and `docker-compose.yml` — they read source, not an AST, for the reason in `scripts/checks/_lib.mjs` — so each can be
 fooled on purpose; none has a baseline except C4's ratchet. The rules no machine holds are the 👁 and
 ⏳ rows of [CONVENTIONS §1](CONVENTIONS.md#1-rule-to-mechanism-map).

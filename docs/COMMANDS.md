@@ -38,7 +38,8 @@ Its parts, each runnable alone:
 | `pnpm verify:cadence` | every pipeline's claim and schedule come from `definePipeline` | C8 |
 | `pnpm verify:invariants` | the invariants a line of text can break — adapter mode, loopback ports, one replica, no `curateAll` from a conversation, no lead writer in the jobs run, no `mastra_` table | C9 |
 | `pnpm verify:migrations` | the migrations match the schema — `drizzle-kit generate` into a scratch copy would write nothing | C10 |
-| `pnpm verify:rules` | C1–C10 together | |
+| `pnpm verify:conversation` | a conversation imports only the `src/db/` functions listed in the check, each write with its ADR-0043 reason | C11 |
+| `pnpm verify:rules` | C1–C11 together | |
 | `pnpm test` | every `__tests__/**/*.test.ts` — offline; `pnpm test:watch` to iterate | 🧪 |
 
 What each rule holds, and which rules nothing holds yet: [CONVENTIONS.md](CONVENTIONS.md).

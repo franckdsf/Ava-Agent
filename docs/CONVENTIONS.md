@@ -10,7 +10,7 @@ only a reader does** — because that is the difference between a rule and a hop
 | --- | --- |
 | 🔬 **TYPE** | `pnpm typecheck` makes the violation an error |
 | 🧪 **TEST** | a test under `__tests__/` asserts it, in `pnpm test` |
-| 📐 **SCRIPT** | a rule check — C1–C10 — in `pnpm verify:rules` |
+| 📐 **SCRIPT** | a rule check — C1–C11 — in `pnpm verify:rules` |
 | 🔒 **HOOK** | a git hook refuses the commit |
 | 👁 **REVIEW** | judgement — the invariant-reviewer and you. A guideline, and it will drift |
 | ⏳ | 👁 today, mechanisable, and a candidate for the refactor ([§1](#1-rule-to-mechanism-map)) |
@@ -20,7 +20,7 @@ drift. Writing it in bold and treating it as binding is how documentation become
 the code drifts underneath it — the failure the boilerplate this repo's tooling comes from was built
 against ([audit/](audit/README.md)).
 
-`pnpm verify` runs everything mechanical: typecheck, C1–C10, the tests. It runs in two places: on
+`pnpm verify` runs everything mechanical: typecheck, C1–C11, the tests. It runs in two places: on
 demand, and in the `pre-commit` / `pre-merge-commit` hooks, so a failing commit cannot be created.
 **There is no CI** — this repo has no remote yet — so a `--no-verify` commit is caught by nothing.
 A third place is advisory: the `Stop` hook in `.claude/` runs the same C checks against the working set at the
@@ -58,7 +58,7 @@ needs a judgement no script can make, and is settled.
 | Never give an outbound Telegram instance a `mode`, never `mode: 'auto'` | 📐 C9 |
 | Never start `curateAll` from a conversation | 📐 C9 — no `curateAll` or `'curate-all'` in the code of `tools/` or `commands/` |
 | Never write `lead_signals` from the jobs workflow | 📐 C9 — `find-jobs.ts` imports nothing from `db/leads` |
-| Never let anything conversational write what a run produced | ⏳ — an import allowlist from `tools/` and `commands/` into `src/db/` |
+| Never let anything conversational write what a run produced | 📐 C11 — every `src/db/` function a tool, command, chat agent or `discover-feeds` imports is listed, each write beside why ADR-0043 allows it; the answer itself stays 👁 |
 | Never let drizzle own `mastra_*` | 📐 C9 — no `mastra_` table in `src/db/schema.ts` |
 | Never hand-write a migration `db:generate` can emit | 👁 — each hand-written one says why in its header |
 | Never run two replicas | 📐 C9 — no `replicas:`/`scale:` in `docker-compose.yml` |

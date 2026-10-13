@@ -52,6 +52,7 @@ const CHECKS = [
     script: "c10-migrations.mjs",
     when: (f) => f.startsWith("src/db/") || f.startsWith("drizzle/"),
   },
+  { name: "C11 conversational writes", script: "c11-conversational-writes.mjs", when: (f) => f.startsWith("src/mastra/") },
 ];
 
 const changed = changedFiles();

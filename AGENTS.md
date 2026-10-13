@@ -158,7 +158,7 @@ whether it writes, calls a model or needs `.env`. **`verify*` is offline and det
 
 | Command | Rule |
 | --- | --- |
-| `pnpm verify` | Before claiming any change works. Typecheck, the C1–C10 rule checks, the tests — the `pre-commit` hook runs it and refuses the commit if it fails. |
+| `pnpm verify` | Before claiming any change works. Typecheck, the C1–C11 rule checks, the tests — the `pre-commit` hook runs it and refuses the commit if it fails. |
 | `pnpm db:generate` | **Required** after editing `src/db/schema.ts`, or the migration silently lags the code. |
 | `pnpm workflow:run <target>` | **The only script that is not a dry run.** Real feeds, real model calls, real Telegram messages. Read `--help` first. |
 
