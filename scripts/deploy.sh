@@ -17,6 +17,19 @@
 #   ./scripts/deploy.sh -p ava-alice --env-file deploy/alice.env
 #   ./scripts/deploy.sh --force                           # rebuild with no new commits
 #   ./scripts/deploy.sh --no-backup                       # skip the volume snapshot
+#   ./scripts/deploy.sh --auto weekly                     # deploy, then re-run Sundays 02:00
+#   ./scripts/deploy.sh --auto off                        # remove the schedule, deploy nothing
+#
+# The first deploy on a fresh box is the same command: with no container yet
+# there is nothing to stop or back up, and the build and the up run as usual.
+#
+# `--auto` writes one crontab line per Compose project, tagged so a re-run
+# replaces it rather than adding a second. It is installed only after a deploy
+# succeeds, so a schedule never exists for a setup that has not worked once.
+# Sunday 02:00 in AGENT_TIMEZONE, converted to the server's zone, is clear of
+# every hour the app schedules itself (prune 04:00, the Monday reviews
+# 05:00/06:00, the pipelines from 08:00) — a restart mid-run would cut one
+# short. A run with nothing new pulls nothing and logs one line.
 #
 set -euo pipefail
 
@@ -26,6 +39,7 @@ PROJECT=""
 ENV_FILE=""
 FORCE=0
 BACKUP=1
+AUTO=""
 KEEP=7          # how many volume snapshots to keep
 WAIT_SECONDS=120
 
@@ -35,7 +49,8 @@ while [ $# -gt 0 ]; do
     --env-file)    ENV_FILE="$2"; shift 2 ;;
     --force)       FORCE=1; shift ;;
     --no-backup)   BACKUP=0; shift ;;
-    -h|--help)     sed -n '2,20p' "$0"; exit 0 ;;
+    --auto)        AUTO="${2:-}"; shift 2 || shift ;;
+    -h|--help)     sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -46,6 +61,96 @@ COMPOSE=(docker compose)
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf '\n\033[31m!! %s\033[0m\n' "$*" >&2; exit 1; }
+
+# ── 0. schedule ───────────────────────────────────────────────────────────────
+# The tag is what makes the line replaceable: `ava-alice` and `ava-bob` on one
+# box each own one line, and neither run touches the other's. PATH is frozen
+# into the line because cron's own is /usr/bin:/bin, and a docker installed
+# anywhere else would be "command not found" every night with nobody watching.
+case "$AUTO" in
+  ''|weekly|off) ;;
+  *) die "--auto takes weekly or off (got '$AUTO')" ;;
+esac
+CRON_TAG="# ava-deploy:${PROJECT:-default}"
+
+if [ -n "$AUTO" ]; then
+  command -v crontab >/dev/null || die "crontab not found — install cron first (Debian/Ubuntu: sudo apt install cron)"
+fi
+
+# Replaces this project's line with $1, or drops it when $1 is empty. The rest
+# of the crontab is read in full before anything is written: piping
+# `crontab -l` straight into `crontab -` races, and what loses is every other
+# line the reader had.
+write_cron() {
+  local others
+  others="$(crontab -l 2>/dev/null | grep -vF "$CRON_TAG" || true)"
+  { [ -z "$others" ] || printf '%s\n' "$others"; [ -z "${1:-}" ] || printf '%s\n' "$1"; } | crontab -
+}
+
+# Minute of the week, Sunday 00:00 = 0, of the current instant in zone $1 — or
+# in the server's own zone when $1 is empty (TZ="" would mean UTC, not local).
+minute_of_week() {
+  local d h m
+  if [ -n "$1" ]; then read -r d h m < <(TZ="$1" date '+%w %H %M')
+  else read -r d h m < <(date '+%w %H %M'); fi
+  echo $(( d * 1440 + 10#$h * 60 + 10#$m ))
+}
+
+install_schedule() {
+  [ -n "$AUTO" ] || return 0
+  local args="" line tz server delta at dow hour min
+  [ -n "$PROJECT" ]  && args+=" -p $(printf '%q' "$PROJECT")"
+  [ -n "$ENV_FILE" ] && args+=" --env-file $(printf '%q' "$ENV_FILE")"
+
+  # The app fires its schedules in AGENT_TIMEZONE; cron fires in the server's
+  # zone, which on a VPS is usually UTC. Sunday 02:00 is meant in the reader's
+  # zone, so it is converted here — once, at install. A DST change on either
+  # side moves it by an hour at most, to 01:00 or 03:00, still clear of 04:00.
+  tz="$(grep -E '^AGENT_TIMEZONE=' "${ENV_FILE:-.env}" | tail -n 1 | cut -d= -f2- | tr -d "\"'\r")"
+  tz="${tz:-Europe/Paris}"   # the default docker-compose.yml applies
+  if [ -d /usr/share/zoneinfo ] && [ ! -f "/usr/share/zoneinfo/$tz" ]; then
+    die "AGENT_TIMEZONE=$tz is not a known time zone — schedule not installed"
+  fi
+  server="$(minute_of_week "")"
+  delta=$(( server - $(minute_of_week "$tz") ))
+  at=$(( ((2 * 60 + delta) % 10080 + 10080) % 10080 ))
+  dow=$(( at / 1440 )); hour=$(( at % 1440 / 60 )); min=$(( at % 60 ))
+
+  line="$min $hour * * $dow cd $(printf '%q' "$PWD") && PATH=$(printf '%q' "$PATH") ./scripts/deploy.sh$args >> deploy${PROJECT:+-$PROJECT}.log 2>&1 $CRON_TAG"
+  # cron turns an unescaped % into a newline, which would cut the command short.
+  case "$line" in *%*) die "a path contains '%', which cron cannot take — schedule not installed" ;; esac
+  write_cron "$line"
+  say "Scheduled every Sunday at 02:00 $tz — log in deploy${PROJECT:+-$PROJECT}.log"
+}
+
+if [ "$AUTO" = "off" ]; then
+  write_cron ""
+  echo "Removed the ${PROJECT:-default} deploy schedule. Nothing deployed."
+  exit 0
+fi
+
+# ── 0b. preconditions ─────────────────────────────────────────────────────────
+# Compose reads ./.env silently when it exists and boots with blanks when it
+# does not; zod then names the missing variable, but only in a container log.
+if [ -n "$ENV_FILE" ]; then
+  [ -f "$ENV_FILE" ] || die "$ENV_FILE not found"
+else
+  [ -f .env ] || die ".env not found — run \`pnpm setup\` on a machine with Node, then copy .env here"
+fi
+
+# One deploy at a time per checkout: a cron run and a hand run would pull and
+# build over each other. The lock lives in .git so it can never dirty the tree.
+if command -v flock >/dev/null; then
+  exec 9>"$(git rev-parse --git-dir)/deploy.lock"
+  flock -n 9 || die "another deploy is already running in this checkout"
+fi
+
+# Under cron nothing can answer a prompt, so a git that would ask for a password
+# or a host-key confirmation fails at once instead of hanging every night.
+if [ ! -t 0 ]; then
+  export GIT_TERMINAL_PROMPT=0
+  export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes}"
+fi
 
 # ── 1. is there anything to deploy ────────────────────────────────────────────
 # The dirty-tree check comes before the fetch rather than after: `git pull
@@ -66,7 +171,8 @@ REMOTE="$(git rev-parse '@{u}' 2>/dev/null)" || die "branch $BRANCH tracks nothi
 RUNNING="$("${COMPOSE[@]}" ps --quiet --status running ava 2>/dev/null || true)"
 
 if [ "$LOCAL" = "$REMOTE" ] && [ -n "$RUNNING" ] && [ "$FORCE" -eq 0 ]; then
-  echo "Already on $(git rev-parse --short HEAD) and running. Nothing to do."
+  echo "$(date '+%F %T') Already on $(git rev-parse --short HEAD) and running. Nothing to do."
+  install_schedule
   exit 0
 fi
 
@@ -185,3 +291,4 @@ fi
 
 say "Deployed $(git rev-parse --short HEAD) — $EXPECTED migrations applied"
 "${COMPOSE[@]}" ps ava
+install_schedule

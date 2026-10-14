@@ -75,6 +75,15 @@ project). It refuses a dirty tree, builds before stopping anything, snapshots th
 and then waits until the number of applied migrations matches the number shipped. Migrations
 themselves are applied lazily at boot by `migrate()` in `src/db/client.ts`, not by the script.
 
+**`--auto weekly`** installs, after a successful deploy, one crontab line per Compose project that
+re-runs the script Sundays at 02:00 `AGENT_TIMEZONE` — converted to the server's zone at install,
+since cron fires in the server's — into `deploy[-<project>].log` (gitignored by `*.log`; safe to
+delete). The line is tagged `# ava-deploy:<project>`, so a re-run replaces it and `--auto off`
+removes only it. 02:00 clears every in-app schedule — the 04:00 prune, the Monday 05:00/06:00
+reviews, the pipelines from 08:00 — because a restart mid-run cuts that run short. A cron run
+cannot answer a git prompt, so the script disables them when stdin is not a terminal, and an
+`flock` on `.git/deploy.lock` keeps a hand run and a cron run from overlapping.
+
 A deployment can also run **stateless**: point `AVA_DATA_DB_URL` at a `libsql://` (Turso) URL and
 there is no volume at all. `deploy.sh` detects this and reports the migration count as unchecked
 rather than as passing.
