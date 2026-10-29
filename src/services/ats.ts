@@ -218,11 +218,31 @@ export function atsBoardAsSource(
  * filter leans that way: `search.remote === 'required'` rejects only `onsite`, so
  * guessing "on-site" from a silent field would quietly discard real remote roles,
  * while `unknown` costs a scoring slot the model can judge properly.
+ *
+ * **A bare place is decided by the advert, not by the location.** This used to
+ * answer `onsite` for any location without a remote word in it: Elastic posts each
+ * remote role once per country — `Spain`, `Greece`, `Poland` — so 0 of its 136
+ * postings read as remote, and its full-stack roles never reached a model. But
+ * reading every bare place as `unknown` overshoots: measured on 2026-10-29, it
+ * re-opened 2,065 stored postings, 1,462 of which would have reached the scorer
+ * for one search alone. The advert separates them — an employer's own board is
+ * where it says remote if the role is, and about 500 of those 2,065 mention it.
+ * So a place with an advert that never says remote is on-site, and one that does
+ * is `unknown`, for the model to judge the rest.
+ *
+ * Explicit words in the location win over the advert either way. `Hybrid` stays
+ * `unknown`, for the reason Recruitee's flag does, and `Home Office` is not read
+ * as remote because it is also how an American employer names its headquarters.
  */
-function remoteFrom(location: string | null, flag?: boolean): JobRemote {
+export function remoteFrom(location: string | null, description: string | null, flag?: boolean): JobRemote {
   if (flag === true) return 'remote'
   if (!location) return 'unknown'
-  return /\b(remote|anywhere|distributed|work from home)\b/i.test(location) ? 'remote' : 'onsite'
+  if (/\b(remote|anywhere|distributed|work from home|home[- ]based)\b/i.test(location)) return 'remote'
+  if (/\b(on[- ]?site|in[- ]office|office[- ]based|in[- ]person)\b/i.test(location)) return 'onsite'
+  if (/\bhybrid\b/i.test(location)) return 'unknown'
+  return description && /\bremote(ly)?\b|\bdistributed (team|company)\b|\bwork from (anywhere|home)\b/i.test(description)
+    ? 'unknown'
+    : 'onsite'
 }
 
 /**
@@ -251,14 +271,15 @@ function fromGreenhouse(payload: unknown, board: AtsBoard): RawPosting[] {
           .map(entry => clean((entry as { name?: string }).name))
           .filter((name): name is string => name !== null)
       : []
+    const description = truncate(htmlToText(htmlToText(String(job.content ?? ''))))
 
     return [{
       company: clean(job.company_name) ?? board.token,
       title,
       location,
-      remote: remoteFrom(location),
+      remote: remoteFrom(location, description),
       url,
-      description: truncate(htmlToText(htmlToText(String(job.content ?? '')))),
+      description,
       salaryText: null,
       contractType: null,
       // The board's own departments — "Engineering", "Clinical", "Field
@@ -308,7 +329,7 @@ function fromLever(payload: unknown, board: AtsBoard): RawPosting[] {
       company: board.token,
       title,
       location,
-      remote: remoteFrom(location, clean(job.workplaceType)?.toLowerCase() === 'remote'),
+      remote: remoteFrom(location, body, clean(job.workplaceType)?.toLowerCase() === 'remote'),
       url,
       description: truncate(clean(body)),
       salaryText: null,
@@ -342,16 +363,17 @@ function fromAshby(payload: unknown, board: AtsBoard): RawPosting[] {
     if (job.isListed === false) return []
 
     const location = clean(job.location)
+    const description = truncate(
+      clean(job.descriptionPlain) ?? (clean(job.descriptionHtml) && htmlToText(String(job.descriptionHtml))),
+    )
 
     return [{
       company: board.token,
       title,
       location,
-      remote: remoteFrom(location, job.isRemote === true),
+      remote: remoteFrom(location, description, job.isRemote === true),
       url,
-      description: truncate(
-        clean(job.descriptionPlain) ?? (clean(job.descriptionHtml) && htmlToText(String(job.descriptionHtml))),
-      ),
+      description,
       salaryText: null,
       contractType: clean(job.employmentType),
       tags: [clean(job.department), clean(job.team)].filter((tag): tag is string => tag !== null),
@@ -389,14 +411,15 @@ function fromWorkable(payload: unknown, board: AtsBoard): RawPosting[] {
     // really there instead of formatted from a fixed template.
     const location =
       [clean(job.city), clean(job.state), clean(job.country)].filter(Boolean).join(', ') || null
+    const description = truncate(clean(htmlToText(String(job.description ?? ''))))
 
     return [{
       company,
       title,
       location,
-      remote: remoteFrom(location, job.telecommuting === true),
+      remote: remoteFrom(location, description, job.telecommuting === true),
       url,
-      description: truncate(clean(htmlToText(String(job.description ?? '')))),
+      description,
       salaryText: null,
       contractType: clean(job.employment_type),
       tags: [clean(job.department), clean(job.function)].filter(
@@ -444,7 +467,7 @@ function fromRecruitee(payload: unknown, board: AtsBoard): RawPosting[] {
       job.remote === true ? 'remote'
       : job.hybrid === true ? 'unknown'
       : job.on_site === true ? 'onsite'
-      : remoteFrom(location)
+      : remoteFrom(location, body)
 
     return [{
       company: clean(job.company_name) ?? board.token,
@@ -537,7 +560,7 @@ function fromPersonio(payload: unknown, board: AtsBoard): RawPosting[] {
         company: xmlText(flat, 'subcompany') ?? board.token,
         title,
         location,
-        remote: remoteFrom(location),
+        remote: remoteFrom(location, body),
         url: `${atsBoardUrl(board)}/job/${id}`,
         description: truncate(clean(body)),
         salaryText: null,
