@@ -26,8 +26,9 @@ demand; in the `pre-commit` / `pre-merge-commit` hooks, so a failing commit cann
 CI, on every pull request to `main` and every push to it, which is the only place that sees a fork's
 commits or a `--no-verify` one. **CI reports, it does not refuse:** `main` requires no check
 ([external](external/README.md#github)), so a red pull request can still be merged and a push has
-landed before its run starts. CI runs `pnpm verify` and nothing else — the title, trailer and branch
-rules below stay hook-only, so a fork's commits were held to them only if its author installed.
+landed before its run starts. CI runs `pnpm verify` and nothing else, so the trailer and branch rules
+below stay hook-only, and a fork's commits were held to them only if its author installed. Titles
+are the exception: a test reads the whole history, a pull request's commits included.
 A fourth place is advisory: the `Stop` hook in `.claude/` runs the same C checks against the working set at the
 end of an agent turn. **Adding a check means adding it there too**; nothing links the two lists. CI
 needs no such edit, because it calls the script.
@@ -53,7 +54,7 @@ needs a judgement no script can make, and is settled.
 | The database is read and written only in `src/db/` — no `drizzle-orm`, `db()` or table outside it; `rawClient` only for Mastra's store | 📐 C6 |
 | The code written once for every bot names no bot — a bot is a file in `src/bots/`, and the shared layers take it as an argument | 📐 C7 |
 | A pipeline claims and schedules through `definePipeline` — no `claimCycle` outside the kit, every other `schedule:` marked `// C8: maintenance — <why>` | 📐 C8 |
-| Commit titles open `(feat)` `(fix)` `(hotfix)` `(clean)` | 🔒 `commit-msg` |
+| Commit titles open `(feat)` `(fix)` `(hotfix)` `(clean)` | 🔒 `commit-msg`, and 🧪 `scripts/checks/__tests__/commit-message.test.ts` over the whole history — one bad title on `main` fails `pnpm verify` for everyone after it |
 | No AI-attribution trailer on a commit | 🔒 `commit-msg` |
 | A branch other than `main` is `<type>/<kebab-summary>` | 🔒 `pre-commit` |
 | `pnpm verify` is green before a commit exists | 🔒 `pre-commit`, `pre-merge-commit` |
