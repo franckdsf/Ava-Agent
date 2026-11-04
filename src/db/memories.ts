@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { and, asc, desc, eq, gte, inArray, like, lt, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, lt, type SQL } from 'drizzle-orm'
 import { memoryConfig } from '../config/memory.js'
 import { db, migrate } from './client.js'
 import { memories } from './schema.js'
@@ -171,6 +171,39 @@ function oldestFirst(rows: MemoryRow[]): Memory[] {
 }
 
 /**
+ * Latin letters NFD leaves whole, with no accent to strip, spelled the way a
+ * keyboard without them types them — "soeur" for "sœur", "lodz" for "Łódź".
+ * Lowercase only: `foldForSearch` reads this after lowercasing.
+ */
+const SEPARATE_LETTERS: Record<string, string> = {
+  æ: 'ae',
+  œ: 'oe',
+  ß: 'ss',
+  ø: 'o',
+  ł: 'l',
+  đ: 'd',
+  ð: 'd',
+  þ: 'th',
+  ı: 'i',
+}
+
+/**
+ * A note or a query as the search compares it: no case, no accents, and one
+ * spelling of a letter however it was typed.
+ *
+ * Only the Latin combining block, not `\p{M}`: Devanagari and Arabic spell vowels
+ * with marks, so stripping those would turn one word into another. Separate from
+ * `memoryId` on purpose — "Emile" and "Émile" are found alike but stay two notes.
+ */
+function foldForSearch(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[æœßøłđðþı]/g, letter => SEPARATE_LETTERS[letter] ?? letter)
+}
+
+/**
  * Searches the notes, including short-term ones too old for the prompt.
  *
  * Every term must appear somewhere in the fact, rather than the whole phrase
@@ -180,6 +213,12 @@ function oldestFirst(rows: MemoryRow[]): Memory[] {
  * of sushi". FTS5 is not warranted for the same fix here — this table holds
  * hundreds of one-line rows rather than hundreds of 8k bodies, so a scan is
  * cheap, and it needs no virtual table or triggers to stay in step.
+ *
+ * **The match is in JS, not a `like`.** SQLite folds case for ASCII only, in
+ * `like` and `lower()` both, and accents not at all, so "emile" would miss
+ * "Émile" — and a stored folded column could not be backfilled from SQL for the
+ * same reason. The limit follows the filter for the same scan: applied in the
+ * query, it would cut the rows before they were matched and lose any older note.
  */
 export async function searchMemories(options: {
   query?: string
@@ -187,25 +226,25 @@ export async function searchMemories(options: {
   limit: number
 }): Promise<Memory[]> {
   await migrate()
-  const terms = (options.query ?? '')
+  // Folded before the split: a combining mark is not `\p{L}`, so a decomposed
+  // "émile" would otherwise come apart into "e" and "mile".
+  const terms = foldForSearch(options.query ?? '')
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean)
-    .map(term => like(memories.fact, `%${term.toLowerCase()}%`))
 
   const rows = await db()
     .select()
     .from(memories)
-    .where(
-      and(
-        ...(options.tier ? [eq(memories.tier, options.tier)] : []),
-        // `like` is case-insensitive for ASCII in SQLite by default; lowercasing
-        // the needle covers the mixed-case side of an accented term too.
-        ...(terms.length > 0 ? [and(...terms)] : []),
-      ),
-    )
+    .where(options.tier ? eq(memories.tier, options.tier) : undefined)
     .orderBy(desc(memories.happenedAt))
-    .limit(options.limit)
-  return rows.map(toMemory)
+
+  return rows
+    .filter(row => {
+      const fact = foldForSearch(row.fact)
+      return terms.every(term => fact.includes(term))
+    })
+    .slice(0, options.limit)
+    .map(toMemory)
 }
 
 /**
