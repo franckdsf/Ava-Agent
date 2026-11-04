@@ -109,6 +109,12 @@ The reader's numeric Telegram id (`AVA_TELEGRAM_USER_ID`) is both the allowlist 
 chat every bot pushes to. It is a value: it lives in the deployment's env file and nowhere in this
 repo.
 
+### GitHub
+
+`franckdsf/Ava-Agent`, public, one maintainer. `.github/workflows/verify.yml` runs `pnpm verify` on
+pull requests to `main` and pushes to it, with no secrets. **`main` has no branch protection**, so
+that run is a report and nothing requires it to pass — a setting in GitHub's UI, not in this repo.
+
 ### Third parties this depends on
 
 | Surface | What it is | Failure shape |

@@ -18,7 +18,10 @@ Everything else fetches, measures and prints. `workflow:run` spends money and se
 ### `pnpm verify`
 
 **Required before** claiming any change works, and before every commit — the `pre-commit` and
-`pre-merge-commit` hooks run it and refuse the commit if it fails.
+`pre-merge-commit` hooks run it and refuse the commit if it fails. CI runs it too, on every pull
+request to `main` and every push to it — `.github/workflows/verify.yml`, Node 22, a frozen lockfile,
+no secrets — and reports the result: nothing there refuses a merge
+([CONVENTIONS.md](CONVENTIONS.md)). No `*:check` script runs in CI, because those reach live services.
 
 **Writes nothing · calls no model · needs no `.env`** — offline and deterministic, unlike every
 `*:check` below. Runs `pnpm typecheck`, then `pnpm verify:rules`, then `pnpm test`.

@@ -12,6 +12,7 @@ only a reader does** — because that is the difference between a rule and a hop
 | 🧪 **TEST** | a test under `__tests__/` asserts it, in `pnpm test` |
 | 📐 **SCRIPT** | a rule check — C1–C11 — in `pnpm verify:rules` |
 | 🔒 **HOOK** | a git hook refuses the commit |
+| 🚦 **CI** | `.github/workflows/verify.yml` goes red on GitHub. It reports; it refuses nothing |
 | 👁 **REVIEW** | judgement — the invariant-reviewer and you. A guideline, and it will drift |
 | ⏳ | 👁 today, mechanisable, and a candidate for the refactor ([§1](#1-rule-to-mechanism-map)) |
 
@@ -20,11 +21,16 @@ drift. Writing it in bold and treating it as binding is how documentation become
 the code drifts underneath it — the failure the boilerplate this repo's tooling comes from was built
 against ([audit/](audit/README.md)).
 
-`pnpm verify` runs everything mechanical: typecheck, C1–C11, the tests. It runs in two places: on
-demand, and in the `pre-commit` / `pre-merge-commit` hooks, so a failing commit cannot be created.
-**There is no CI** — this repo has no remote yet — so a `--no-verify` commit is caught by nothing.
-A third place is advisory: the `Stop` hook in `.claude/` runs the same C checks against the working set at the
-end of an agent turn. **Adding a check means adding it there too**; nothing links the two lists.
+`pnpm verify` runs everything mechanical: typecheck, C1–C11, the tests. It runs in three places: on
+demand; in the `pre-commit` / `pre-merge-commit` hooks, so a failing commit cannot be created; and in
+CI, on every pull request to `main` and every push to it, which is the only place that sees a fork's
+commits or a `--no-verify` one. **CI reports, it does not refuse:** `main` requires no check
+([external](external/README.md#github)), so a red pull request can still be merged and a push has
+landed before its run starts. CI runs `pnpm verify` and nothing else — the title, trailer and branch
+rules below stay hook-only, so a fork's commits were held to them only if its author installed.
+A fourth place is advisory: the `Stop` hook in `.claude/` runs the same C checks against the working set at the
+end of an agent turn. **Adding a check means adding it there too**; nothing links the two lists. CI
+needs no such edit, because it calls the script.
 
 ---
 
@@ -51,6 +57,7 @@ needs a judgement no script can make, and is settled.
 | No AI-attribution trailer on a commit | 🔒 `commit-msg` |
 | A branch other than `main` is `<type>/<kebab-summary>` | 🔒 `pre-commit` |
 | `pnpm verify` is green before a commit exists | 🔒 `pre-commit`, `pre-merge-commit` |
+| `pnpm verify` is green on a pull request to `main`, and on `main` | 🚦 `.github/workflows/verify.yml` — reported, not required |
 | Env is validated at boot and names what is missing | 🧪 `src/config/__tests__/env.test.ts` — the core schema at import, a bot's when it is built, an empty value counted as missing |
 | A pipeline's catch-up bar clears its healthy ceiling (gate + widest fire gap) | 🧪 `definePipeline` throws at load, so every test importing a pipeline fails and so does boot — every scheduled pipeline is on the kit |
 | `pnpm db:generate` after a schema edit | 📐 C10 — the real `drizzle-kit generate` into a scratch copy of `drizzle/` writes nothing; the `SessionStart` hook still warns on mtimes, earlier |
