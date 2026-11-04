@@ -1,0 +1,45 @@
+# `pnpm verify` on every pull request to main and every push to it — the same gate as the
+# `pre-commit` hook, for the commits that hook never saw: a fork's, and a `--no-verify` one.
+#
+# `verify` is offline and deterministic, so this job has no secrets and must never need one. A
+# `*:check` script does not belong here: those reach live services. It calls the script rather than
+# listing the checks, so a new check arrives here on its own.
+name: verify
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Reads the code and reports. A fork's pull request gets no more than this.
+permissions:
+  contents: read
+
+# A new push makes the previous run of that pull request worthless. A run on main is never cancelled.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Corepack would otherwise ask before fetching pnpm — see the Dockerfile.
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Not shallow: `commit-message.test.ts` reads every title in the history, which is also
+          # what holds a pull request's own titles to the rule here.
+          fetch-depth: 0
+          persist-credentials: false
+      # 22 because the Dockerfile ships on it; `engines` in package.json is only a floor.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      # Corepack reads `packageManager` from package.json, exactly as the image does.
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify

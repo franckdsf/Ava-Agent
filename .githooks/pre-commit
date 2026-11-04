@@ -3,7 +3,7 @@
 # Refuses a commit that `pnpm verify` would fail: typecheck, the C1–C4 rule checks, and the tests.
 #
 # Every rule in AGENTS.md is only real because something fails when it is broken, and the earliest
-# place to fail is here — there is no CI on this repo yet, so this hook is the whole gate.
+# place to fail is here. CI runs the same `pnpm verify`, but only once the commit exists.
 #
 # It checks the files ON DISK, not what is staged: an uncommitted edit can hide a broken commit, so
 # trust it fully only when nothing is left uncommitted.
